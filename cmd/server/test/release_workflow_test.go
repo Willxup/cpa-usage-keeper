@@ -32,7 +32,7 @@ func TestReleaseDownloadsOnlyCurrentBinaryPackages(t *testing.T) {
 		t.Run(jobID, func(t *testing.T) {
 			downloads := 0
 			for _, step := range workflow.Jobs[jobID].Steps {
-				if step.Uses != "actions/download-artifact@v6" {
+				if !strings.HasPrefix(step.Uses, "actions/download-artifact@") {
 					continue
 				}
 				downloads++

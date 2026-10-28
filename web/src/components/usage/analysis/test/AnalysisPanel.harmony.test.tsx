@@ -21,7 +21,7 @@ const fixture = (): AnalysisResponse => {
   return {
     granularity: 'hourly', timezone: 'UTC', range_start: '2026-09-12T00:00:00Z', range_end: '2026-09-12T01:00:00Z',
     token_usage: [], model_usage: { buckets: ['2026-09-12T00:00:00Z'], series: items.map((row) => ({ model: row.label, total_tokens: [row.total_tokens], requests: [row.requests] })) },
-    api_key_composition: items, model_composition: items, auth_files_composition: [], ai_provider_composition: [],
+    api_key_composition: items, model_composition: items, credentials_composition: [], ai_provider_composition: [],
     model_efficiency: [], heatmap: { api_keys: [], models: [], api_key_labels: {}, cells: [] },
     cost_summary: { total_cost_usd: 0, cost_available: true },
   };

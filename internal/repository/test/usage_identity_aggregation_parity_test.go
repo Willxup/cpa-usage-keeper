@@ -15,9 +15,9 @@ func TestUsageIdentityAggregationPreservesExistingFinalSnapshots(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
 
-	// active auth file 带初始统计，验证增量只能追加不能覆盖旧值。
+	// active credential 带初始统计，验证增量只能追加不能覆盖旧值。
 	active := entities.UsageIdentity{
-		Name: "Active", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-active", Type: "codex",
+		Name: "Active", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-active", Type: "codex",
 		TotalRequests: 10, SuccessCount: 8, FailureCount: 2, InputTokens: 1000, OutputTokens: 200,
 		ReasoningTokens: 30, CachedTokens: 400, CacheReadTokens: 40, TotalTokens: 1270,
 	}
@@ -57,7 +57,7 @@ func TestUsageIdentityAggregationPreservesExistingFinalSnapshots(t *testing.T) {
 		FirstUsedAt: now.Add(-90 * time.Minute), LastUsedAt: now.Add(-90 * time.Minute), StatsUpdatedAt: now, IsDeleted: true,
 	})
 
-	late := entities.UsageIdentity{Name: "Late", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-late", Type: "codex"}
+	late := entities.UsageIdentity{Name: "Late", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-late", Type: "codex"}
 	if err := db.Create(&late).Error; err != nil {
 		t.Fatalf("create late identity: %v", err)
 	}

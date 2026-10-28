@@ -545,7 +545,7 @@ describe('UsagePage active tab auto-refresh guard', () => {
   });
 
   it('does not auto-refresh credential detail tabs', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'auth-files', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 })).toBe(false);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'ai-provider', eventsPage: 1 })).toBe(false);
   });
 
@@ -734,9 +734,9 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedColumnIds);
   });
 
-  it('preserves a saved preference that intentionally hides Speed Mode', () => {
+  it('preserves the saved preference hiding the tier column after switching to the outbound value', () => {
     const storage = createMemoryStorage();
-    const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
+    const hiddenTierColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
       version: 9,
@@ -745,11 +745,11 @@ describe('UsagePage request event preferences', () => {
         source: '__all__',
         result: '__all__',
       },
-      visibleColumnIds: hiddenSpeedModeColumnIds,
+      visibleColumnIds: hiddenTierColumnIds,
       columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
     }, storage);
 
-    expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedModeColumnIds);
+    expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenTierColumnIds);
   });
 
   it('loads defaults from invalid JSON and persists normalized request event preferences', () => {
@@ -792,7 +792,7 @@ for (const [tab, expected] of [
   ['realtime', false],
   ['analysis', true],
   ['events', true],
-  ['auth-files', false],
+  ['credentials', false],
   ['ai-provider', false],
   ['settings', false],
 ] as const) {
@@ -806,7 +806,7 @@ for (const [tab, expected] of [
   ['realtime', true],
   ['analysis', true],
   ['events', true],
-  ['auth-files', false],
+  ['credentials', false],
   ['ai-provider', false],
   ['settings', false],
 ] as const) {
@@ -824,7 +824,7 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_realtime',
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
-      'translated:usage_stats.tab_auth_files',
+      'translated:usage_stats.tab_credentials',
       'translated:usage_stats.tab_ai_provider',
       'translated:usage_stats.tab_settings',
     ]);
@@ -832,25 +832,25 @@ describe('UsagePage tab labels', () => {
 
 });
 
-describe('UsagePage credentials tab migration', () => {
-  it('migrates the legacy Credentials tab value to Auth Files', () => {
-    expect(normalizeUsageTabValue('credentials')).toBe('auth-files');
+describe('UsagePage credentials tab', () => {
+  it('accepts the current Credentials tab value', () => {
+    expect(normalizeUsageTabValue('credentials')).toBe('credentials');
   });
 
   it('keeps each credential section scoped to its own tab', () => {
-    expect(getCredentialSectionVisibility('auth-files')).toEqual({
+    expect(getCredentialSectionVisibility('credentials')).toEqual({
       enabled: true,
-      showAuthFiles: true,
+      showCredentials: true,
       showAiProvider: false,
     });
     expect(getCredentialSectionVisibility('ai-provider')).toEqual({
       enabled: true,
-      showAuthFiles: false,
+      showCredentials: false,
       showAiProvider: true,
     });
     expect(getCredentialSectionVisibility('overview')).toEqual({
       enabled: false,
-      showAuthFiles: false,
+      showCredentials: false,
       showAiProvider: false,
     });
   });

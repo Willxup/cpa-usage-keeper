@@ -16,9 +16,9 @@ import (
 
 const codexQuotaHistoryRange = 30 * 24 * time.Hour
 
-// CodexQuotaHistoryRequest 选择一个 Codex Auth File 及可选的上游主额度角色。
+// CodexQuotaHistoryRequest 选择一个 Codex Credential 及可选的上游主额度角色。
 type CodexQuotaHistoryRequest struct {
-	// AuthIndex 来自详情抽屉当前 Auth File，不接受 AI Provider 身份。
+	// AuthIndex 来自详情抽屉当前 Credential，不接受 AI Provider 身份。
 	AuthIndex string `json:"-"`
 	// WindowRole 可选地选择 primary 或 secondary；nil 表示自动选择当前角色。
 	WindowRole *string `json:"-"`
@@ -135,7 +135,7 @@ type CodexQuotaHistoryUsage struct {
 	CostAvailable bool `json:"cost_available"`
 }
 
-// GetCodexQuotaHistory 校验 Auth File 身份后，按原周期边界归属已存事件费用。
+// GetCodexQuotaHistory 校验 Credential 身份后，按原周期边界归属已存事件费用。
 func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHistoryRequest) (CodexQuotaHistoryResponse, error) {
 	response := CodexQuotaHistoryResponse{}
 	if s == nil || s.db == nil {
@@ -155,8 +155,8 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		}
 		request.WindowRole = &role
 	}
-	// 先确认当前仍是活跃 Auth File，删除身份和 AI Provider 都不能借 auth_index 查询历史。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, request.AuthIndex)
+	// 先确认当前仍是活跃 Credential，删除身份和 AI Provider 都不能借 auth_index 查询历史。
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, request.AuthIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return response, fmt.Errorf("%w: %s", ErrNotFound, request.AuthIndex)

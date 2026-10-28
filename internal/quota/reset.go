@@ -43,7 +43,7 @@ func (s *Service) GetResetCredits(ctx context.Context, request ResetCreditsReque
 	if authIndex == "" {
 		return ResetCreditsResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ResetCreditsResponse{}, fmt.Errorf("%w: %s", ErrNotFound, authIndex)
@@ -83,8 +83,8 @@ func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetRespons
 		return ResetResponse{}, fmt.Errorf("%w: %s", ErrResetInProgress, authIndex)
 	}
 	defer s.finishReset(authIndex)
-	// reset 会消费官方次数，只要求命中当前未删除的 Auth File；disabled 仅限制自动刷新，不限制用户手动 reset。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	// reset 会消费官方次数，只要求命中当前未删除的 Credential；disabled 仅限制自动刷新，不限制用户手动 reset。
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ResetResponse{}, fmt.Errorf("%w: %s", ErrNotFound, authIndex)

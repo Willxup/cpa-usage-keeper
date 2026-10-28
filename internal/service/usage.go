@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -158,7 +159,9 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 			return nil, fmt.Errorf("activity calendar window %q requires start time", filter.ActivityWindow)
 		}
 		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
-		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
+		localStart := timeutil.NormalizeStorageTime(*filter.StartTime)
+		bounds, _ := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
+		referenceEnd = bounds.End
 	}
 	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, dataEnd, apiGroupKey)
 	if err != nil {
@@ -307,7 +310,17 @@ func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord, filter ser
 			inputTokens += series.CacheReadRateInputTokens[label]
 			cacheReadTokens += series.CacheReadRateReadTokens[label]
 		}
-		minutes := float64(len(group) * 24 * 60)
+		minutes := 0.0
+		for _, label := range group {
+			date, err := timeutil.ParseCivilDate(label)
+			if err == nil {
+				if bounds, exists := timeutil.DayBounds(date, time.Local); exists {
+					minutes += bounds.Minutes()
+					continue
+				}
+			}
+			minutes += 24 * 60
+		}
 		result.Buckets = append(result.Buckets, bucket)
 		result.Requests = append(result.Requests, requests)
 		result.Tokens = append(result.Tokens, tokens)
@@ -321,11 +334,18 @@ func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord, filter ser
 
 func usageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, filter servicedto.UsageFilter) []string {
 	if filter.Range == "custom" && filter.CustomUnit == "day" && filter.RangeCount > 30 && filter.StartTime != nil && filter.EndTime != nil {
-		start := time.Date(filter.StartTime.Year(), filter.StartTime.Month(), filter.StartTime.Day(), 0, 0, 0, 0, time.Local)
-		end := time.Date(filter.EndTime.Year(), filter.EndTime.Month(), filter.EndTime.Day(), 0, 0, 0, 0, time.Local)
+		start := timeutil.DateOf(timeutil.NormalizeStorageTime(*filter.StartTime))
+		end := timeutil.NormalizeStorageTime(*filter.EndTime)
 		labels := make([]string, 0, filter.RangeCount)
-		for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
-			labels = append(labels, day.Format(time.DateOnly))
+		for date := start; ; date = date.AddDays(1) {
+			bounds, exists := timeutil.DayBounds(date, time.Local)
+			if !exists {
+				continue
+			}
+			if !bounds.Start.Before(end) {
+				break
+			}
+			labels = append(labels, date.String())
 		}
 		return labels
 	}
@@ -333,7 +353,26 @@ func usageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, filter 
 	for label := range series.Requests {
 		labels = append(labels, label)
 	}
-	sort.Strings(labels)
+	// 只解析一次。带 offset 的桶按 instant 排序；纯日期保持历法顺序。
+	instants := make(map[string]time.Time, len(labels))
+	for _, label := range labels {
+		if date, err := timeutil.ParseCivilDate(label); err == nil {
+			instants[label] = time.Date(date.Year, date.Month, date.Day, 0, 0, 0, 0, time.UTC)
+		} else if instant, err := timeutil.ParseStorageTime(label); err == nil {
+			instants[label] = instant
+		}
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		left, leftOK := instants[labels[i]]
+		right, rightOK := instants[labels[j]]
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if leftOK && !left.Equal(right) {
+			return left.Before(right)
+		}
+		return labels[i] < labels[j]
+	})
 	return labels
 }
 
@@ -412,7 +451,7 @@ func mapRealtimeCurrentUsage(current repodto.RealtimeCurrentUsageRecord) service
 	return servicedto.RealtimeCurrentUsage{
 		Models:      mapRealtimeUsageTopItems(current.Models),
 		APIKeys:     mapRealtimeUsageTopItems(current.APIKeys),
-		AuthFiles:   mapRealtimeUsageTopItems(current.AuthFiles),
+		Credentials: mapRealtimeUsageTopItems(current.Credentials),
 		AIProviders: mapRealtimeUsageTopItems(current.AIProviders),
 	}
 }
@@ -537,9 +576,9 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	for _, item := range record.ModelComposition {
 		models = append(models, mapAnalysisCompositionRecord(item))
 	}
-	authFiles := make([]servicedto.AnalysisCompositionItem, 0, len(record.AuthFilesComposition))
-	for _, item := range record.AuthFilesComposition {
-		authFiles = append(authFiles, mapAnalysisCompositionRecord(item))
+	credentials := make([]servicedto.AnalysisCompositionItem, 0, len(record.CredentialsComposition))
+	for _, item := range record.CredentialsComposition {
+		credentials = append(credentials, mapAnalysisCompositionRecord(item))
 	}
 	aiProviders := make([]servicedto.AnalysisCompositionItem, 0, len(record.AIProviderComposition))
 	for _, item := range record.AIProviderComposition {
@@ -580,17 +619,17 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		})
 	}
 	return &servicedto.AnalysisSnapshot{
-		Granularity:           servicedto.AnalysisGranularity(record.Granularity),
-		RangeStart:            record.RangeStart,
-		RangeEnd:              record.RangeEnd,
-		TokenUsage:            tokenUsage,
-		ModelUsage:            modelUsage,
-		ModelSpeed:            mapAnalysisModelSpeed(record.ModelSpeed),
-		APIKeyComposition:     apiKeys,
-		ModelComposition:      models,
-		AuthFilesComposition:  authFiles,
-		AIProviderComposition: aiProviders,
-		Heatmap:               heatmap,
+		Granularity:            servicedto.AnalysisGranularity(record.Granularity),
+		RangeStart:             record.RangeStart,
+		RangeEnd:               record.RangeEnd,
+		TokenUsage:             tokenUsage,
+		ModelUsage:             modelUsage,
+		ModelSpeed:             mapAnalysisModelSpeed(record.ModelSpeed),
+		APIKeyComposition:      apiKeys,
+		ModelComposition:       models,
+		CredentialsComposition: credentials,
+		AIProviderComposition:  aiProviders,
+		Heatmap:                heatmap,
 		CostSummary: servicedto.AnalysisCostSummary{
 			TotalCostUSD:  record.CostSummary.TotalCostUSD,
 			CostAvailable: record.CostSummary.CostAvailable,
@@ -680,39 +719,40 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 	result := make([]servicedto.UsageEventRecord, 0, len(page.Events))
 	for _, row := range page.Events {
 		result = append(result, servicedto.UsageEventRecord{
-			ID:                  row.ID,
-			Timestamp:           row.Timestamp,
-			APIGroupKey:         row.APIGroupKey,
-			Model:               row.Model,
-			ModelAlias:          row.ModelAlias,
-			ResponseModel:       row.ResponseModel,
-			ReasoningEffort:     row.ReasoningEffort,
-			ServiceTier:         row.ServiceTier,
-			ResponseServiceTier: row.ResponseServiceTier,
-			ClientIP:            row.ClientIP,
-			XForwardedFor:       row.XForwardedFor,
-			UserAgent:           row.UserAgent,
-			ExecutorType:        row.ExecutorType,
-			Endpoint:            row.Endpoint,
-			AuthType:            row.AuthType,
-			RequestID:           row.RequestID,
-			Provider:            row.Provider,
-			Source:              row.Source,
-			AuthIndex:           row.AuthIndex,
-			Failed:              row.Failed,
-			StatusCode:          row.StatusCode,
-			Stream:              row.Stream,
-			LatencyMS:           row.LatencyMS,
-			TTFTMS:              row.TTFTMS,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			TotalTokens:         row.TotalTokens,
-			CostUSD:             row.CostUSD,
-			CostAvailable:       row.CostAvailable,
-			PricingStyle:        row.PricingStyle,
+			EffectiveServiceTier: row.EffectiveServiceTier,
+			ID:                   row.ID,
+			Timestamp:            row.Timestamp,
+			APIGroupKey:          row.APIGroupKey,
+			Model:                row.Model,
+			ModelAlias:           row.ModelAlias,
+			ResponseModel:        row.ResponseModel,
+			ReasoningEffort:      row.ReasoningEffort,
+			ServiceTier:          row.ServiceTier,
+			ResponseServiceTier:  row.ResponseServiceTier,
+			ClientIP:             row.ClientIP,
+			XForwardedFor:        row.XForwardedFor,
+			UserAgent:            row.UserAgent,
+			ExecutorType:         row.ExecutorType,
+			Endpoint:             row.Endpoint,
+			AuthType:             row.AuthType,
+			RequestID:            row.RequestID,
+			Provider:             row.Provider,
+			Source:               row.Source,
+			AuthIndex:            row.AuthIndex,
+			Failed:               row.Failed,
+			StatusCode:           row.StatusCode,
+			Stream:               row.Stream,
+			LatencyMS:            row.LatencyMS,
+			TTFTMS:               row.TTFTMS,
+			InputTokens:          row.InputTokens,
+			OutputTokens:         row.OutputTokens,
+			ReasoningTokens:      row.ReasoningTokens,
+			CacheReadTokens:      row.CacheReadTokens,
+			CacheCreationTokens:  row.CacheCreationTokens,
+			TotalTokens:          row.TotalTokens,
+			CostUSD:              row.CostUSD,
+			CostAvailable:        row.CostAvailable,
+			PricingStyle:         row.PricingStyle,
 		})
 	}
 	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, nil
@@ -739,39 +779,40 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		Result:       filter.Result,
 	}, func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
-			ID:                  row.ID,
-			Timestamp:           row.Timestamp,
-			APIGroupKey:         row.APIGroupKey,
-			Model:               row.Model,
-			ModelAlias:          row.ModelAlias,
-			ResponseModel:       row.ResponseModel,
-			ReasoningEffort:     row.ReasoningEffort,
-			ServiceTier:         row.ServiceTier,
-			ResponseServiceTier: row.ResponseServiceTier,
-			ClientIP:            row.ClientIP,
-			XForwardedFor:       row.XForwardedFor,
-			UserAgent:           row.UserAgent,
-			ExecutorType:        row.ExecutorType,
-			Endpoint:            row.Endpoint,
-			AuthType:            row.AuthType,
-			RequestID:           row.RequestID,
-			Provider:            row.Provider,
-			Source:              row.Source,
-			AuthIndex:           row.AuthIndex,
-			Failed:              row.Failed,
-			StatusCode:          row.StatusCode,
-			Stream:              row.Stream,
-			LatencyMS:           row.LatencyMS,
-			TTFTMS:              row.TTFTMS,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			TotalTokens:         row.TotalTokens,
-			CostUSD:             row.CostUSD,
-			CostAvailable:       row.CostAvailable,
-			PricingStyle:        row.PricingStyle,
+			EffectiveServiceTier: row.EffectiveServiceTier,
+			ID:                   row.ID,
+			Timestamp:            row.Timestamp,
+			APIGroupKey:          row.APIGroupKey,
+			Model:                row.Model,
+			ModelAlias:           row.ModelAlias,
+			ResponseModel:        row.ResponseModel,
+			ReasoningEffort:      row.ReasoningEffort,
+			ServiceTier:          row.ServiceTier,
+			ResponseServiceTier:  row.ResponseServiceTier,
+			ClientIP:             row.ClientIP,
+			XForwardedFor:        row.XForwardedFor,
+			UserAgent:            row.UserAgent,
+			ExecutorType:         row.ExecutorType,
+			Endpoint:             row.Endpoint,
+			AuthType:             row.AuthType,
+			RequestID:            row.RequestID,
+			Provider:             row.Provider,
+			Source:               row.Source,
+			AuthIndex:            row.AuthIndex,
+			Failed:               row.Failed,
+			StatusCode:           row.StatusCode,
+			Stream:               row.Stream,
+			LatencyMS:            row.LatencyMS,
+			TTFTMS:               row.TTFTMS,
+			InputTokens:          row.InputTokens,
+			OutputTokens:         row.OutputTokens,
+			ReasoningTokens:      row.ReasoningTokens,
+			CacheReadTokens:      row.CacheReadTokens,
+			CacheCreationTokens:  row.CacheCreationTokens,
+			TotalTokens:          row.TotalTokens,
+			CostUSD:              row.CostUSD,
+			CostAvailable:        row.CostAvailable,
+			PricingStyle:         row.PricingStyle,
 		})
 	}, s.pricing.Snapshot())
 }

@@ -90,7 +90,7 @@ func seedAIProviderAuthIndexMigrationDatabase(t *testing.T, dbPath string) {
 		{name: "Free", authType: entities.UsageIdentityAuthTypeAIProvider, authTypeName: "apikey", identity: "sk-ambiguous", typeName: "openai", provider: "Free", totalTokens: 666},
 		{name: "Claude", authType: entities.UsageIdentityAuthTypeAIProvider, authTypeName: "apikey", identity: "sk-provider-mismatch", typeName: "claude", provider: "Claude", totalTokens: 555},
 		{name: "Claude", authType: entities.UsageIdentityAuthTypeAIProvider, authTypeName: "apikey", identity: "sk-no-events", typeName: "claude", provider: "Claude", totalTokens: 444},
-		{name: "OAuth User", authType: entities.UsageIdentityAuthTypeAuthFile, authTypeName: "oauth", identity: "auth-file-index", typeName: "claude", provider: "Claude", totalTokens: 333},
+		{name: "OAuth User", authType: entities.UsageIdentityAuthTypeCredential, authTypeName: "oauth", identity: "credential-index", typeName: "claude", provider: "Claude", totalTokens: 333},
 		{name: "Non API Key", authType: entities.UsageIdentityAuthTypeAIProvider, authTypeName: "oauth", identity: "non-apikey-identity", typeName: "claude", provider: "Claude", totalTokens: 222},
 	}
 	for _, row := range identityRows {
@@ -120,7 +120,7 @@ func seedAIProviderAuthIndexMigrationDatabase(t *testing.T, dbPath string) {
 		{eventKey: "ambiguous-a", provider: "free", authType: "apikey", source: "sk-ambiguous", authIndex: "authidx-ambiguous-a", failed: false, totalTokens: 31, timestamp: time.Date(2026, 5, 5, 11, 0, 0, 0, time.UTC)},
 		{eventKey: "ambiguous-b", provider: "FREE", authType: "apikey", source: "sk-ambiguous", authIndex: "authidx-ambiguous-b", failed: false, totalTokens: 32, timestamp: time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)},
 		{eventKey: "wrong-provider", provider: "Gemini", authType: "apikey", source: "sk-provider-mismatch", authIndex: "authidx-wrong-provider", failed: false, totalTokens: 41, timestamp: time.Date(2026, 5, 5, 13, 0, 0, 0, time.UTC)},
-		{eventKey: "auth-file-source-match", provider: "Claude", authType: "apikey", source: "auth-file-index", authIndex: "authidx-should-not-touch-auth-file", failed: false, totalTokens: 51, timestamp: time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)},
+		{eventKey: "credential-source-match", provider: "Claude", authType: "apikey", source: "credential-index", authIndex: "authidx-should-not-touch-credential", failed: false, totalTokens: 51, timestamp: time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)},
 	}
 	for _, event := range events {
 		if err := db.Exec(`INSERT INTO usage_events (event_key, api_group_key, provider, endpoint, auth_type, request_id, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, created_at)
@@ -277,10 +277,10 @@ func seedLegacyUsageIdentityTables(t *testing.T, dbPath string) {
 	now := time.Date(2026, 5, 4, 7, 0, 0, 0, time.UTC)
 	deletedAt := time.Date(2026, 5, 4, 7, 30, 0, 0, time.UTC)
 	if err := db.Exec("INSERT INTO auth_files (auth_index, name, email, type, provider, label, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", "auth-1", "OAuth Name", "person@example.com", "claude", "claude", "OAuth Label", now, now, nil).Error; err != nil {
-		t.Fatalf("seed active auth file: %v", err)
+		t.Fatalf("seed active credential: %v", err)
 	}
 	if err := db.Exec("INSERT INTO auth_files (auth_index, name, email, type, provider, label, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", "auth-deleted", "Deleted OAuth", "deleted@example.com", "claude", "claude", "Deleted", now, now, deletedAt).Error; err != nil {
-		t.Fatalf("seed deleted auth file: %v", err)
+		t.Fatalf("seed deleted credential: %v", err)
 	}
 	if err := db.Exec("INSERT INTO provider_metadata (lookup_key, provider_type, display_name, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?)", "api-source-1", "claude", "Claude API", now, now, nil).Error; err != nil {
 		t.Fatalf("seed active provider metadata: %v", err)

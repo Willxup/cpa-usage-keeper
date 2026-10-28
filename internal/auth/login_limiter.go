@@ -66,6 +66,15 @@ func NewLoginAttemptLimiter(options LoginAttemptLimiterOptions) *LoginAttemptLim
 }
 
 func (l *LoginAttemptLimiter) Allow(source string) (bool, time.Duration) {
+	return l.allow(source, true)
+}
+
+// AllowPending 为异步认证保留全局请求额度，来源失败次数在最终结果确认后单独记录。
+func (l *LoginAttemptLimiter) AllowPending(source string) (bool, time.Duration) {
+	return l.allow(source, false)
+}
+
+func (l *LoginAttemptLimiter) allow(source string, countSource bool) (bool, time.Duration) {
 	if l == nil {
 		return true, 0
 	}
@@ -85,22 +94,45 @@ func (l *LoginAttemptLimiter) Allow(source string) (bool, time.Duration) {
 	}
 
 	state, exists := l.sources[source]
-	if !exists {
-		l.makeSourceCapacityLocked()
-		state = loginAttemptWindow{StartedAt: now}
-	}
 	if state.Attempts >= l.perSourceLimit {
 		state.LastSeen = now
 		l.sources[source] = state
 		return false, retryAfter(now, state.StartedAt, l.window)
 	}
 
-	state.Attempts++
-	state.LastSeen = now
-	l.sources[source] = state
+	if countSource {
+		if !exists {
+			l.makeSourceCapacityLocked()
+			state = loginAttemptWindow{StartedAt: now}
+		}
+		state.Attempts++
+		state.LastSeen = now
+		l.sources[source] = state
+	}
 	l.global.Attempts++
 	l.global.LastSeen = now
 	return true, 0
+}
+
+// RecordFailure 仅供已消费且匹配浏览器绑定的认证结果调用，不再占用全局请求额度。
+func (l *LoginAttemptLimiter) RecordFailure(source string) {
+	if l == nil || source == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	l.removeExpiredSourcesLocked(now)
+	state, exists := l.sources[source]
+	if !exists {
+		l.makeSourceCapacityLocked()
+		state = loginAttemptWindow{StartedAt: now}
+	}
+	if state.Attempts < l.perSourceLimit {
+		state.Attempts++
+	}
+	state.LastSeen = now
+	l.sources[source] = state
 }
 
 func (l *LoginAttemptLimiter) Reset(source string) {

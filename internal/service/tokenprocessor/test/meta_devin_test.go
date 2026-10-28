@@ -43,7 +43,7 @@ func TestMetaAndDevinExactExecutorsWinOverIdentityAliases(t *testing.T) {
 }
 
 func TestMetaAndDevinLegacyIdentityPayloadsKeepVerifiedNormalization(t *testing.T) {
-	// 旧 CPA payload 缺少 executor_type 时，Auth File type 只走已验证 identity hint，仍不改变权限边界。
+	// 旧 CPA payload 缺少 executor_type 时，Credential type 只走已验证 identity hint，仍不改变权限边界。
 	meta := tokenprocessor.Process(tokenprocessor.TokenValues{
 		InputTokens:     11,
 		OutputTokens:    10,

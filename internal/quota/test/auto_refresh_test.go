@@ -90,7 +90,7 @@ func TestStartAutoRefreshSuppressesRunCancellationLog(t *testing.T) {
 
 func TestStartAutoRefreshRunsAfterInitialConfiguredDelay(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	ctx, cancel := context.WithCancel(context.Background())
 	called := make(chan struct{}, 1)
 	handler := &refreshHandlerStub{
@@ -142,7 +142,7 @@ func TestStartAutoRefreshRunsAfterInitialConfiguredDelay(t *testing.T) {
 
 func TestStartAutoRefreshSkipsWhenScheduleIsMissing(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	called := make(chan struct{}, 1)
@@ -188,7 +188,7 @@ func TestStartAutoRefreshSkipsWhenScheduleIsMissing(t *testing.T) {
 
 func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	called := make(chan struct{}, 1)
@@ -258,15 +258,15 @@ func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 	}
 }
 
-func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
+func TestRunAutoRefreshQueuesOnlyActiveCredentials(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	disabled := true
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "  ", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: &disabled})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "  ", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential, Disabled: &disabled})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential, IsDeleted: true})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "provider-1", Provider: "openai", Type: "openai", AuthType: entities.UsageIdentityAuthTypeAIProvider})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported-1", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported-1", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setRefreshCooldown(service, func(time.Duration) {})
@@ -277,7 +277,7 @@ func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
 	waitForRefreshTask(t, service, "auth-1", RefreshTaskStatusCompleted)
 	service.WaitRefreshTasks()
 	if handler.callCount() != 1 {
-		t.Fatalf("expected only active auth file to refresh, got %d calls", handler.callCount())
+		t.Fatalf("expected only active credential to refresh, got %d calls", handler.callCount())
 	}
 	for _, authIndex := range []string{"disabled-1", "deleted-1", "provider-1", "unsupported-1"} {
 		if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), authIndex); !errors.Is(err, ErrTaskNotFound) {
@@ -292,8 +292,8 @@ func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
 
 func TestRunAutoRefreshRunsWithoutFrontendActivation(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setRefreshCooldown(service, func(time.Duration) {})
@@ -305,14 +305,14 @@ func TestRunAutoRefreshRunsWithoutFrontendActivation(t *testing.T) {
 	waitForRefreshTask(t, service, "auth-2", RefreshTaskStatusCompleted)
 	service.WaitRefreshTasks()
 	if handler.callCount() != 2 {
-		t.Fatalf("expected backend scheduled refresh to refresh all auth files, got %d calls", handler.callCount())
+		t.Fatalf("expected backend scheduled refresh to refresh all credentials, got %d calls", handler.callCount())
 	}
 }
 
 func TestRunAutoRefreshStoresAliasDisplayName(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	alias := "Friendly Alias"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Alias: &alias, Name: "Upstream Name", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Alias: &alias, Name: "Upstream Name", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setRefreshCooldown(service, func(time.Duration) {})
@@ -331,7 +331,7 @@ func TestRunAutoRefreshStoresAliasDisplayName(t *testing.T) {
 
 func TestRunAutoRefreshSkipsWhenPreviousAutoRoundIsActive(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -358,7 +358,7 @@ func TestRunAutoRefreshSkipsWhenPreviousAutoRoundIsActive(t *testing.T) {
 
 func TestRunAutoRefreshSkipsCachedHTTPFailures(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{err: ProviderHTTPError{StatusCode: 401, Message: "expired token"}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setRefreshCooldown(service, func(time.Duration) {})

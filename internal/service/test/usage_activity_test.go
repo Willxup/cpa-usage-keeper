@@ -311,3 +311,38 @@ func TestUsageActivityHeaderAndBlocksUseTheSameAPIKeyScope(t *testing.T) {
 		t.Fatalf("Activity Token header and blocks disagree: header=%d/%d blocks=%d/%d", activity.InputTokens, activity.TotalTokens, blockInputTokens, blockTotalTokens)
 	}
 }
+
+// 午夜跳时只修正查询参考终点，364格继续读取既有分区；不宣称修复旧分区本身。
+func TestUsageActivityMidnightGapUsesCalendarEndWithExistingGrid(t *testing.T) {
+	previous := time.Local
+	location, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previous })
+	db := openUsageServiceTestDatabase(t)
+	start := time.Date(2026, 9, 6, 1, 0, 0, 0, location)
+	end := time.Date(2026, 9, 7, 0, 0, 0, 0, location)
+	queryNow := end.Add(12 * time.Hour)
+	filterEnd := end.Add(-time.Nanosecond)
+	expected, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainShort, end, queryNow, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.NewUsageService(db, emptyPricingCatalogForTest()).GetUsageActivity(context.Background(), servicedto.UsageFilter{
+		Range: "yesterday", RangeUnit: "day", RangeCount: 1, StartTime: &start, EndTime: &filterEnd,
+		ActivityWindow: servicedto.UsageActivityWindow("yesterday"), QueryNow: &queryNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.WindowStart.Equal(expected.WindowStart) || !result.WindowEnd.Equal(expected.WindowEnd) || len(result.Blocks) != 364 {
+		t.Fatalf("calendar reference drifted from existing grid: %s..%s, want %s..%s", result.WindowStart, result.WindowEnd, expected.WindowStart, expected.WindowEnd)
+	}
+	for i, block := range result.Blocks {
+		if !block.StartTime.Equal(expected.Blocks[i].StartTime) || !block.EndTime.Equal(expected.Blocks[i].EndTime) {
+			t.Fatalf("storage grid changed at %d", i)
+		}
+	}
+}

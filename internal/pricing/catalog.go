@@ -3,8 +3,8 @@ package pricing
 import "sync/atomic"
 
 var sharedEmptySnapshot = &Snapshot{
-	modelsByName: map[string]compiledModel{},
-	modelConfigs: []ModelConfig{},
+	modelsByName:   map[string]compiledModel{},
+	modelConfigs:   []ModelConfig{},
 	pricingConfigs: []ModelPricingConfig{},
 }
 

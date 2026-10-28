@@ -26,7 +26,7 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 
 	existingActive := entities.UsageIdentity{
 		Name:                       "Old Name",
-		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:                   entities.UsageIdentityAuthTypeCredential,
 		Identity:                   "auth-1",
 		Type:                       "account",
 		Provider:                   "claude",
@@ -43,7 +43,7 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 	}
 	existingStale := entities.UsageIdentity{
 		Name:     "Stale",
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 		Identity: "auth-stale",
 		Type:     "account",
 		Provider: "claude",
@@ -74,7 +74,7 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 			Type:         "account",
 			Provider:     "claude-code",
 		},
-	}, entities.UsageIdentityAuthTypeAuthFile, now)
+	}, entities.UsageIdentityAuthTypeCredential, now)
 	if err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 	byIdentity := usageIdentitiesByIdentity(t, db)
 
 	updated := byIdentity["auth-1"]
-	if updated.Name != "New Name" || updated.Provider != "claude-code" || updated.AuthType != entities.UsageIdentityAuthTypeAuthFile || updated.IsDeleted {
+	if updated.Name != "New Name" || updated.Provider != "claude-code" || updated.AuthType != entities.UsageIdentityAuthTypeCredential || updated.IsDeleted {
 		t.Fatalf("expected active metadata update for auth-1, got %+v", updated)
 	}
 	if updated.TotalRequests != 10 || updated.SuccessCount != 8 || updated.FailureCount != 2 || updated.InputTokens != 100 || updated.OutputTokens != 50 || updated.TotalTokens != 150 || updated.LastAggregatedUsageEventID != 42 {
@@ -93,7 +93,7 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 	}
 
 	inserted := byIdentity["auth-2"]
-	if inserted.ID == 0 || inserted.IsDeleted || inserted.AuthType != entities.UsageIdentityAuthTypeAuthFile || inserted.Name != "New Auth" {
+	if inserted.ID == 0 || inserted.IsDeleted || inserted.AuthType != entities.UsageIdentityAuthTypeCredential || inserted.Name != "New Auth" {
 		t.Fatalf("expected active inserted auth-2, got %+v", inserted)
 	}
 
@@ -115,12 +115,12 @@ func TestUsageIdentityReplaceForAuthTypeDoesNotConsumeIDsForExistingIdentities(t
 
 	identities := []entities.UsageIdentity{{Name: "Auth One", Identity: "auth-1", Type: "account", Provider: "claude"}}
 	for i := 0; i < 6; i++ {
-		if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeAuthFile, firstSync.Add(time.Duration(i)*time.Minute)); err != nil {
+		if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeCredential, firstSync.Add(time.Duration(i)*time.Minute)); err != nil {
 			t.Fatalf("replace %d: %v", i, err)
 		}
 	}
 	identities = append(identities, entities.UsageIdentity{Name: "Auth Two", Identity: "auth-2", Type: "account", Provider: "claude"})
-	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeAuthFile, firstSync.Add(time.Hour)); err != nil {
+	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeCredential, firstSync.Add(time.Hour)); err != nil {
 		t.Fatalf("new identity replace: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestUsageIdentityReplaceForAuthTypeRefreshesProjectID(t *testing.T) {
 
 	if err := db.Create(&entities.UsageIdentity{
 		Name:         "Old Gemini",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "gemini-auth",
 		Type:         "gemini-cli",
@@ -159,7 +159,7 @@ func TestUsageIdentityReplaceForAuthTypeRefreshesProjectID(t *testing.T) {
 		Type:         "gemini-cli",
 		Provider:     "Gemini",
 		ProjectID:    &newProjectID,
-	}}, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+	}}, entities.UsageIdentityAuthTypeCredential, now); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestUsageIdentityReplaceForAuthTypeRevivesDeletedIdentity(t *testing.T) {
 
 	deleted := entities.UsageIdentity{
 		Name:          "Deleted",
-		AuthType:      entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:      entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName:  "oauth",
 		Identity:      "auth-1",
 		Type:          "account",
@@ -198,7 +198,7 @@ func TestUsageIdentityReplaceForAuthTypeRevivesDeletedIdentity(t *testing.T) {
 			Type:         "account",
 			Provider:     "claude-code",
 		},
-	}, entities.UsageIdentityAuthTypeAuthFile, now)
+	}, entities.UsageIdentityAuthTypeCredential, now)
 	if err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
@@ -212,13 +212,13 @@ func TestUsageIdentityReplaceForAuthTypeRevivesDeletedIdentity(t *testing.T) {
 	}
 }
 
-func TestGetActiveAuthFileUsageIdentityByAuthIndex(t *testing.T) {
+func TestGetActiveCredentialUsageIdentityByAuthIndex(t *testing.T) {
 	db := openTestDatabase(t)
 	deletedAt := time.Date(2026, 5, 9, 11, 0, 0, 0, time.UTC)
 	if err := db.Create([]entities.UsageIdentity{
 		{Name: "Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "shared-auth-index", Type: "openai", Provider: "OpenAI"},
-		{Name: "Auth File", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "shared-auth-index", Type: "codex", Provider: "Codex"},
-		{Name: "Deleted Auth File", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "deleted-auth-index", Type: "claude", Provider: "Claude", IsDeleted: true, DeletedAt: &deletedAt},
+		{Name: "Credential", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "shared-auth-index", Type: "codex", Provider: "Codex"},
+		{Name: "Deleted Credential", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "deleted-auth-index", Type: "claude", Provider: "Claude", IsDeleted: true, DeletedAt: &deletedAt},
 		{Name: "Provider Only", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-only-auth-index", Type: "claude", Provider: "Claude"},
 	}).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
@@ -232,12 +232,12 @@ func TestGetActiveAuthFileUsageIdentityByAuthIndex(t *testing.T) {
 		{"provider-only-auth-index", gorm.ErrRecordNotFound},
 	} {
 		t.Run(tc.index, func(t *testing.T) {
-			identity, err := GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, tc.index)
+			identity, err := GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, tc.index)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("lookup error = %v, want %v", err, tc.wantErr)
 			}
-			if tc.wantErr == nil && (identity.AuthType != entities.UsageIdentityAuthTypeAuthFile || identity.Type != "codex" || identity.Name != "Auth File") {
-				t.Fatalf("expected active auth-file identity, got %+v", identity)
+			if tc.wantErr == nil && (identity.AuthType != entities.UsageIdentityAuthTypeCredential || identity.Type != "codex" || identity.Name != "Credential") {
+				t.Fatalf("expected active credential identity, got %+v", identity)
 			}
 		})
 	}
@@ -252,7 +252,7 @@ func TestUsageIdentityReplaceForProviderTypesMarksOnlyScopedProviderTypesDeleted
 		{Name: "OpenAI Keep", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai-keep", Type: "openai", Provider: "OpenAI", TotalRequests: 3},
 		{Name: "OpenAI Stale", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai-stale", Type: "openai", Provider: "OpenAI"},
 		{Name: "Gemini Untouched", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "gemini-untouched", Type: "gemini", Provider: "Gemini"},
-		{Name: "Auth Untouched", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-untouched", Type: "account", Provider: "claude"},
+		{Name: "Auth Untouched", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-untouched", Type: "account", Provider: "claude"},
 	}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
@@ -364,23 +364,23 @@ func TestUsageIdentityReplaceForAuthTypePersistsSourceMetadataFields(t *testing.
 			Prefix:       " codex-team ",
 			Priority:     intPtr(3),
 			Disabled:     boolPtr(true),
-			Note:         strPtr(" primary auth file "),
+			Note:         strPtr(" primary credential "),
 			AccountID:    &accountID,
 			ActiveStart:  &activeStart,
 			ActiveUntil:  &activeUntil,
 			PlanType:     &planType,
 		},
-	}, entities.UsageIdentityAuthTypeAuthFile, now)
+	}, entities.UsageIdentityAuthTypeCredential, now)
 	if err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
 
 	updated := usageIdentitiesByIdentity(t, db)["codex-auth"]
 	if updated.AccountID == nil || *updated.AccountID != "acct_123" || updated.PlanType == nil || *updated.PlanType != "team" || updated.ActiveStart == nil || !updated.ActiveStart.Equal(activeStart) || updated.ActiveUntil == nil || !updated.ActiveUntil.Equal(activeUntil) {
-		t.Fatalf("expected auth file source metadata persisted, got %+v", updated)
+		t.Fatalf("expected credential source metadata persisted, got %+v", updated)
 	}
-	if updated.Prefix != "codex-team" || updated.Priority == nil || *updated.Priority != 3 || updated.Disabled == nil || !*updated.Disabled || updated.Note == nil || *updated.Note != "primary auth file" {
-		t.Fatalf("expected auth file sync metadata persisted, got %+v", updated)
+	if updated.Prefix != "codex-team" || updated.Priority == nil || *updated.Priority != 3 || updated.Disabled == nil || !*updated.Disabled || updated.Note == nil || *updated.Note != "primary credential" {
+		t.Fatalf("expected credential sync metadata persisted, got %+v", updated)
 	}
 }
 
@@ -391,7 +391,7 @@ func TestUsageIdentityReplaceForAuthTypeBatchesLargeUpsertAndMarksStaleRowsDelet
 
 	stale := entities.UsageIdentity{
 		Name:     "Stale Auth",
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 		Identity: "auth-stale",
 		Type:     "account",
 		Provider: "claude",
@@ -411,12 +411,12 @@ func TestUsageIdentityReplaceForAuthTypeBatchesLargeUpsertAndMarksStaleRowsDelet
 		})
 	}
 
-	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, identities, entities.UsageIdentityAuthTypeCredential, now); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
 
 	var activeCount int64
-	if err := db.Model(&entities.UsageIdentity{}).Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, false).Count(&activeCount).Error; err != nil {
+	if err := db.Model(&entities.UsageIdentity{}).Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeCredential, false).Count(&activeCount).Error; err != nil {
 		t.Fatalf("count active auth identities: %v", err)
 	}
 	if activeCount != int64(len(identities)) {
@@ -440,7 +440,7 @@ func TestUsageIdentityReplaceForProviderTypesBatchesLargeUpsertAndDeletesOnlySco
 	seed := []entities.UsageIdentity{
 		{Name: "OpenAI Stale", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai-stale", Type: "openai", Provider: "OpenAI"},
 		{Name: "Gemini Untouched", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "gemini-untouched", Type: "gemini", Provider: "Gemini"},
-		{Name: "Auth Untouched", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-untouched", Type: "account", Provider: "claude"},
+		{Name: "Auth Untouched", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-untouched", Type: "account", Provider: "claude"},
 	}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
@@ -533,14 +533,14 @@ func TestUsageIdentityReplaceForAuthTypeKeepsAlreadyDeletedRowsOutOfStaleCompare
 	now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 
 	seed := []entities.UsageIdentity{
-		{Name: "Active Stale", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-active-stale", Type: "account", Provider: "claude"},
-		{Name: "Already Deleted", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-already-deleted", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &oldDeletedAt},
+		{Name: "Active Stale", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-active-stale", Type: "account", Provider: "claude"},
+		{Name: "Already Deleted", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-already-deleted", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &oldDeletedAt},
 	}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
 	}
 
-	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, nil, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, nil, entities.UsageIdentityAuthTypeCredential, now); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
 
@@ -600,8 +600,8 @@ func TestUsageIdentityListActiveExcludesDeletedRows(t *testing.T) {
 	deletedAt := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 
 	seed := []entities.UsageIdentity{
-		{Name: "Active Auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-active", Type: "account", Provider: "claude"},
-		{Name: "Deleted Auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-deleted", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &deletedAt},
+		{Name: "Active Auth", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-active", Type: "account", Provider: "claude"},
+		{Name: "Deleted Auth", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-deleted", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &deletedAt},
 		{Name: "Active Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-active", Type: "openai", Provider: "OpenAI"},
 		{Name: "Deleted Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-deleted", Type: "openai", Provider: "OpenAI", IsDeleted: true, DeletedAt: &deletedAt},
 	}
@@ -631,15 +631,15 @@ func TestUsageIdentityListActivePageOrdersByTotalRequestsDesc(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
 	rows := []entities.UsageIdentity{
-		{Identity: "low", Name: "Low", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 10, CreatedAt: now, UpdatedAt: now},
-		{Identity: "high", Name: "High", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 30, CreatedAt: now, UpdatedAt: now},
-		{Identity: "middle", Name: "Middle", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 20, CreatedAt: now, UpdatedAt: now},
+		{Identity: "low", Name: "Low", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 10, CreatedAt: now, UpdatedAt: now},
+		{Identity: "high", Name: "High", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 30, CreatedAt: now, UpdatedAt: now},
+		{Identity: "middle", Name: "Middle", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 20, CreatedAt: now, UpdatedAt: now},
 		{Identity: "provider", Name: "Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "api_key", Type: "openai", Provider: "OpenAI", TotalRequests: 99, CreatedAt: now, UpdatedAt: now},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
 	}
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 
 	for page, want := range [][]string{{"high", "middle"}, {"low"}} {
 		items, total, _, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, Page: page + 1, PageSize: 2})
@@ -661,19 +661,19 @@ func TestUsageIdentityListActivePageFiltersByTypesAndReturnsUnfilteredTypeCounts
 	now := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
 	disabled := true
 	rows := []entities.UsageIdentity{
-		{Identity: "claude-high", Name: "Claude High", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 30, CreatedAt: now, UpdatedAt: now},
-		{Identity: "claude-low", Name: "Claude Low", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 20, CreatedAt: now, UpdatedAt: now},
-		{Identity: "anthropic", Name: "Anthropic", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "anthropic", Provider: "Anthropic", TotalRequests: 10, CreatedAt: now, UpdatedAt: now},
-		{Identity: "gemini", Name: "Gemini", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "gemini", Provider: "Gemini", TotalRequests: 50, CreatedAt: now, UpdatedAt: now},
-		{Identity: "empty-type", Name: "Empty Type", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "", Provider: "Custom", TotalRequests: 5, CreatedAt: now, UpdatedAt: now},
-		{Identity: "disabled-claude", Name: "Disabled Claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Disabled: &disabled, TotalRequests: 99, CreatedAt: now, UpdatedAt: now},
-		{Identity: "deleted-anthropic", Name: "Deleted Anthropic", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "anthropic", Provider: "Anthropic", IsDeleted: true, TotalRequests: 88, CreatedAt: now, UpdatedAt: now},
+		{Identity: "claude-high", Name: "Claude High", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 30, CreatedAt: now, UpdatedAt: now},
+		{Identity: "claude-low", Name: "Claude Low", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 20, CreatedAt: now, UpdatedAt: now},
+		{Identity: "anthropic", Name: "Anthropic", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "anthropic", Provider: "Anthropic", TotalRequests: 10, CreatedAt: now, UpdatedAt: now},
+		{Identity: "gemini", Name: "Gemini", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "gemini", Provider: "Gemini", TotalRequests: 50, CreatedAt: now, UpdatedAt: now},
+		{Identity: "empty-type", Name: "Empty Type", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "", Provider: "Custom", TotalRequests: 5, CreatedAt: now, UpdatedAt: now},
+		{Identity: "disabled-claude", Name: "Disabled Claude", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Disabled: &disabled, TotalRequests: 99, CreatedAt: now, UpdatedAt: now},
+		{Identity: "deleted-anthropic", Name: "Deleted Anthropic", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "anthropic", Provider: "Anthropic", IsDeleted: true, TotalRequests: 88, CreatedAt: now, UpdatedAt: now},
 		{Identity: "provider-claude", Name: "Provider Claude", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "claude", Provider: "Claude", TotalRequests: 77, CreatedAt: now, UpdatedAt: now},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
 	}
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 	activeOnly := true
 
 	items, total, typeCounts, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{
@@ -702,24 +702,24 @@ func TestUsageIdentityListActivePageFiltersByTypesAndReturnsUnfilteredTypeCounts
 	}
 }
 
-func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t *testing.T) {
+func TestUsageIdentityListActivePageFiltersEnabledCredentialsAndOrdersByPriority(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 5, 11, 11, 0, 0, 0, time.UTC)
 	disabled := true
 	enabled := false
 	rows := []entities.UsageIdentity{
-		{Identity: "default", Name: "Default", FileName: strPtr("default.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: nil, Disabled: nil, TotalRequests: 40, TotalTokens: 400, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-zeta", Name: "Zeta", FileName: strPtr("zeta.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 25, TotalTokens: 250, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-alpha", Name: "Alpha", FileName: strPtr("Alpha.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 22, TotalTokens: 220, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-beta-lower", Name: "beta", FileName: strPtr("beta.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 21, TotalTokens: 210, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-1", Name: "Priority 1", FileName: strPtr("priority-1.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(1), Disabled: &enabled, TotalRequests: 10, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5", Name: "Priority 5", FileName: strPtr("priority-5.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 20, TotalTokens: 200, CreatedAt: now, UpdatedAt: now},
-		{Identity: "disabled", Name: "Disabled", FileName: strPtr("disabled.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(0), Disabled: &disabled, TotalRequests: 99, TotalTokens: 999, CreatedAt: now, UpdatedAt: now},
+		{Identity: "default", Name: "Default", FileName: strPtr("default.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: nil, Disabled: nil, TotalRequests: 40, TotalTokens: 400, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-zeta", Name: "Zeta", FileName: strPtr("zeta.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 25, TotalTokens: 250, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-alpha", Name: "Alpha", FileName: strPtr("Alpha.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 22, TotalTokens: 220, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-beta-lower", Name: "beta", FileName: strPtr("beta.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 21, TotalTokens: 210, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-1", Name: "Priority 1", FileName: strPtr("priority-1.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(1), Disabled: &enabled, TotalRequests: 10, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5", Name: "Priority 5", FileName: strPtr("priority-5.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 20, TotalTokens: 200, CreatedAt: now, UpdatedAt: now},
+		{Identity: "disabled", Name: "Disabled", FileName: strPtr("disabled.json"), AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(0), Disabled: &disabled, TotalRequests: 99, TotalTokens: 999, CreatedAt: now, UpdatedAt: now},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
 	}
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 	activeOnly := true
 
 	items, total, _, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, ActiveOnly: &activeOnly, Sort: UsageIdentityPageSortPriority, Page: 1, PageSize: 10})
@@ -734,7 +734,7 @@ func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t
 		got = append(got, item.Identity)
 	}
 	if !reflect.DeepEqual(got, []string{"priority-5-alpha", "priority-5-beta-lower", "priority-5", "priority-5-zeta", "priority-1", "default"}) {
-		t.Fatalf("expected enabled auth files sorted by priority desc, file name asc case-insensitively, then missing priority last, got %v", got)
+		t.Fatalf("expected enabled credentials sorted by priority desc, file name asc case-insensitively, then missing priority last, got %v", got)
 	}
 }
 
@@ -782,10 +782,10 @@ func TestUsageIdentityListActivePageOrdersByLastUsedDesc(t *testing.T) {
 	recentLastUsed := now.Add(-30 * time.Minute)
 	providerLastUsed := now.Add(-10 * time.Minute)
 	rows := []entities.UsageIdentity{
-		{Identity: "auth-recent-a", Name: "Recent A", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &recentLastUsed, CreatedAt: now, UpdatedAt: now},
-		{Identity: "auth-old", Name: "Old", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &oldLastUsed, CreatedAt: now, UpdatedAt: now},
-		{Identity: "auth-never", Name: "Never", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
-		{Identity: "auth-recent-b", Name: "Recent B", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &recentLastUsed, CreatedAt: now, UpdatedAt: now},
+		{Identity: "auth-recent-a", Name: "Recent A", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &recentLastUsed, CreatedAt: now, UpdatedAt: now},
+		{Identity: "auth-old", Name: "Old", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &oldLastUsed, CreatedAt: now, UpdatedAt: now},
+		{Identity: "auth-never", Name: "Never", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
+		{Identity: "auth-recent-b", Name: "Recent B", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", LastUsedAt: &recentLastUsed, CreatedAt: now, UpdatedAt: now},
 		{Identity: "provider-recent", Name: "Provider Recent", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "openai", Provider: "OpenAI", LastUsedAt: &providerLastUsed, CreatedAt: now, UpdatedAt: now},
 		{Identity: "provider-never", Name: "Provider Never", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "openai", Provider: "OpenAI", CreatedAt: now, UpdatedAt: now},
 	}
@@ -797,7 +797,7 @@ func TestUsageIdentityListActivePageOrdersByLastUsedDesc(t *testing.T) {
 		authType entities.UsageIdentityAuthType
 		want     []string
 	}{
-		{entities.UsageIdentityAuthTypeAuthFile, []string{"auth-recent-a", "auth-recent-b", "auth-old", "auth-never"}},
+		{entities.UsageIdentityAuthTypeCredential, []string{"auth-recent-a", "auth-recent-b", "auth-old", "auth-never"}},
 		{entities.UsageIdentityAuthTypeAIProvider, []string{"provider-recent", "provider-never"}},
 	} {
 		items, total, _, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &tc.authType, Sort: UsageIdentityPageSortLastUsedAt, Page: 1, PageSize: 10})
@@ -846,7 +846,7 @@ func TestUsageIdentityListActivePageOrdersAIProvidersByPriorityWithoutNameTieBre
 
 func TestUsageIdentityPrioritySortUsesPortableNullAndFileNameOrdering(t *testing.T) {
 	db := openTestDatabase(t).Session(&gorm.Session{DryRun: true})
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 	var rows []entities.UsageIdentity
 
 	statement := applyUsageIdentityPageSort(db.Model(&entities.UsageIdentity{}), UsageIdentityPageSortPriority, &authType).Find(&rows).Statement
@@ -866,7 +866,7 @@ func TestUsageIdentityPrioritySortUsesPortableNullAndFileNameOrdering(t *testing
 		t.Fatalf("expected priority sort SQL to avoid sqlite-specific COLLATE NOCASE, got %s", sql)
 	}
 	if strings.Contains(sql, "LOWER(name) ASC") {
-		t.Fatalf("expected auth file priority ties not to use the display name, got %s", sql)
+		t.Fatalf("expected credential priority ties not to use the display name, got %s", sql)
 	}
 }
 
@@ -877,9 +877,9 @@ func TestUsageIdentityListOrdersByAuthTypeNameIDAndIncludesDeletedRows(t *testin
 
 	seed := []entities.UsageIdentity{
 		{Name: "Zulu", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-zulu", Type: "openai", Provider: "OpenAI"},
-		{Name: "Beta", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-beta-1", Type: "account", Provider: "claude"},
-		{Name: "Alpha", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-alpha", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &deletedAt},
-		{Name: "Beta", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-beta-2", Type: "account", Provider: "claude"},
+		{Name: "Beta", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-beta-1", Type: "account", Provider: "claude"},
+		{Name: "Alpha", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-alpha", Type: "account", Provider: "claude", IsDeleted: true, DeletedAt: &deletedAt},
+		{Name: "Beta", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-beta-2", Type: "account", Provider: "claude"},
 		{Name: "Alpha", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-alpha", Type: "gemini", Provider: "Gemini", IsDeleted: true, DeletedAt: &deletedAt},
 	}
 	if err := db.Create(&seed).Error; err != nil {
@@ -912,7 +912,7 @@ func TestUsageIdentityListOrdersByAuthTypeNameIDAndIncludesDeletedRows(t *testin
 	}
 }
 
-func TestUsageIdentityAggregateStatsForAuthFileUsesOAuthAuthIndex(t *testing.T) {
+func TestUsageIdentityAggregateStatsForCredentialUsesOAuthAuthIndex(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
@@ -921,7 +921,7 @@ func TestUsageIdentityAggregateStatsForAuthFileUsesOAuthAuthIndex(t *testing.T) 
 
 	identity := entities.UsageIdentity{
 		Name:         "Auth Account",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "auth-1",
 		Type:         "account",
@@ -1003,7 +1003,7 @@ func TestUsageIdentityAggregateStatsSecondRunOnlyIncludesEventsAfterCursor(t *te
 	first := now.Add(-2 * time.Hour)
 	last := now.Add(-time.Hour)
 
-	identity := entities.UsageIdentity{Name: "Auth Account", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-cursor", Type: "account", Provider: "claude"}
+	identity := entities.UsageIdentity{Name: "Auth Account", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-cursor", Type: "account", Provider: "claude"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}
@@ -1046,7 +1046,7 @@ func TestUsageIdentityAggregateStatsLateTimestampWithLargerIDStillAggregates(t *
 	initialTime := now.Add(-time.Hour)
 	earlierLateTime := now.Add(-24 * time.Hour)
 
-	identity := entities.UsageIdentity{Name: "Auth Late", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-late", Type: "account", Provider: "claude"}
+	identity := entities.UsageIdentity{Name: "Auth Late", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-late", Type: "account", Provider: "claude"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestUsageIdentityAggregateStatsUsesDatabaseIDNotRequestIDOrdering(t *testin
 	ctx := context.Background()
 	now := time.Date(2026, 5, 4, 16, 0, 0, 0, time.UTC)
 
-	identity := entities.UsageIdentity{Name: "Auth Request", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-request", Type: "account", Provider: "claude"}
+	identity := entities.UsageIdentity{Name: "Auth Request", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-request", Type: "account", Provider: "claude"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}

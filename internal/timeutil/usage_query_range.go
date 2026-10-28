@@ -71,16 +71,20 @@ func ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue
 	switch rangeValue {
 	case "today", "yesterday":
 		localAnchor := NormalizeStorageTime(anchor)
-		localStart := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+		date := DateOf(localAnchor)
 		if rangeValue == "yesterday" {
-			localStart = localStart.AddDate(0, 0, -1)
+			date = date.AddDays(-1)
+		}
+		bounds, ok := DayBounds(date, time.Local)
+		if !ok {
+			return UsageQueryRange{}, fmt.Errorf("calendar date %s does not exist in configured timezone", date)
 		}
 		return UsageQueryRange{
 			Range:     rangeValue,
 			Unit:      UsageQueryUnitDay,
 			Count:     1,
-			StartTime: NormalizeStorageTime(localStart),
-			EndTime:   NormalizeStorageTime(localStart.AddDate(0, 0, 1).Add(-time.Nanosecond)),
+			StartTime: bounds.Start,
+			EndTime:   bounds.End.Add(-time.Nanosecond),
 		}, nil
 	case "custom":
 		return parseCustomUsageQueryRange(unitValue, startValue, endValue, anchor, options)
@@ -89,7 +93,7 @@ func ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue
 		if !ok {
 			return UsageQueryRange{}, fmt.Errorf("unsupported usage range %q", rangeValue)
 		}
-		endTime := NormalizeStorageTime(anchor)
+		window := ElapsedRange(NormalizeStorageTime(anchor), rollingRange.Duration())
 		unit := UsageQueryUnitHour
 		if rollingRange.Unit == UsageRollingUnitDay {
 			unit = UsageQueryUnitDay
@@ -98,8 +102,8 @@ func ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue
 			Range:     rangeValue,
 			Unit:      unit,
 			Count:     rollingRange.Value,
-			StartTime: NormalizeStorageTime(endTime.Add(-rollingRange.Duration())),
-			EndTime:   endTime,
+			StartTime: window.Start,
+			EndTime:   window.End,
 		}, nil
 	}
 }
@@ -141,41 +145,35 @@ func resolveUsageQueryUnit(unitValue, startValue, endValue string) (UsageQueryUn
 }
 
 func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, maxDays int) (UsageQueryRange, error) {
-	startTime, err := time.ParseInLocation(time.DateOnly, startValue, time.Local)
+	startDate, err := ParseCivilDate(startValue)
 	if err != nil {
 		return UsageQueryRange{}, fmt.Errorf("invalid start: %w", err)
 	}
-	endDay, err := time.ParseInLocation(time.DateOnly, endValue, time.Local)
+	endDate, err := ParseCivilDate(endValue)
 	if err != nil {
 		return UsageQueryRange{}, fmt.Errorf("invalid end: %w", err)
 	}
-	if startTime.After(endDay) {
+	count := startDate.DaysUntil(endDate) + 1
+	if count < 1 {
 		return UsageQueryRange{}, fmt.Errorf("custom range start must be before end")
 	}
-	count := 1
-	for day := startTime; day.Before(endDay); day = day.AddDate(0, 0, 1) {
-		count++
-		if count > maxDays {
-			return UsageQueryRange{}, fmt.Errorf("custom day range cannot exceed %d calendar days", maxDays)
-		}
+	if count > maxDays {
+		return UsageQueryRange{}, fmt.Errorf("custom day range cannot exceed %d calendar days", maxDays)
 	}
-	localAnchor := NormalizeStorageTime(anchor)
-	today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-	if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
+	today := DateOf(NormalizeStorageTime(anchor))
+	if startDate.DaysUntil(today) >= maxDays {
 		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: fmt.Sprintf("custom day range must stay within the most recent %d calendar days", maxDays)}
 	}
-	if endDay.After(today) {
+	if today.DaysUntil(endDate) > 0 {
 		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: "custom day range cannot end in the future"}
 	}
-
-	return UsageQueryRange{
-		Range:        "custom",
-		Unit:         UsageQueryUnitDay,
-		Count:        count,
-		StartTime:    NormalizeStorageTime(startTime),
-		EndTime:      NormalizeStorageTime(endDay.AddDate(0, 0, 1)),
-		EndExclusive: true,
-	}, nil
+	start, startOK := DayBounds(startDate, time.Local)
+	end, endOK := DayBounds(endDate, time.Local)
+	if !startOK || !endOK {
+		return UsageQueryRange{}, fmt.Errorf("custom range endpoint date does not exist in configured timezone")
+	}
+	return UsageQueryRange{Range: "custom", Unit: UsageQueryUnitDay, Count: count,
+		StartTime: start.Start, EndTime: end.End, EndExclusive: true}, nil
 }
 
 func parseCustomUsageHourRange(startValue, endValue string, anchor time.Time) (UsageQueryRange, error) {

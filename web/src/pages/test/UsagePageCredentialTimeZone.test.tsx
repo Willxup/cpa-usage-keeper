@@ -53,7 +53,7 @@ describe('UsagePage credential project timezone', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     await i18n.changeLanguage('en');
     localStorage.clear();
-    window.history.replaceState(null, '', '/auth-files');
+    window.history.replaceState(null, '', '/credentials');
     Object.values(api).forEach((mock) => mock.mockReset());
 
     api.fetchUsageIdentitiesPage.mockResolvedValue({

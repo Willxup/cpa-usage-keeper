@@ -44,7 +44,7 @@ func TestBuildAnalysisUsesCustomHourRollupsWithoutUsageEvents(t *testing.T) {
 	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.Local)
 	end := time.Date(2026, 7, 17, 16, 0, 0, 0, time.Local)
-	selectedEndHour := end.Add(-time.Hour)
+	selectedEndHour := end.Truncate(time.Hour).Add(-time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-custom", DisplayKey: "sk-*********custom"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}

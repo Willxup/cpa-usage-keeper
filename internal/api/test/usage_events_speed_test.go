@@ -20,7 +20,7 @@ func TestUsageEventSpeedWithoutTTFTAcrossListAndExports(t *testing.T) {
 		csv  bool
 	}{
 		{name: "request events", path: "/api/v1/usage/events?range=24h"},
-		{name: "auth file history", path: "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=1"},
+		{name: "credential history", path: "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=1"},
 		{name: "AI provider history", path: "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=2"},
 		{name: "JSON export", path: "/api/v1/usage/events/export?range=24h&format=json"},
 		{name: "CSV export", path: "/api/v1/usage/events/export?range=24h&format=csv", csv: true},

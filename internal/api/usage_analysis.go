@@ -14,20 +14,20 @@ import (
 )
 
 type analysisResponse struct {
-	Granularity           string                    `json:"granularity"`
-	Timezone              string                    `json:"timezone"`
-	RangeStart            *time.Time                `json:"range_start,omitempty"`
-	RangeEnd              *time.Time                `json:"range_end,omitempty"`
-	TokenUsage            []analysisTokenUsage      `json:"token_usage"`
-	ModelSpeed            analysisModelSpeed        `json:"model_speed"`
-	ModelUsage            analysisModelUsage        `json:"model_usage"`
-	APIKeyComposition     []analysisCompositionItem `json:"api_key_composition"`
-	ModelComposition      []analysisCompositionItem `json:"model_composition"`
-	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
-	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
-	Heatmap               analysisHeatmap           `json:"heatmap"`
-	CostSummary           analysisCostSummary       `json:"cost_summary"`
-	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
+	Granularity            string                    `json:"granularity"`
+	Timezone               string                    `json:"timezone"`
+	RangeStart             *time.Time                `json:"range_start,omitempty"`
+	RangeEnd               *time.Time                `json:"range_end,omitempty"`
+	TokenUsage             []analysisTokenUsage      `json:"token_usage"`
+	ModelSpeed             analysisModelSpeed        `json:"model_speed"`
+	ModelUsage             analysisModelUsage        `json:"model_usage"`
+	APIKeyComposition      []analysisCompositionItem `json:"api_key_composition"`
+	ModelComposition       []analysisCompositionItem `json:"model_composition"`
+	CredentialsComposition []analysisCompositionItem `json:"credentials_composition"`
+	AIProviderComposition  []analysisCompositionItem `json:"ai_provider_composition"`
+	Heatmap                analysisHeatmap           `json:"heatmap"`
+	CostSummary            analysisCostSummary       `json:"cost_summary"`
+	ModelEfficiency        []analysisModelEfficiency `json:"model_efficiency"`
 }
 
 type analysisTokenUsage struct {
@@ -249,7 +249,7 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 		}
 		payload := buildAnalysisPayload(analysis, apiKeyInfos)
 		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
-		payload.AuthFilesComposition = []analysisCompositionItem{}
+		payload.CredentialsComposition = []analysisCompositionItem{}
 		payload.AIProviderComposition = []analysisCompositionItem{}
 		c.JSON(http.StatusOK, payload)
 	})
@@ -286,18 +286,18 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 // emptyAnalysisResponse 保持无数据时总费用为零且可用，返回稳定的图表空数组。
 func emptyAnalysisResponse() analysisResponse {
 	return analysisResponse{
-		Granularity:           string(servicedto.AnalysisGranularityHourly),
-		Timezone:              time.Local.String(),
-		TokenUsage:            []analysisTokenUsage{},
-		ModelSpeed:            buildAnalysisModelSpeedPayload(servicedto.AnalysisModelSpeed{}),
-		ModelUsage:            analysisModelUsage{Buckets: []time.Time{}, Series: []analysisModelUsageSeries{}},
-		APIKeyComposition:     []analysisCompositionItem{},
-		ModelComposition:      []analysisCompositionItem{},
-		AuthFilesComposition:  []analysisCompositionItem{},
-		AIProviderComposition: []analysisCompositionItem{},
-		Heatmap:               analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
-		CostSummary:           analysisCostSummary{CostAvailable: true},
-		ModelEfficiency:       []analysisModelEfficiency{},
+		Granularity:            string(servicedto.AnalysisGranularityHourly),
+		Timezone:               time.Local.String(),
+		TokenUsage:             []analysisTokenUsage{},
+		ModelSpeed:             buildAnalysisModelSpeedPayload(servicedto.AnalysisModelSpeed{}),
+		ModelUsage:             analysisModelUsage{Buckets: []time.Time{}, Series: []analysisModelUsageSeries{}},
+		APIKeyComposition:      []analysisCompositionItem{},
+		ModelComposition:       []analysisCompositionItem{},
+		CredentialsComposition: []analysisCompositionItem{},
+		AIProviderComposition:  []analysisCompositionItem{},
+		Heatmap:                analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
+		CostSummary:            analysisCostSummary{CostAvailable: true},
+		ModelEfficiency:        []analysisModelEfficiency{},
 	}
 }
 
@@ -346,21 +346,21 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 	}
 	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos)
 	modelComposition := buildAnalysisCompositionPayload(snapshot.ModelComposition, nil)
-	authFilesComposition := buildAnalysisCompositionPayload(snapshot.AuthFilesComposition, nil)
+	credentialsComposition := buildAnalysisCompositionPayload(snapshot.CredentialsComposition, nil)
 	aiProviderComposition := buildAnalysisCompositionPayload(snapshot.AIProviderComposition, nil)
 	return analysisResponse{
-		Granularity:           string(snapshot.Granularity),
-		Timezone:              time.Local.String(),
-		RangeStart:            snapshot.RangeStart,
-		RangeEnd:              snapshot.RangeEnd,
-		TokenUsage:            tokenUsage,
-		ModelSpeed:            buildAnalysisModelSpeedPayload(snapshot.ModelSpeed),
-		ModelUsage:            buildAnalysisModelUsagePayload(snapshot.TokenUsage, snapshot.ModelUsage),
-		APIKeyComposition:     apiComposition,
-		ModelComposition:      modelComposition,
-		AuthFilesComposition:  authFilesComposition,
-		AIProviderComposition: aiProviderComposition,
-		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
+		Granularity:            string(snapshot.Granularity),
+		Timezone:               time.Local.String(),
+		RangeStart:             snapshot.RangeStart,
+		RangeEnd:               snapshot.RangeEnd,
+		TokenUsage:             tokenUsage,
+		ModelSpeed:             buildAnalysisModelSpeedPayload(snapshot.ModelSpeed),
+		ModelUsage:             buildAnalysisModelUsagePayload(snapshot.TokenUsage, snapshot.ModelUsage),
+		APIKeyComposition:      apiComposition,
+		ModelComposition:       modelComposition,
+		CredentialsComposition: credentialsComposition,
+		AIProviderComposition:  aiProviderComposition,
+		Heatmap:                buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
 		CostSummary: analysisCostSummary{
 			TotalCostUSD:  snapshot.CostSummary.TotalCostUSD,
 			CostAvailable: snapshot.CostSummary.CostAvailable,

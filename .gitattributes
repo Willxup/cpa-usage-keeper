@@ -1,0 +1,3 @@
+# Frozen quota history responses are compared byte-for-byte with Go JSON output.
+internal/repository/test/testdata/quota_efficiency_projection/*.json text eol=lf
+internal/repository/test/testdata/quota_efficiency_time/*.json text eol=lf

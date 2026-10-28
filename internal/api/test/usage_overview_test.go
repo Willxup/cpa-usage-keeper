@@ -118,7 +118,7 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 		t.Fatalf("expected key overview realtime current_usage object, got %s", realtimeResp.Body.String())
 	}
 	assertAllowedJSONKeys(t, currentUsage, "key overview realtime current_usage", realtimeResp.Body.String(), "models")
-	if strings.Contains(realtimeResp.Body.String(), `"api_keys":`) || strings.Contains(realtimeResp.Body.String(), `"auth_files":`) || strings.Contains(realtimeResp.Body.String(), `"ai_providers":`) {
+	if strings.Contains(realtimeResp.Body.String(), `"api_keys":`) || strings.Contains(realtimeResp.Body.String(), `"credentials":`) || strings.Contains(realtimeResp.Body.String(), `"ai_providers":`) {
 		t.Fatalf("expected key overview realtime to omit internal current-usage dimensions, got %s", realtimeResp.Body.String())
 	}
 	if provider.realtimeCalls != 1 {

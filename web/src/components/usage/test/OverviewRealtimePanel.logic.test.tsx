@@ -54,7 +54,7 @@ const realtime: OverviewRealtimeBlock = {
   current_usage: {
     models: [{ key: 'gpt-5', label: 'gpt-5', tokens: 180, requests: 3, share: 72, cost: 0.03 }],
     api_keys: [{ key: '1', label: 'Team Key', tokens: 180, requests: 3, share: 72 }],
-    auth_files: [{ key: 'auth-1', label: 'Claude Account', tokens: 45, requests: 1, share: 18 }],
+    credentials: [{ key: 'auth-1', label: 'Claude Account', tokens: 45, requests: 1, share: 18 }],
     ai_providers: [{ key: 'provider-1', label: 'OpenAI Provider', tokens: 25, requests: 1, share: 10 }],
   },
   request_level: [
@@ -110,7 +110,7 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('30m');
     expect(html).not.toMatch(/>5m<\/button>/);
     expect(html).toContain('usage_stats.overview_realtime_dimension_api_keys');
-    expect(html).toContain('usage_stats.overview_realtime_dimension_auth_files');
+    expect(html).toContain('usage_stats.overview_realtime_dimension_credentials');
     expect(html).toContain('gpt-5');
     expect(chartCapture.lineCalls).toHaveLength(1);
     expect(chartCapture.chartCalls).toHaveLength(1);
@@ -229,7 +229,7 @@ describe('OverviewRealtimePanel', () => {
         token_velocity: realtime.token_velocity.map((point) => ({ ...point, tokens_per_minute: 0, tokens: 0 })),
         request_level: realtime.request_level.map((point) => ({ ...point, requests_per_minute: 0, requests: 0 })),
         cache_level: realtime.cache_level.map((point) => ({ ...point, cache_read_rate: null, input_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 })),
-        current_usage: { models: [], api_keys: [], auth_files: [], ai_providers: [] },
+        current_usage: { models: [], api_keys: [], credentials: [], ai_providers: [] },
       }}
       loading={false} window="15m" onWindowChange={() => {}} isDark={false} isMobile={false}
     />);
@@ -395,7 +395,7 @@ describe('OverviewRealtimePanel', () => {
     );
 
     expect(html).not.toContain('usage_stats.overview_realtime_dimension_api_keys');
-    expect(html).not.toContain('usage_stats.overview_realtime_dimension_auth_files');
+    expect(html).not.toContain('usage_stats.overview_realtime_dimension_credentials');
     expect(html).not.toContain('usage_stats.overview_realtime_dimension_ai_providers');
     expect(html).not.toContain('Team Key');
     expect(html).toContain('usage_stats.overview_realtime_dimension_models');

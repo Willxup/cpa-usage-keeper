@@ -10,7 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let latest: ReturnType<typeof useCredentialPages> | null = null
 
 function Harness() {
-  const result = useCredentialPages({ enabledAuthFiles: false, enabledAiProviders: true })
+  const result = useCredentialPages({ enabledCredentials: false, enabledAiProviders: true })
   useEffect(() => { latest = result }, [result])
   return null
 }
@@ -38,10 +38,10 @@ describe('AI Provider active-only state', () => {
   })
 
   it('persists an independent switch and sends active_only only when enabled', async () => {
-    window.localStorage.setItem('cpa-usage-keeper-auth-files-active-only', 'true')
+    window.localStorage.setItem('cpa-usage-keeper-credentials-active-only', 'true')
     await act(async () => root.render(<Harness />))
 
-    expect(latest?.authFileActiveOnly).toBe(true)
+    expect(latest?.credentialActiveOnly).toBe(true)
     expect(latest?.aiProviderActiveOnly).toBe(false)
     let parsed = new URL(String(fetchMock.mock.calls.at(-1)?.[0]), 'http://localhost')
     expect(parsed.searchParams.get('auth_type')).toBe('2')
@@ -51,7 +51,7 @@ describe('AI Provider active-only state', () => {
     expect(latest?.aiProviderPage).toBe(3)
 
     await act(async () => latest!.setAiProviderActiveOnly(true))
-    expect(latest?.authFileActiveOnly).toBe(true)
+    expect(latest?.credentialActiveOnly).toBe(true)
     expect(latest?.aiProviderActiveOnly).toBe(true)
     expect(latest?.aiProviderPage).toBe(1)
     expect(window.localStorage.getItem('cpa-usage-keeper-ai-providers-active-only')).toBe('true')

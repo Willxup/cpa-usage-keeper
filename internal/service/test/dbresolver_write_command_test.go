@@ -20,7 +20,7 @@ func TestUsageIdentityAliasUpdateDoesNotDependOnReaderAvailability(t *testing.T)
 	db, reader := openResolverServiceTestPools(t)
 	identity := entities.UsageIdentity{
 		Name:         "Writer Identity",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "writer-auth-index",
 		Type:         "codex",

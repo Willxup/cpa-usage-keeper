@@ -63,7 +63,7 @@ type Service struct {
 	autoRefreshDelay func(context.Context, time.Duration) bool
 	// lastAutoRefreshAttemptAt 记录最近一次尝试启动整轮自动刷新的时间，用于扫描失败退避。
 	lastAutoRefreshAttemptAt time.Time
-	// lastAutoRefreshRoundAt 记录上次启动整轮 Auth Files 自动刷新入队的内存时间。
+	// lastAutoRefreshRoundAt 记录上次启动整轮 Credentials 自动刷新入队的内存时间。
 	lastAutoRefreshRoundAt time.Time
 	// refreshLifecycleMu 保护 refreshClosing 和 refreshWG.Add，避免关闭等待期间继续登记后台 goroutine。
 	refreshLifecycleMu sync.Mutex
@@ -107,7 +107,7 @@ type Service struct {
 	codexQuotaHistoryWrite codexQuotaHistoryWriter
 	// codexQuotaHistoryLoad 在缓存首次命中或写失败失效后从 writer 恢复当前周期尾段。
 	codexQuotaHistoryLoad codexQuotaHistoryLoader
-	// codexQuotaHistoryListIdentities 批量确认 Header 来源属于活跃 Codex Auth File。
+	// codexQuotaHistoryListIdentities 批量确认 Header 来源属于活跃 Codex Credential。
 	codexQuotaHistoryListIdentities codexQuotaHistoryIdentityLister
 	// codexQuotaHistoryMu 同时保护 closing 检查和非阻塞发送，避免 stop/send 竞态。
 	codexQuotaHistoryMu sync.Mutex
@@ -207,7 +207,7 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 		codexQuotaHistoryNewTimer:          newCodexQuotaHistoryTimer,
 		codexQuotaHistoryWrite:             repository.WriteCodexMainQuotaObservations,
 		codexQuotaHistoryLoad:              repository.LoadLatestQuotaHistoryState,
-		codexQuotaHistoryListIdentities:    repository.ListActiveAuthFileUsageIdentitiesByAuthIndexes,
+		codexQuotaHistoryListIdentities:    repository.ListActiveCredentialUsageIdentitiesByAuthIndexes,
 	}
 	go service.runUsageHeaderSnapshotWorker()
 	// history 拥有独立队列、timer 和稳定尾段，不能复用一分钟 cache worker 的 pending map。
@@ -313,8 +313,8 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 	if authIndex == "" {
 		return CheckResponse{}, false, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
-	// 只允许 auth files 身份查询限额，AI provider 身份不进入 provider 调用链路。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	// 只允许 credentials 身份查询限额，AI provider 身份不进入 provider 调用链路。
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return CheckResponse{}, false, fmt.Errorf("%w: %s", ErrNotFound, authIndex)

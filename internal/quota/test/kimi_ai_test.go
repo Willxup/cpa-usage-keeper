@@ -12,7 +12,7 @@ import (
 
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 )
@@ -101,8 +101,8 @@ type kimiAIMetadataCaller struct {
 	credentialType string
 }
 
-func (c *kimiAIMetadataCaller) FetchKimiCredentialMetadata(context.Context, string) (*authfiles.KimiCredentialMetadata, error) {
-	return &authfiles.KimiCredentialMetadata{Type: c.credentialType}, nil
+func (c *kimiAIMetadataCaller) FetchKimiCredentialMetadata(context.Context, string) (*credentials.KimiCredentialMetadata, error) {
+	return &credentials.KimiCredentialMetadata{Type: c.credentialType}, nil
 }
 
 func TestKimiProviderNormalizesMonthlyRatioForAllAliases(t *testing.T) {
@@ -172,7 +172,7 @@ func TestKimiRefreshPipelineSupportsManualScheduledAndInspection(t *testing.T) {
 					}))
 					defer server.Close()
 					db := openQuotaTestDatabase(t)
-					seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "international-auth", Provider: identityType, Type: identityType, AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: stringPtr("account.json"), FilePath: stringPtr("/data/auths/account.json")})
+					seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "international-auth", Provider: identityType, Type: identityType, AuthType: entities.UsageIdentityAuthTypeCredential, FileName: stringPtr("account.json"), FilePath: stringPtr("/data/auths/account.json")})
 					service := quota.NewServiceWithOptions(db, cpa.NewClient(server.URL, "management-key", time.Second, false), quota.ServiceOptions{QuotaUpstreamResponsesEnabled: true})
 					t.Cleanup(service.StopRefreshTasks)
 					setRefreshCooldown(service, func(time.Duration) {})

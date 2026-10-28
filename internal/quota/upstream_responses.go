@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 )
 
 // UpstreamResponse 是 CPA api-call 返回的上游响应快照；刻意不保存任何请求 Header。
@@ -79,7 +79,7 @@ func (c upstreamResponseRecordingCaller) CallManagementAPI(ctx context.Context, 
 	return response, err
 }
 
-func (c upstreamResponseRecordingCaller) FetchKimiCredentialMetadata(ctx context.Context, name string) (*authfiles.KimiCredentialMetadata, error) {
+func (c upstreamResponseRecordingCaller) FetchKimiCredentialMetadata(ctx context.Context, name string) (*credentials.KimiCredentialMetadata, error) {
 	reader, ok := c.ManagementClient.(kimiCredentialReader)
 	if !ok {
 		return nil, fmt.Errorf("Kimi credential metadata reader is unavailable")

@@ -57,7 +57,7 @@ func TestUsageEventReplayPagesMergeArchiveAndHotByGlobalID(t *testing.T) {
 		id, totalTokens                              int64
 		timestamp                                    time.Time
 	}{
-		{"usage_events_archive", "archive-1", "oauth", "auth-file-1", "archive-source", 1, 1, now.AddDate(0, 0, -120)},
+		{"usage_events_archive", "archive-1", "oauth", "credential-1", "archive-source", 1, 1, now.AddDate(0, 0, -120)},
 		{"usage_events", "hot-2", "apikey", "provider-2", "hot-source", 2, 2, now.AddDate(0, 0, -10)},
 		{"usage_events", "hot-3", "", "", "", 3, 3, now.AddDate(0, 0, -9)},
 		{"usage_events_archive", "late-archive-4", "", "", "", 4, 4, now.AddDate(0, 0, -100)},
@@ -96,7 +96,7 @@ func TestUsageEventReplayPagesMergeArchiveAndHotByGlobalID(t *testing.T) {
 	if !slices.Equal(gotIDs, []int64{1, 2, 3, 4, 5}) {
 		t.Fatalf("expected globally ordered replay IDs, got %v", gotIDs)
 	}
-	if event := gotEvents[1]; event.AuthType != "oauth" || event.AuthIndex != "auth-file-1" || event.Source != "archive-source" {
+	if event := gotEvents[1]; event.AuthType != "oauth" || event.AuthIndex != "credential-1" || event.Source != "archive-source" {
 		t.Fatalf("expected archive replay to preserve identity fields, got %+v", event)
 	}
 	if event := gotEvents[2]; event.AuthType != "apikey" || event.AuthIndex != "provider-2" || event.Source != "hot-source" {

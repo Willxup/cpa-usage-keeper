@@ -35,7 +35,7 @@ const analysis: AnalysisResponse = {
   ...emptyAnalysis,
   api_key_composition: [{ ...compositionItem, label: 'API Key usage' }],
   model_composition: [{ ...compositionItem, label: 'Model usage' }],
-  auth_files_composition: [compositionItem],
+  credentials_composition: [compositionItem],
   ai_provider_composition: [compositionItem],
 };
 
@@ -47,7 +47,7 @@ describe('AnalysisPanel composition dimensions', () => {
 
     expect(markup).toContain('usage_stats.analysis_composition_api_key_tab');
     expect(markup).toContain('usage_stats.analysis_composition_model_tab');
-    expect(markup).toContain('usage_stats.analysis_composition_auth_files_tab');
+    expect(markup).toContain('usage_stats.analysis_composition_credentials_tab');
     expect(markup).toContain('usage_stats.analysis_composition_ai_provider_tab');
   });
 
@@ -61,7 +61,7 @@ describe('AnalysisPanel composition dimensions', () => {
 
     expect(markup).not.toContain('usage_stats.analysis_composition_api_key_tab');
     expect(markup).toContain('usage_stats.analysis_composition_model_tab');
-    expect(markup).not.toContain('usage_stats.analysis_composition_auth_files_tab');
+    expect(markup).not.toContain('usage_stats.analysis_composition_credentials_tab');
     expect(markup).not.toContain('usage_stats.analysis_composition_ai_provider_tab');
     expect(markup.match(/role="tab"/g)).toHaveLength(1);
     expect(markup).toContain('aria-selected="true"');

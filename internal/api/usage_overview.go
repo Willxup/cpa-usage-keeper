@@ -111,7 +111,7 @@ type usageOverviewLatencyScatterPoint struct {
 type usageOverviewRealtimeCurrentUsage struct {
 	Models      []usageOverviewRealtimeUsageTopItem `json:"models"`
 	APIKeys     []usageOverviewRealtimeUsageTopItem `json:"api_keys"`
-	AuthFiles   []usageOverviewRealtimeUsageTopItem `json:"auth_files"`
+	Credentials []usageOverviewRealtimeUsageTopItem `json:"credentials"`
 	AIProviders []usageOverviewRealtimeUsageTopItem `json:"ai_providers"`
 }
 
@@ -250,7 +250,7 @@ func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service
 	}
 	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
 	if keyViewer {
-		comparisons.AuthFiles = nil
+		comparisons.Credentials = nil
 		comparisons.AIProviders = nil
 	}
 	c.JSON(http.StatusOK, comparisons)
@@ -403,7 +403,7 @@ func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      []usageOverviewRealtimeUsageTopItem{},
 			APIKeys:     []usageOverviewRealtimeUsageTopItem{},
-			AuthFiles:   []usageOverviewRealtimeUsageTopItem{},
+			Credentials: []usageOverviewRealtimeUsageTopItem{},
 			AIProviders: []usageOverviewRealtimeUsageTopItem{},
 		},
 		RequestLevel: base.RequestLevel,
@@ -482,7 +482,7 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
 			APIKeys:     mapUsageOverviewRealtimeAPIKeyTopItems(realtime.CurrentUsage.APIKeys, apiKeyInfos),
-			AuthFiles:   mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AuthFiles, false),
+			Credentials: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Credentials, false),
 			AIProviders: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AIProviders, false),
 		},
 		RequestLevel: make([]usageOverviewRequestLevelPoint, 0, len(realtime.RequestLevel)),

@@ -10,7 +10,7 @@ const realtimeForWindow = (window: OverviewRealtimeWindow): OverviewRealtimeBloc
   current_usage: {
     models: [],
     api_keys: [],
-    auth_files: [],
+    credentials: [],
     ai_providers: [],
   },
   request_level: [],

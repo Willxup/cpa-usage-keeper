@@ -9,7 +9,7 @@ import { useCredentialPages } from '../useCredentialPages'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let latest: ReturnType<typeof useCredentialPages>
 function Harness() {
-  const state = useCredentialPages({ enabledAuthFiles: true, enabledAiProviders: true })
+  const state = useCredentialPages({ enabledCredentials: true, enabledAiProviders: true })
   useEffect(() => { latest = state }, [state])
   return null
 }
@@ -58,7 +58,7 @@ describe('credential stats reset list synchronization', () => {
     let oldRefresh!: Promise<void>
     await act(async () => { oldRefresh = latest.refresh() })
     await act(async () => { await latest.resetStats(identity.id) })
-    const rows = () => authType === 1 ? latest.authFileIdentities : latest.aiProviderIdentities
+    const rows = () => authType === 1 ? latest.credentialIdentities : latest.aiProviderIdentities
     expect(oldSignal?.aborted).toBe(true)
     expect(rows()[0].period_stats?.total_requests).toBe(0)
     expect(rows()[0].credential_health).toEqual(identity.credential_health)

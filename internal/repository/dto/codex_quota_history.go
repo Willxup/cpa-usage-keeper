@@ -7,7 +7,7 @@ type CodexMainQuotaObservation struct {
 	// Provider 和 QuotaKey 是实际额度来源及其存储键；旧 Codex 调用可由 repository 补默认值。
 	Provider string
 	QuotaKey string
-	// AuthIndex 是 CPA OAuth Auth File 的稳定账号键，未来 UsageEvent 回溯必须同时限定 auth_type=oauth。
+	// AuthIndex 是 CPA OAuth Credential 的稳定账号键，未来 UsageEvent 回溯必须同时限定 auth_type=oauth。
 	AuthIndex string
 	// WindowRole 是共享 API 的 primary/secondary；Codex 排除 Code Review/Additional，Claude 仅映射 5h/7d。
 	WindowRole string

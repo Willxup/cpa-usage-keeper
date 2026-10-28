@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/cpaapikeys"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestSyncMetadataPreservesAuthFilesAndManagementAPIKeySemantics(t *testing.T) {
+func TestSyncMetadataPreservesCredentialsAndManagementAPIKeySemantics(t *testing.T) {
 	db := openMetadataTestDatabase(t, "auth-and-management.db")
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	activeStart := now.Add(-24 * time.Hour)
@@ -24,11 +24,11 @@ func TestSyncMetadataPreservesAuthFilesAndManagementAPIKeySemantics(t *testing.T
 	accountID := "acct-codex"
 	planType := "team"
 	fetcher := newMetadataTestFetcher()
-	// Auth Files 覆盖 email/label/name/auth-index fallback 和专属扩展字段。
-	fetcher.setAuthFiles([]authfiles.AuthFile{
+	// Credentials 覆盖 email/label/name/auth-index fallback 和专属扩展字段。
+	fetcher.setCredentials([]credentials.Credential{
 		{AuthIndex: "auth-email", Name: "claude.json", Path: "/data/auths/claude.json", Email: "user@example.com", Label: "ignored-label", Type: "claude", Provider: "Claude", Prefix: "oauth-prefix", Priority: metadataIntPointer(6), Disabled: metadataBoolPointer(false), Note: metadataStringPointer("auth note")},
 		{AuthIndex: "auth-label", Name: "gemini.json", Label: "Gemini Label", Type: "gemini", Provider: "Gemini", ProjectID: "project-gemini"},
-		{AuthIndex: "auth-name", Name: "Codex Name", Type: "codex", Provider: "Codex", IDToken: &authfiles.AuthFileIDToken{AccountID: &accountID, ActiveStart: &activeStart, ActiveUntil: &activeUntil, PlanType: &planType}},
+		{AuthIndex: "auth-name", Name: "Codex Name", Type: "codex", Provider: "Codex", IDToken: &credentials.CredentialIDToken{AccountID: &accountID, ActiveStart: &activeStart, ActiveUntil: &activeUntil, PlanType: &planType}},
 		{AuthIndex: "auth-index-fallback", Type: "vertex", Provider: "Vertex"},
 	})
 	fetcher.managementAPIKeysResult = &response.ManagementAPIKeysResult{StatusCode: 200, Payload: cpaapikeys.ManagementAPIKeysResponse{APIKeys: []string{"sk-alpha123456", "sk-beta654321"}}}
@@ -36,32 +36,32 @@ func TestSyncMetadataPreservesAuthFilesAndManagementAPIKeySemantics(t *testing.T
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
-	if fetcher.callCount("auth-files") != 1 {
-		t.Fatalf("auth-files calls = %d", fetcher.callCount("auth-files"))
+	if fetcher.callCount("credentials") != 1 {
+		t.Fatalf("credentials calls = %d", fetcher.callCount("credentials"))
 	}
 	if fetcher.callCount("management-api-keys") != 1 {
 		t.Fatalf("management-api-keys calls = %d", fetcher.callCount("management-api-keys"))
 	}
 	identities := loadMetadataIdentityMap(t, db)
-	emailRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "auth-email")]
+	emailRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "auth-email")]
 	if emailRow.Name != "user@example.com" || emailRow.AuthTypeName != "oauth" || emailRow.Type != "claude" || emailRow.Provider != "Claude" || emailRow.Prefix != "oauth-prefix" || emailRow.IsDeleted {
 		t.Fatalf("email auth identity = %+v", emailRow)
 	}
 	if emailRow.FileName == nil || *emailRow.FileName != "claude.json" || emailRow.FilePath == nil || *emailRow.FilePath != "/data/auths/claude.json" {
-		t.Fatalf("email auth file metadata = %+v", emailRow)
+		t.Fatalf("email credential metadata = %+v", emailRow)
 	}
 	if emailRow.Priority == nil || *emailRow.Priority != 6 || emailRow.Disabled == nil || *emailRow.Disabled || emailRow.Note == nil || *emailRow.Note != "auth note" {
 		t.Fatalf("email auth optional metadata = %+v", emailRow)
 	}
-	labelRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "auth-label")]
+	labelRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "auth-label")]
 	if labelRow.Name != "Gemini Label" || labelRow.ProjectID == nil || *labelRow.ProjectID != "project-gemini" {
 		t.Fatalf("label auth identity = %+v", labelRow)
 	}
-	codexRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "auth-name")]
+	codexRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "auth-name")]
 	if codexRow.Name != "Codex Name" || codexRow.AccountID == nil || *codexRow.AccountID != accountID || codexRow.PlanType == nil || *codexRow.PlanType != planType || codexRow.ActiveStart == nil || !codexRow.ActiveStart.Equal(activeStart) || codexRow.ActiveUntil == nil || !codexRow.ActiveUntil.Equal(activeUntil) {
 		t.Fatalf("codex auth identity = %+v", codexRow)
 	}
-	fallbackRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "auth-index-fallback")]
+	fallbackRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "auth-index-fallback")]
 	if fallbackRow.Name != "auth-index-fallback" {
 		t.Fatalf("fallback auth identity = %+v", fallbackRow)
 	}
@@ -78,12 +78,12 @@ func TestSyncMetadataPreservesAuthFilesAndManagementAPIKeySemantics(t *testing.T
 	}
 }
 
-func TestSyncMetadataFetchFailuresPreserveAuthFilesAndManagementKeys(t *testing.T) {
+func TestSyncMetadataFetchFailuresPreserveCredentialsAndManagementKeys(t *testing.T) {
 	db := openMetadataTestDatabase(t, "preserve-on-fetch-failure.db")
 	firstNow := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	secondNow := firstNow.Add(time.Hour)
 	fetcher := newMetadataTestFetcher()
-	fetcher.setAuthFiles([]authfiles.AuthFile{{AuthIndex: "preserved-auth", Email: "preserved@example.com", Type: "claude", Provider: "Claude"}})
+	fetcher.setCredentials([]credentials.Credential{{AuthIndex: "preserved-auth", Email: "preserved@example.com", Type: "claude", Provider: "Claude"}})
 	fetcher.managementAPIKeysResult = &response.ManagementAPIKeysResult{StatusCode: 200, Payload: cpaapikeys.ManagementAPIKeysResponse{APIKeys: []string{"sk-preserved123456"}}}
 	currentNow := firstNow
 	syncer := newMetadataTestSyncer(db, fetcher, func() time.Time { return currentNow })
@@ -91,16 +91,16 @@ func TestSyncMetadataFetchFailuresPreserveAuthFilesAndManagementKeys(t *testing.
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
 	currentNow = secondNow
-	fetcher.authFilesResult = nil
-	fetcher.authFilesErr = errors.New("auth unavailable")
+	fetcher.credentialsResult = nil
+	fetcher.credentialsErr = errors.New("auth unavailable")
 	fetcher.managementAPIKeysResult = nil
 	fetcher.managementAPIKeysErr = errors.New("management unavailable")
 	err := syncer.SyncMetadata(context.Background())
-	if err == nil || err.Error() != "fetch auth files: auth unavailable; fetch management api keys: management unavailable" {
+	if err == nil || err.Error() != "fetch credentials: auth unavailable; fetch management api keys: management unavailable" {
 		t.Fatalf("failure error = %v", err)
 	}
 	identities := loadMetadataIdentityMap(t, db)
-	preservedAuth := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "preserved-auth")]
+	preservedAuth := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "preserved-auth")]
 	// fetch failure 不能把本地身份 stale 或刷新 updated_at。
 	if preservedAuth.IsDeleted || preservedAuth.DeletedAt != nil || !preservedAuth.UpdatedAt.Equal(firstNow) {
 		t.Fatalf("preserved auth identity = %+v", preservedAuth)

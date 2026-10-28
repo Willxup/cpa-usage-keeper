@@ -19,21 +19,36 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	}
 	// 开始日志保持原有 debug 级别和 message。
 	logrus.Debug("metadata sync started")
+	// 远端读取前固定版本，覆盖远端快照已返回但本地 diff 尚未读取的竞争窗口。
+	credentialVersion := s.credentialMetadata.snapshotVersion()
 	// 同一轮 metadata 写入与兼容同步补算共用该时间；后台 Runner 使用自己的事务时间。
 	fetchedAt := timeutil.NormalizeStorageTime(s.now())
-	// Auth Files 先读取，但失败不跳过后续两类 metadata。
-	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
+	// Credentials 先读取，但失败不跳过后续两类 metadata。
+	credentialsResult, credentialsErr := s.metadataFetcher.FetchCredentials(ctx)
 	// 管理 API Keys 保持第二个读取位置，失败同样不阻止 provider。
 	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
 	// 八个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
 	providerSnapshot, providerFetchErr := providermetadata.Fetch(ctx, s.metadataFetcher)
-	// Auth Files 先进入自己的 repository 事务，保持原有写入顺序。
-	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
+	// Credentials 先进入自己的 repository 事务，保持原有写入顺序。
+	authApplied, authSyncErr := s.credentialMetadata.persistSnapshot(credentialVersion, func() error {
+		return syncCredentials(ctx, s.db, credentialsResult, credentialsErr, fetchedAt)
+	})
+	if !authApplied && credentialsErr != nil {
+		authSyncErr = fmt.Errorf("fetch credentials: %w", credentialsErr)
+	}
 	// 管理 API Keys 第二个串行写入，不与 SQLite provider 写入并发。
 	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
 	// provider snapshot 最后一次进入 scoped replace 单事务，并分开返回 persistence error 与 fetch warning。
-	providerSyncErr, providerWarningErr := persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
-	// 三类持久化错误按 Auth Files、管理 key、provider 的既有顺序合并。
+	var providerWarningErr error
+	providerApplied, providerSyncErr := s.credentialMetadata.persistSnapshot(credentialVersion, func() error {
+		var persistErr error
+		persistErr, providerWarningErr = persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
+		return persistErr
+	})
+	if !providerApplied && providerFetchErr != nil {
+		providerWarningErr = fmt.Errorf("fetch provider metadata: %w", providerFetchErr)
+	}
+	// 三类持久化错误按 Credentials、管理 key、provider 的既有顺序合并。
 	upsertErr := joinErrors(authSyncErr, apiKeySyncErr, providerSyncErr)
 	// aggregateErr 只承接没有 notifier 的兼容同步补算错误。
 	var aggregateErr error

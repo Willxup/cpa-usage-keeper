@@ -84,4 +84,4 @@ func sumLongUsageWindowStoredStats(db *gorm.DB, authIndex string, start, end tim
 func usageWindowStatsFromStoredRows(rows opaqueWindowStoredRows) (UsageWindowStats, error)
 
 //go:linkname loadCredentialHealthCacheRowsBatched cpa-usage-keeper/internal/repository.loadCredentialHealthCacheRowsBatched
-func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSize int, handle func(opaqueCredentialHealthRows) error) error
+func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start, anchor time.Time, batchSize int, handle func(opaqueCredentialHealthRows) error) error

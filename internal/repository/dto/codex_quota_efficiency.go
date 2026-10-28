@@ -4,9 +4,9 @@ import "time"
 
 // CodexQuotaEfficiencyQuery 描述一次只读的账号主额度效率回溯，不会把统计结果写回历史表。
 type CodexQuotaEfficiencyQuery struct {
-	// Provider 来自当前 Auth File 的真实 type；旧内部调用缺失时仍按 Codex 处理。
+	// Provider 来自当前 Credential 的真实 type；旧内部调用缺失时仍按 Codex 处理。
 	Provider string
-	// AuthIndex 是 Auth File 与 usage_events 之间唯一允许的账号关联键。
+	// AuthIndex 是 Credential 与 usage_events 之间唯一允许的账号关联键。
 	AuthIndex string
 	// Now 固定本次响应的“当前时间”，避免多条查询跨秒后对当前周期产生不同判断。
 	Now time.Time

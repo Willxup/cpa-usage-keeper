@@ -148,8 +148,16 @@ func TestAnalysisModelSpeedDailyGroupsAcrossMidnightDST(t *testing.T) {
 		t.Fatalf("wrong calendar grouping: %+v", speed)
 	}
 	for i, bucket := range speed.Buckets {
-		wantStart := time.Date(2026, 9, 4+i, 0, 0, 0, 0, location)
-		wantEnd := time.Date(2026, 9, 5+i, 0, 0, 0, 0, location)
+		// 9月6日没有00:00；只修复读取后的业务区间，旧存储键仍由上面的fixture保留。
+		startHour, endHour := 0, 0
+		if 4+i == 6 {
+			startHour = 1
+		}
+		if 5+i == 6 {
+			endHour = 1
+		}
+		wantStart := time.Date(2026, 9, 4+i, startHour, 0, 0, 0, location)
+		wantEnd := time.Date(2026, 9, 5+i, endHour, 0, 0, 0, location)
 		if !bucket.Start.Equal(wantStart) || !bucket.End.Equal(wantEnd) {
 			t.Fatalf("bucket %d: %+v, want %s..%s", i, bucket, wantStart, wantEnd)
 		}

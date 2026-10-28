@@ -260,7 +260,7 @@ func parseUsageIdentitiesPageRequest(c *gin.Context) (service.ListUsageIdentitie
 	}
 	if rawAuthType := c.Query("auth_type"); rawAuthType != "" {
 		value, err := strconv.Atoi(rawAuthType)
-		if err != nil || (value != int(entities.UsageIdentityAuthTypeAuthFile) && value != int(entities.UsageIdentityAuthTypeAIProvider)) {
+		if err != nil || (value != int(entities.UsageIdentityAuthTypeCredential) && value != int(entities.UsageIdentityAuthTypeAIProvider)) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_type must be 1 or 2"})
 			return service.ListUsageIdentitiesRequest{}, false
 		}
@@ -309,7 +309,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 	// AI Provider identity 是稳定 auth-index；响应不直接发布原始 LookupKey，OpenAI Compatibility 仅按 Issue #281 在 displayName 中保留脱敏 Key 片段。
 	var fileName *string
 	var filePath *string
-	if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
+	if item.AuthType == entities.UsageIdentityAuthTypeCredential {
 		fileName = item.FileName
 		filePath = item.FilePath
 	}

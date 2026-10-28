@@ -26,8 +26,8 @@ type RecentUsageIdentityKind uint8
 const (
 	// RecentUsageIdentityUnknown 表示缓存事件没有可用于 current usage 的身份 fallback。
 	RecentUsageIdentityUnknown RecentUsageIdentityKind = iota
-	// RecentUsageIdentityAuthFile 表示 auth_type=oauth，fallback label 使用 source。
-	RecentUsageIdentityAuthFile
+	// RecentUsageIdentityCredential 表示 auth_type=oauth，fallback label 使用 source。
+	RecentUsageIdentityCredential
 	// RecentUsageIdentityAIProvider 表示 auth_type=apikey，fallback label 使用 provider。
 	RecentUsageIdentityAIProvider
 )
@@ -44,7 +44,7 @@ type RecentUsageEvent struct {
 	ModelAlias string
 	// AuthIndex 用于关联 usage_identities，找不到身份时才使用 fallback。
 	AuthIndex string
-	// IdentityFallbackKind 记录 fallback 应落到 Auth File 还是 AI Provider。
+	// IdentityFallbackKind 记录 fallback 应落到 Credential 还是 AI Provider。
 	IdentityFallbackKind RecentUsageIdentityKind
 	// IdentityFallbackLabel 保存 source/provider 展示名，避免 realtime 再读 usage_events。
 	IdentityFallbackLabel string
@@ -89,7 +89,7 @@ type UsageRecentEventCache struct {
 	eventReadsValid bool
 	// pool 复用重复的 model/api/auth 字符串，降低 10w 级事件缓存内存。
 	pool recentUsageStringPool
-	// credentialHealth 保存 Auth Files / AI Provider 最近 5h 的成功/失败 10 分钟桶。
+	// credentialHealth 保存 Credentials / AI Provider 最近 5h 的成功/失败 10 分钟桶。
 	credentialHealth credentialHealthCache
 	// window 是缓存保留时长，只在创建时确定。
 	window time.Duration
@@ -164,7 +164,7 @@ func NewUsageRecentEventCache(db *gorm.DB, opts UsageRecentEventCacheOptions) (*
 	// start 是初始化查询左边界，窗口之外的历史事件不进入纯内存缓存。
 	start := now.Add(-cache.window)
 	// 只读取 Overview/realtime 需要的列，避免 event_key/request_id 等无关字段占内存。
-	rows, err := loadUsageRecentEventCacheRows(context.Background(), db, start)
+	rows, err := loadUsageRecentEventCacheRows(context.Background(), db, start, now)
 	if err != nil {
 		// 初始化失败表示缓存对象不可用，必须关闭 worker 并把错误交给调用方。
 		cache.Close()
@@ -179,7 +179,7 @@ func NewUsageRecentEventCache(db *gorm.DB, opts UsageRecentEventCacheOptions) (*
 	// 初始化完成后释放锁，后续读写正常并发。
 	cache.mu.Unlock()
 	// 健康图保留 5h，可能覆盖高流量账号的百万级请求；按批流式加载，避免启动峰值内存跟行数线性增长。
-	if err := loadCredentialHealthCacheRowsBatched(db, now.Add(-credentialHealthWindow), credentialHealthStartupBatchSize, func(rows []credentialHealthLoadRow) error {
+	if err := loadCredentialHealthCacheRowsBatched(db, now.Add(-credentialHealthWindow), now, credentialHealthStartupBatchSize, func(rows []credentialHealthLoadRow) error {
 		cache.mu.Lock()
 		cache.appendCredentialHealthRowsLocked(rows)
 		cache.mu.Unlock()
@@ -363,7 +363,7 @@ func (c *UsageRecentEventCache) ReloadStoredCostEvents(ctx context.Context, db *
 		return err
 	}
 	now := timeutil.NormalizeStorageTime(c.now())
-	rows, err := loadUsageRecentEventCacheRows(ctx, db, now.Add(-c.window))
+	rows, err := loadUsageRecentEventCacheRows(ctx, db, now.Add(-c.window), now)
 	if err != nil {
 		c.invalidateEventReads()
 		return err
@@ -523,6 +523,33 @@ func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, ap
 	return result, true
 }
 
+// UsedAPIKeys 在读锁内收集窗口内的 Key，不复制事件，也不暴露缓存内部切片。
+// openEnd 仅供 Overview 当前右边界使用；Realtime 始终尊重明确的 end。
+func (c *UsageRecentEventCache) UsedAPIKeys(start, end time.Time, includeEnd, openEnd bool) (map[string]struct{}, bool) {
+	if c == nil {
+		return nil, false
+	}
+	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.eventReadsValid {
+		return nil, false
+	}
+	keys := make(map[string]struct{})
+	for _, event := range c.events {
+		if event.Timestamp.Before(start) {
+			continue
+		}
+		if !openEnd && (event.Timestamp.After(end) || (!includeEnd && event.Timestamp.Equal(end))) {
+			continue
+		}
+		if event.APIGroupKey != "" {
+			keys[event.APIGroupKey] = struct{}{}
+		}
+	}
+	return keys, true
+}
+
 // EventsSince 返回从 start 起的缓存事件，供 Overview 当前右边界规避 now/end 轻微漂移。
 func (c *UsageRecentEventCache) EventsSince(start time.Time, apiGroupKey string) ([]RecentUsageEvent, bool) {
 	// nil cache 表示缓存对象不可用，Overview 当前右边界可回到 DB 旧路径。
@@ -566,18 +593,25 @@ func (c *UsageRecentEventCache) Window() time.Duration {
 	return c.window
 }
 
-func loadUsageRecentEventCacheRows(ctx context.Context, db *gorm.DB, start time.Time) ([]recentUsageEventLoadRow, error) {
+func loadUsageRecentEventCacheRows(ctx context.Context, db *gorm.DB, start, anchor time.Time) ([]recentUsageEventLoadRow, error) {
 	var rows []recentUsageEventLoadRow
+	read := usageEventTimeReadSince(start, anchor)
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
-	if err := db.WithContext(ctx).Model(&entities.UsageEvent{}).
+	if err := read.query(db.WithContext(ctx).Model(&entities.UsageEvent{})).
 		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available").
-		// 启动加载只取 retention 左边界之后的数据。
-		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
 		Order("timestamp asc").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage recent event cache rows: %w", err)
 	}
+	kept := rows[:0]
+	for _, row := range rows {
+		if read.contains(row.Timestamp) {
+			kept = append(kept, row)
+		}
+	}
+	clear(rows[len(kept):])
+	rows = kept
 	return rows, nil
 }
 
@@ -591,7 +625,7 @@ func (c *UsageRecentEventCache) appendRecentEventsLocked(rows []recentUsageEvent
 }
 
 func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoadRow) RecentUsageEvent {
-	// auth_type 决定 fallback label 的来源：auth file 用 source，ai provider 用 provider。
+	// auth_type 决定 fallback label 的来源：credential 用 source，ai provider 用 provider。
 	identityKind, fallbackLabel := usageRecentIdentityFallback(row.AuthType, row.Source, row.Provider)
 	return RecentUsageEvent{
 		// timestamp 进入缓存前统一到项目存储时区。
@@ -654,8 +688,8 @@ func usageRecentIdentityFallback(authType, source, provider string) (RecentUsage
 	// 先把历史兼容的 auth_type 写法归一，再决定 fallback 维度。
 	switch normalizeRecentUsageAuthType(authType) {
 	case "oauth":
-		// Auth File 没有 identity 命中时，展示 source 作为兜底名称。
-		return RecentUsageIdentityAuthFile, strings.TrimSpace(source)
+		// Credential 没有 identity 命中时，展示 source 作为兜底名称。
+		return RecentUsageIdentityCredential, strings.TrimSpace(source)
 	case "apikey":
 		// AI Provider 没有 identity 命中时，展示 provider 作为兜底名称。
 		return RecentUsageIdentityAIProvider, strings.TrimSpace(provider)

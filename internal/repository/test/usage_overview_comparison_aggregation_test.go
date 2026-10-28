@@ -24,7 +24,7 @@ func TestOverviewComparisonSplitAggregationMatchesEvents(t *testing.T) {
 					end = start.Add(3 * time.Hour)
 				}
 				ids := []entities.UsageIdentity{
-					{AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "file-a", Name: "same"},
+					{AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "file-a", Name: "same"},
 					{AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-a", Name: "same"},
 				}
 				if err := db.Create(&ids).Error; err != nil {
@@ -65,7 +65,7 @@ func TestOverviewComparisonSplitAggregationMatchesEvents(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				dimensions := []map[string]*dto.UsageComparisonItemRecord{got.Comparisons.Models, got.Comparisons.APIKeys, got.Comparisons.AuthFiles, got.Comparisons.AIProviders}
+				dimensions := []map[string]*dto.UsageComparisonItemRecord{got.Comparisons.Models, got.Comparisons.APIKeys, got.Comparisons.Credentials, got.Comparisons.AIProviders}
 				for dim, items := range dimensions {
 					expected := make(map[string]*dto.UsageComparisonItemRecord)
 					for _, e := range events {

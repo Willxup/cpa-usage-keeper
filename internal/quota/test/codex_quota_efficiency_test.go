@@ -17,7 +17,7 @@ func TestGetCodexQuotaHistorySelectsCurrentRealWindow(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	db := openQuotaTestDB(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 		Identity: "codex-auth",
 		Provider: "codex",
 		Type:     "codex",
@@ -48,7 +48,7 @@ func TestGetCodexQuotaHistoryRejectsUnsupportedIdentityAndInvalidRole(t *testing
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	db := openQuotaTestDB(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 		Identity: "claude-auth",
 		Provider: "claude",
 		Type:     "claude",
@@ -56,7 +56,7 @@ func TestGetCodexQuotaHistoryRejectsUnsupportedIdentityAndInvalidRole(t *testing
 	service := newQuotaServiceWithRegistry(t, db, quota.NewProviderRegistry(nil))
 
 	if response, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "claude-auth", Now: now}); err != nil || len(response.Cycles) != 0 {
-		t.Fatalf("expected Claude Auth File to have accessible empty history, got response=%+v err=%v", response, err)
+		t.Fatalf("expected Claude Credential to have accessible empty history, got response=%+v err=%v", response, err)
 	}
 	invalidRole := "additional"
 	if _, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "claude-auth", WindowRole: &invalidRole, Now: now}); !errors.Is(err, quota.ErrValidation) {
@@ -70,7 +70,7 @@ func TestGetCodexQuotaHistoryRejectsUnsupportedIdentityAndInvalidRole(t *testing
 func TestGetCodexQuotaHistoryReturnsStoredCycleAndTransitionCost(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	db := openQuotaTestDB(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "codex-auth", Provider: "codex", Type: "codex"})
+	seedUsageIdentity(t, db, entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "codex-auth", Provider: "codex", Type: "codex"})
 	cycle := seedQuotaEfficiencyServiceCycle(t, db, "codex-auth", entities.CodexQuotaWindowRolePrimary, 6*time.Hour, now.Add(-5*time.Hour), now.Add(time.Hour))
 	if err := db.Create(&entities.QuotaPercentSegment{CycleID: cycle.ID, RemainingPercent: 76, FirstObservedAt: now.Add(-30 * time.Minute), LastObservedAt: now.Add(-30 * time.Minute), ObservationCount: 1, CreatedAt: now.Add(-30 * time.Minute), UpdatedAt: now.Add(-30 * time.Minute)}).Error; err != nil {
 		t.Fatal(err)

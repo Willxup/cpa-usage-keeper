@@ -36,7 +36,7 @@ func hasPendingUsageIdentityAggregation(db *gorm.DB) (bool, error) {
 		 AND event.auth_index = identity.identity
 		 AND ((identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?))
 		LIMIT 1
-	)`, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey").Scan(&pending).Error
+	)`, entities.UsageIdentityAuthTypeCredential, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey").Scan(&pending).Error
 	if err != nil {
 		return false, err
 	}
@@ -71,7 +71,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 	}
 	// Provider replace 同样在事务前拒绝零时间，避免部分 provider scope 被错误刷新。
 	if now.IsZero() {
-		// 与 Auth File 入口返回同一明确错误，保持调用方处理简单。
+		// 与 Credential 入口返回同一明确错误，保持调用方处理简单。
 		return fmt.Errorf("usage identity sync time is zero")
 	}
 	// provider 的所有成功类型共用一轮规范化时间，不能各自读取系统时钟。
@@ -112,7 +112,7 @@ const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests
 // UsageIdentityAggregationBatchSize 限制单个 Identity 写事务最多处理 25 行。
 const UsageIdentityAggregationBatchSize = 25
 
-const activeAuthFileUsageIdentityLookupBatchSize = 500
+const activeCredentialUsageIdentityLookupBatchSize = 500
 const openAIProviderPriorityUpdateBatchSize = 500
 
 func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIdentity, error) {
@@ -345,9 +345,9 @@ func applyUsageIdentityTypesFilter(query *gorm.DB, types []string) *gorm.DB {
 func applyUsageIdentityPageSort(query *gorm.DB, sort string, authType *entities.UsageIdentityAuthType) *gorm.DB {
 	switch sort {
 	case UsageIdentityPageSortPriority:
-		// Auth Files 的 priority 同分按 CPA 文件名排列；AI Provider 只保留同步顺序兜底。
+		// Credentials 的 priority 同分按 CPA 文件名排列；AI Provider 只保留同步顺序兜底。
 		query = query.Order("priority IS NULL ASC").Order("priority DESC")
-		if authType != nil && *authType == entities.UsageIdentityAuthTypeAuthFile {
+		if authType != nil && *authType == entities.UsageIdentityAuthTypeCredential {
 			query = query.Order("LOWER(file_name) ASC")
 		}
 		return query.Order("id ASC")
@@ -360,21 +360,21 @@ func applyUsageIdentityPageSort(query *gorm.DB, sort string, authType *entities.
 	}
 }
 
-func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string) (entities.UsageIdentity, error) {
+func GetActiveCredentialUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string) (entities.UsageIdentity, error) {
 	var identity entities.UsageIdentity
 	if db == nil {
 		return identity, fmt.Errorf("database is nil")
 	}
 	if err := db.WithContext(ctx).
 		Select(usageIdentityReadColumns).
-		Where("auth_type = ? AND identity = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, strings.TrimSpace(authIndex), false).
+		Where("auth_type = ? AND identity = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeCredential, strings.TrimSpace(authIndex), false).
 		First(&identity).Error; err != nil {
-		return identity, fmt.Errorf("get active auth file usage identity by auth index: %w", err)
+		return identity, fmt.Errorf("get active credential usage identity by auth index: %w", err)
 	}
 	return identity, nil
 }
 
-func ListActiveAuthFileUsageIdentitiesByAuthIndexes(ctx context.Context, db *gorm.DB, authIndexes []string) ([]entities.UsageIdentity, error) {
+func ListActiveCredentialUsageIdentitiesByAuthIndexes(ctx context.Context, db *gorm.DB, authIndexes []string) ([]entities.UsageIdentity, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -387,14 +387,14 @@ func ListActiveAuthFileUsageIdentitiesByAuthIndexes(ctx context.Context, db *gor
 	}
 	identities := make([]entities.UsageIdentity, 0, len(authIndexes))
 	queryDB := db.WithContext(ctx)
-	for start := 0; start < len(authIndexes); start += activeAuthFileUsageIdentityLookupBatchSize {
-		end := min(start+activeAuthFileUsageIdentityLookupBatchSize, len(authIndexes))
+	for start := 0; start < len(authIndexes); start += activeCredentialUsageIdentityLookupBatchSize {
+		end := min(start+activeCredentialUsageIdentityLookupBatchSize, len(authIndexes))
 		var batch []entities.UsageIdentity
 		if err := queryDB.
 			Select(usageIdentityReadColumns).
-			Where("auth_type = ? AND identity IN ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, authIndexes[start:end], false).
+			Where("auth_type = ? AND identity IN ? AND is_deleted = ?", entities.UsageIdentityAuthTypeCredential, authIndexes[start:end], false).
 			Find(&batch).Error; err != nil {
-			return nil, fmt.Errorf("list active auth file usage identities by auth indexes: %w", err)
+			return nil, fmt.Errorf("list active credential usage identities by auth indexes: %w", err)
 		}
 		identities = append(identities, batch...)
 	}
@@ -610,7 +610,7 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 func usageIdentityEventsQuery(query *gorm.DB, identity entities.UsageIdentity) (*gorm.DB, bool) {
 	var eventAuthType string
 	switch identity.AuthType {
-	case entities.UsageIdentityAuthTypeAuthFile:
+	case entities.UsageIdentityAuthTypeCredential:
 		eventAuthType = "oauth"
 	case entities.UsageIdentityAuthTypeAIProvider:
 		eventAuthType = "apikey"
@@ -774,7 +774,7 @@ func prepareUsageIdentitySync(reader *gorm.DB, identities []entities.UsageIdenti
 		changes.create = append(changes.create, identity)
 	}
 
-	// Auth File 的成功空列表覆盖整个来源；Provider 只删除本轮成功 fetch 的类型。
+	// Credential 的成功空列表覆盖整个来源；Provider 只删除本轮成功 fetch 的类型。
 	allowedTypes := make(map[string]struct{}, len(providerTypes))
 	for _, providerType := range providerTypes {
 		allowedTypes[providerType] = struct{}{}
@@ -898,7 +898,7 @@ func usageIdentityMetadataDiff(existing, incoming entities.UsageIdentity) map[st
 	if !optionalEqual(existing.PlanType, incoming.PlanType) {
 		fields["plan_type"] = incoming.PlanType
 	}
-	if incoming.AuthType == entities.UsageIdentityAuthTypeAuthFile && strings.EqualFold(strings.TrimSpace(incoming.Type), "codex") {
+	if incoming.AuthType == entities.UsageIdentityAuthTypeCredential && strings.EqualFold(strings.TrimSpace(incoming.Type), "codex") {
 		// 官方订阅时间可在 reader 快照之后更新；SQL 条件仍原子地保留较晚值。
 		if incoming.ActiveUntil != nil && (existing.ActiveUntil == nil || incoming.ActiveUntil.After(*existing.ActiveUntil)) {
 			value := timeutil.FormatStorageTime(*incoming.ActiveUntil)
@@ -936,6 +936,6 @@ func UpdateCodexUsageIdentityActiveUntil(ctx context.Context, db *gorm.DB, ident
 		return nil
 	}
 	return db.WithContext(ctx).Model(&entities.UsageIdentity{}).
-		Where("id = ? AND auth_type = ? AND identity = ? AND account_id = ? AND LOWER(TRIM(type)) = ? AND is_deleted = ?", identity.ID, entities.UsageIdentityAuthTypeAuthFile, identity.Identity, *identity.AccountID, "codex", false).
+		Where("id = ? AND auth_type = ? AND identity = ? AND account_id = ? AND LOWER(TRIM(type)) = ? AND is_deleted = ?", identity.ID, entities.UsageIdentityAuthTypeCredential, identity.Identity, *identity.AccountID, "codex", false).
 		Update("active_until", timeutil.FormatStorageTime(activeUntil)).Error
 }

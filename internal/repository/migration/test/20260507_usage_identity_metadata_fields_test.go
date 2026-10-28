@@ -46,7 +46,7 @@ func TestAddUsageIdentityMetadataFieldsMigrationAddsNullableColumns(t *testing.T
 		t.Fatalf("create legacy usage_identities table: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO usage_identities (name, auth_type, auth_type_name, identity, type, provider, lookup_key, is_deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "Legacy", entities.UsageIdentityAuthTypeAuthFile, "oauth", "legacy-auth", "codex", "codex", "", false).Error; err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "Legacy", entities.UsageIdentityAuthTypeCredential, "oauth", "legacy-auth", "codex", "codex", "", false).Error; err != nil {
 		t.Fatalf("seed legacy usage identity: %v", err)
 	}
 

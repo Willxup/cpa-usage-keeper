@@ -111,6 +111,41 @@ func TestParseUsageQueryRangeCountsCustomDaysAcrossDSTByCalendarDate(t *testing.
 	}
 }
 
+func TestUsageDayRangesAtMidnightTransitionKeepAPIEndContract(t *testing.T) {
+	location := useTimezone(t, "America/Santiago")
+	anchor := time.Date(2026, 9, 7, 12, 0, 0, 0, location)
+	for _, request := range []struct{ rangeValue, unit, start, end string }{
+		{"yesterday", "", "", ""},
+		{"custom", "day", "2026-09-06", "2026-09-06"},
+	} {
+		got, err := timeutil.ParseUsageQueryRange(request.rangeValue, request.unit, request.start, request.end, anchor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantStart := time.Date(2026, 9, 6, 1, 0, 0, 0, location)
+		wantEnd := time.Date(2026, 9, 7, 0, 0, 0, 0, location)
+		exclusive := request.rangeValue == "custom"
+		if !exclusive {
+			wantEnd = wantEnd.Add(-time.Nanosecond)
+		}
+		if got.Count != 1 || !got.StartTime.Equal(wantStart) || !got.EndTime.Equal(wantEnd) || got.EndExclusive != exclusive {
+			t.Fatalf("%s returned %+v", request.rangeValue, got)
+		}
+	}
+	got, err := timeutil.ParseUsageQueryRange("custom", "day", "2026-09-04", "2026-09-07", anchor)
+	if err != nil || got.Count != 4 || got.EndTime.Hour() != 0 || got.EndTime.Day() != 8 {
+		t.Fatalf("calendar range drifted: %+v err=%v", got, err)
+	}
+}
+
+func TestUsageDayRangeDoesNotInventSkippedEndpoint(t *testing.T) {
+	location := useTimezone(t, "Pacific/Apia")
+	anchor := time.Date(2011, 12, 31, 12, 0, 0, 0, location)
+	if _, err := timeutil.ParseUsageQueryRange("custom", "day", "2011-12-30", "2011-12-31", anchor); err == nil {
+		t.Fatal("expected absent endpoint date to be rejected")
+	}
+}
+
 func TestParseUsageQueryRangeRejectsInvalidInputs(t *testing.T) {
 	anchor := time.Date(2026, 7, 21, 12, 0, 0, 0, time.Local)
 	for _, testCase := range []struct {

@@ -47,8 +47,8 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 			TotalTokens: 700,
 		},
 		{
-			EventKey:            "auth-file-event",
-			RequestID:           "auth-file-request",
+			EventKey:            "credential-event",
+			RequestID:           "credential-request",
 			APIGroupKey:         "provider-a",
 			Provider:            "codex",
 			AuthType:            "oauth",
@@ -98,24 +98,24 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 		t.Fatalf("expected 3 recent events in 70 minute cache, got %d: %+v", len(cached), cached)
 	}
 
-	oldAuthFile := cached[0]
-	if oldAuthFile.AuthIndex != "auth-old" || oldAuthFile.TotalTokens != 7 {
-		t.Fatalf("expected default cache window to keep 61 minute old event, got %+v", oldAuthFile)
+	oldCredential := cached[0]
+	if oldCredential.AuthIndex != "auth-old" || oldCredential.TotalTokens != 7 {
+		t.Fatalf("expected default cache window to keep 61 minute old event, got %+v", oldCredential)
 	}
 
-	authFile := cached[1]
-	if authFile.APIGroupKey != "provider-a" || authFile.Model != "gpt-5" || authFile.AuthIndex != "auth-1" {
-		t.Fatalf("unexpected auth file event dimensions: %+v", authFile)
+	credential := cached[1]
+	if credential.APIGroupKey != "provider-a" || credential.Model != "gpt-5" || credential.AuthIndex != "auth-1" {
+		t.Fatalf("unexpected credential event dimensions: %+v", credential)
 	}
-	if authFile.IdentityFallbackKind != RecentUsageIdentityAuthFile || authFile.IdentityFallbackLabel != "auth-user@example.com" {
-		t.Fatalf("expected auth file fallback to use source, got %+v", authFile)
+	if credential.IdentityFallbackKind != RecentUsageIdentityCredential || credential.IdentityFallbackLabel != "auth-user@example.com" {
+		t.Fatalf("expected credential fallback to use source, got %+v", credential)
 	}
-	if !authFile.Failed || authFile.LatencyMS != 500 || authFile.TTFTMS == nil || *authFile.TTFTMS != 120 {
-		t.Fatalf("unexpected auth file latency fields: %+v", authFile)
+	if !credential.Failed || credential.LatencyMS != 500 || credential.TTFTMS == nil || *credential.TTFTMS != 120 {
+		t.Fatalf("unexpected credential latency fields: %+v", credential)
 	}
-	if authFile.InputTokens != 10 || authFile.OutputTokens != 20 || authFile.ReasoningTokens != 30 ||
-		authFile.CachedTokens != 40 || authFile.CacheReadTokens != 50 || authFile.CacheCreationTokens != 60 || authFile.TotalTokens != 70 {
-		t.Fatalf("unexpected auth file token fields: %+v", authFile)
+	if credential.InputTokens != 10 || credential.OutputTokens != 20 || credential.ReasoningTokens != 30 ||
+		credential.CachedTokens != 40 || credential.CacheReadTokens != 50 || credential.CacheCreationTokens != 60 || credential.TotalTokens != 70 {
+		t.Fatalf("unexpected credential token fields: %+v", credential)
 	}
 
 	provider := cached[2]
@@ -173,31 +173,31 @@ func TestUsageRecentEventCacheBuildsCredentialHealthFromStartupAndAppend(t *test
 		{EventKey: "auth-latest", AuthType: "oauth", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false},
 	})
 
-	authFileHealth, ok := cache.CredentialHealth("oauth", "shared-auth", now)
+	credentialHealth, ok := cache.CredentialHealth("oauth", "shared-auth", now)
 	if !ok {
 		t.Fatal("expected credential health cache to be available")
 	}
-	if authFileHealth.WindowSeconds != int64(5*time.Hour/time.Second) || authFileHealth.BucketSeconds != int64(10*time.Minute/time.Second) {
-		t.Fatalf("unexpected health window settings: %+v", authFileHealth)
+	if credentialHealth.WindowSeconds != int64(5*time.Hour/time.Second) || credentialHealth.BucketSeconds != int64(10*time.Minute/time.Second) {
+		t.Fatalf("unexpected health window settings: %+v", credentialHealth)
 	}
-	if len(authFileHealth.Buckets) != 30 {
-		t.Fatalf("expected 30 health buckets, got %d", len(authFileHealth.Buckets))
+	if len(credentialHealth.Buckets) != 30 {
+		t.Fatalf("expected 30 health buckets, got %d", len(credentialHealth.Buckets))
 	}
-	if !authFileHealth.WindowStart.Equal(time.Date(2026, 6, 10, 7, 40, 0, 0, now.Location())) ||
-		!authFileHealth.WindowEnd.Equal(time.Date(2026, 6, 10, 12, 40, 0, 0, now.Location())) {
-		t.Fatalf("unexpected health window: start=%s end=%s", authFileHealth.WindowStart, authFileHealth.WindowEnd)
+	if !credentialHealth.WindowStart.Equal(time.Date(2026, 6, 10, 7, 40, 0, 0, now.Location())) ||
+		!credentialHealth.WindowEnd.Equal(time.Date(2026, 6, 10, 12, 40, 0, 0, now.Location())) {
+		t.Fatalf("unexpected health window: start=%s end=%s", credentialHealth.WindowStart, credentialHealth.WindowEnd)
 	}
 
-	bucket1210 := findCredentialHealthBucket(t, authFileHealth.Buckets, time.Date(2026, 6, 10, 12, 10, 0, 0, now.Location()))
+	bucket1210 := findCredentialHealthBucket(t, credentialHealth.Buckets, time.Date(2026, 6, 10, 12, 10, 0, 0, now.Location()))
 	if bucket1210.Success != 1 || bucket1210.Failure != 1 {
 		t.Fatalf("expected oauth shared-auth 12:10 bucket to have 1 success and 1 failure, got %+v", bucket1210)
 	}
-	bucket1230 := findCredentialHealthBucket(t, authFileHealth.Buckets, time.Date(2026, 6, 10, 12, 30, 0, 0, now.Location()))
+	bucket1230 := findCredentialHealthBucket(t, credentialHealth.Buckets, time.Date(2026, 6, 10, 12, 30, 0, 0, now.Location()))
 	if bucket1230.Success != 1 || bucket1230.Failure != 0 {
 		t.Fatalf("expected oauth shared-auth 12:30 bucket to include appended success, got %+v", bucket1230)
 	}
-	if authFileHealth.TotalSuccess != 2 || authFileHealth.TotalFailure != 1 {
-		t.Fatalf("unexpected oauth shared-auth totals: %+v", authFileHealth)
+	if credentialHealth.TotalSuccess != 2 || credentialHealth.TotalFailure != 1 {
+		t.Fatalf("unexpected oauth shared-auth totals: %+v", credentialHealth)
 	}
 
 	providerHealth, ok := cache.CredentialHealth("apikey", "shared-auth", now)
@@ -246,12 +246,12 @@ func TestUsageRecentEventCacheCredentialHealthUsesExactIdentityMatch(t *testing.
 	}
 	t.Cleanup(cache.Close)
 
-	authFileHealth, ok := cache.CredentialHealth("oauth", "shared-auth", now)
+	credentialHealth, ok := cache.CredentialHealth("oauth", "shared-auth", now)
 	if !ok {
 		t.Fatal("expected credential health cache to be available")
 	}
-	if authFileHealth.TotalSuccess != 1 || authFileHealth.TotalFailure != 0 {
-		t.Fatalf("expected only exact oauth shared-auth event to count, got %+v", authFileHealth)
+	if credentialHealth.TotalSuccess != 1 || credentialHealth.TotalFailure != 0 {
+		t.Fatalf("expected only exact oauth shared-auth event to count, got %+v", credentialHealth)
 	}
 
 	providerHealth, ok := cache.CredentialHealth("apikey", "shared-auth", now)
@@ -340,7 +340,7 @@ func TestCredentialHealthStartupLoadStreamsRowsInBatches(t *testing.T) {
 	}
 
 	var batchSizes []int
-	err := loadCredentialHealthCacheRowsBatched(db, now.Add(-5*time.Hour), 10, func(rows opaqueCredentialHealthRows) error {
+	err := loadCredentialHealthCacheRowsBatched(db, now.Add(-5*time.Hour), now, 10, func(rows opaqueCredentialHealthRows) error {
 		batchSizes = append(batchSizes, len(rows))
 		return nil
 	})

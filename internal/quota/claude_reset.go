@@ -31,7 +31,7 @@ func (s *Service) GetClaudeResetGrants(ctx context.Context, authIndex string) (C
 	if authIndex == "" {
 		return ClaudeResetGrantsResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ClaudeResetGrantsResponse{}, fmt.Errorf("%w: %s", ErrNotFound, authIndex)

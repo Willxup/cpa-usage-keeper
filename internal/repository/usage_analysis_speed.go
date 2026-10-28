@@ -20,25 +20,27 @@ func newAnalysisModelSpeed(start, end time.Time, daily bool) *analysisModelSpeed
 	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
 	boundaries := []time.Time{start}
 	if daily {
-		location := start.Location()
-		// UTC 这里只承载年月日的递增，不作为业务桶时区。每个日期仍按正式聚合的本地零点生成。
-		date := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
-		boundary := func(date time.Time) time.Time {
-			return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, location)
+		date := timeutil.DateOf(start)
+		for {
+			bounds, exists := timeutil.DayBounds(date, start.Location())
+			if exists && !bounds.Start.Before(start) {
+				start = bounds.Start
+				boundaries[0] = start
+				break
+			}
+			date = date.AddDays(1)
 		}
-		if boundary(date).Before(start) {
-			date = date.AddDate(0, 0, 1)
-		}
-		start = boundary(date)
-		boundaries[0] = start
-		for date = date.AddDate(0, 0, 1); boundaries[len(boundaries)-1].Before(end); date = date.AddDate(0, 0, 1) {
-			next := boundary(date)
+		for boundaries[len(boundaries)-1].Before(end) {
+			date = date.AddDays(1)
+			bounds, exists := timeutil.DayBounds(date, start.Location())
+			if !exists {
+				continue
+			}
+			next := bounds.Start
 			if next.After(end) {
 				next = end
 			}
-			if next.After(boundaries[len(boundaries)-1]) {
-				boundaries = append(boundaries, next)
-			}
+			boundaries = append(boundaries, next)
 		}
 	} else {
 		for at := start; at.Before(end); {

@@ -63,7 +63,7 @@ describe('UsagePage complete pricing integration', () => {
     }], total_count: 1, page: 1, page_size: 50, total_pages: 1, has_more: false, next_cursor: null })
     api.fetchAnalysis.mockReset().mockResolvedValue({
       granularity: 'hourly', timezone: 'America/New_York', token_usage: [],
-      api_key_composition: [], model_composition: [], auth_files_composition: [], ai_provider_composition: [],
+      api_key_composition: [], model_composition: [], credentials_composition: [], ai_provider_composition: [],
       cost_summary: { total_cost_usd: 4.25, cost_available: true }, model_efficiency: [],
       heatmap: { api_keys: [], api_key_labels: {}, models: [], cells: [] },
     })

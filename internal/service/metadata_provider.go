@@ -26,7 +26,7 @@ func persistProviderMetadata(ctx context.Context, db *gorm.DB, snapshot provider
 		identity := entities.UsageIdentity{
 			// Name 只接收 source 归一化后的 CPA name 或固定默认名。
 			Name: credential.DisplayName,
-			// AuthType 固定为 AI Provider，与 OAuth Auth File 隔离。
+			// AuthType 固定为 AI Provider，与 OAuth Credential 隔离。
 			AuthType: entities.UsageIdentityAuthTypeAIProvider,
 			// AuthTypeName 与 usage_events 的 apikey 关联规则保持一致。
 			AuthTypeName: "apikey",

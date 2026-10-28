@@ -208,7 +208,7 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 	application := newDatabasePoolTestApp(t, cfg)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	identity := entities.UsageIdentity{
-		Name: "writer-usage-identity", AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		Name: "writer-usage-identity", AuthType: entities.UsageIdentityAuthTypeCredential,
 		Identity: "writer-usage-identity", Type: "codex",
 	}
 	if err := application.DB.Create(&identity).Error; err != nil {

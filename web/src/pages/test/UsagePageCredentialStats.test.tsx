@@ -88,7 +88,7 @@ describe('UsagePage credential detail statistics', () => {
   };
 
   const render = async (authType: 1 | 2) => {
-    window.history.replaceState(null, '', authType === 1 ? '/auth-files' : '/ai-provider');
+    window.history.replaceState(null, '', authType === 1 ? '/credentials' : '/ai-provider');
     api.fetchUsageIdentitiesPage.mockResolvedValue({ identities: [identity(authType, 10), identity(authType, 20, '2')], total_count: 12, total_pages: 2 });
     api.fetchUsageIdentity.mockImplementation(async (id: string) => identity(authType, id === '1' ? 10 : 20, id));
     await act(async () => root.render(<UsagePage />));

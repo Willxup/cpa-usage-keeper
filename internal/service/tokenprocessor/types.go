@@ -14,9 +14,11 @@ const (
 	HandlerStrictPassThrough HandlerID = "strict-pass-through"
 	// HandlerOpenAICompatibility 表示 OpenAI-compatible 方言必须由有序兼容规则判断，不能假设标准 OpenAI 语义。
 	HandlerOpenAICompatibility HandlerID = "openai-compatibility"
+	// HandlerTokenBreakdown 只用于未匹配 executor 且通过校验的完整 CPA accounting。
+	HandlerTokenBreakdown HandlerID = "token-breakdown"
 )
 
-// EvidenceSource 说明本次 handler 选择来自实际 CPA executor、历史 identity hint 或安全默认值。
+// EvidenceSource 说明本次 handler 选择来自 CPA executor、完整 accounting、历史 identity hint 或安全默认值。
 type EvidenceSource string
 
 const (
@@ -26,6 +28,8 @@ const (
 	EvidenceIdentity EvidenceSource = "identity"
 	// EvidenceDefault 表示 executor 与 identity 都无法证明协议，只能走 strict default。
 	EvidenceDefault EvidenceSource = "default"
+	// EvidenceTokenBreakdown 表示未匹配 executor 使用已校验的 CPA 完整 accounting。
+	EvidenceTokenBreakdown EvidenceSource = "token_breakdown"
 )
 
 // EvidenceStrength 区分“parser 已证明字段包含关系”和“identity 只提示历史处理类型”。
@@ -38,6 +42,8 @@ const (
 	EvidenceIdentityHint EvidenceStrength = "identity_hint"
 	// EvidenceUnknown 表示没有可授予强纠错权限的协议证据。
 	EvidenceUnknown EvidenceStrength = "unknown"
+	// EvidenceAccountingContract 只证明已校验快照的统一口径，不授予旧协议再次 fold 的权限。
+	EvidenceAccountingContract EvidenceStrength = "accounting_contract"
 )
 
 // TokenValues 是 tokenprocessor 唯一接受的业务数据，刻意不携带 UsageEvent 的非 Token 字段。
@@ -99,6 +105,7 @@ const (
 	ActionNormalizeGeminiOutput      = "normalize_gemini_output"
 	ActionBackfillZeroTotal          = "backfill_zero_total"
 	ActionCorrectNonzeroTotal        = "correct_nonzero_total"
+	ActionNormalizeTokenBreakdown    = "normalize_token_breakdown"
 )
 
 const (
@@ -130,6 +137,7 @@ type handlerResolution struct {
 	identityType     string
 	needsIdentity    bool
 	unknownExecutor  bool
+	breakdownTokens  *TokenValues
 }
 
 func (r handlerResolution) HandlerID() HandlerID               { return r.handlerID }

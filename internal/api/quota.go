@@ -50,7 +50,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
 		}
-		// 路径只接受详情抽屉当前 Auth File 的稳定 auth_index，空白不能退化成宽查询。
+		// 路径只接受详情抽屉当前 Credential 的稳定 auth_index，空白不能退化成宽查询。
 		authIndex := strings.TrimSpace(c.Param("auth_index"))
 		if authIndex == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})

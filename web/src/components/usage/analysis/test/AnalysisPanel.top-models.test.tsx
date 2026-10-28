@@ -63,7 +63,7 @@ const baseAnalysis = (granularity: AnalysisResponse['granularity'], buckets: str
   },
   api_key_composition: [],
   model_composition: [],
-  auth_files_composition: [],
+  credentials_composition: [],
   ai_provider_composition: [],
   cost_summary: {
     total_cost_usd: 0,

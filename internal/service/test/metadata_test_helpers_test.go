@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/cpaapikeys"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
@@ -26,8 +26,8 @@ type openAIMetadataHook func(context.Context) (*response.OpenAICompatibilityResu
 type metadataTestFetcher struct {
 	callsMu                 sync.Mutex
 	calls                   map[string]int
-	authFilesResult         *response.AuthFilesResult
-	authFilesErr            error
+	credentialsResult       *response.CredentialsResult
+	credentialsErr          error
 	managementAPIKeysResult *response.ManagementAPIKeysResult
 	managementAPIKeysErr    error
 	standardResults         map[string]*response.ProviderKeyConfigResult
@@ -41,7 +41,7 @@ type metadataTestFetcher struct {
 func newMetadataTestFetcher() *metadataTestFetcher {
 	fetcher := &metadataTestFetcher{
 		calls:                   make(map[string]int),
-		authFilesResult:         &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{}}},
+		credentialsResult:       &response.CredentialsResult{StatusCode: 200, Payload: credentials.CredentialsResponse{Files: []credentials.Credential{}}},
 		managementAPIKeysResult: &response.ManagementAPIKeysResult{StatusCode: 200, Payload: cpaapikeys.ManagementAPIKeysResponse{APIKeys: []string{}}},
 		standardResults:         make(map[string]*response.ProviderKeyConfigResult),
 		standardErrors:          make(map[string]error),
@@ -68,14 +68,14 @@ func (f *metadataTestFetcher) callCount(source string) int {
 	return count
 }
 
-func (f *metadataTestFetcher) setAuthFiles(files []authfiles.AuthFile) {
-	f.authFilesResult = &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: files}}
-	f.authFilesErr = nil
+func (f *metadataTestFetcher) setCredentials(files []credentials.Credential) {
+	f.credentialsResult = &response.CredentialsResult{StatusCode: 200, Payload: credentials.CredentialsResponse{Files: files}}
+	f.credentialsErr = nil
 }
 
-func (f *metadataTestFetcher) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
-	f.recordCall("auth-files")
-	return f.authFilesResult, f.authFilesErr
+func (f *metadataTestFetcher) FetchCredentials(context.Context) (*response.CredentialsResult, error) {
+	f.recordCall("credentials")
+	return f.credentialsResult, f.credentialsErr
 }
 
 func (f *metadataTestFetcher) FetchManagementAPIKeys(context.Context) (*response.ManagementAPIKeysResult, error) {

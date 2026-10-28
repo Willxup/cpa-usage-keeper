@@ -521,7 +521,7 @@ func pricingM2MetadataPage(ctx context.Context, backupDB, liveDB *gorm.DB, b Pri
 			values := result[old.ID]
 			source := old.Values["source"]
 			authIndex := old.Values["auth_index"]
-			// 先按 source 查 AI Provider，再按 auth_index 查 Auth File；与 20260504 SQL 顺序一致。
+			// 先按 source 查 AI Provider，再按 auth_index 查 Credential；与 20260504 SQL 顺序一致。
 			if pricingM2Blank(values["auth_type"]) || pricingM2Blank(values["provider"]) {
 				aiFound, aiProvider, err := lookup(2, source)
 				if err != nil {

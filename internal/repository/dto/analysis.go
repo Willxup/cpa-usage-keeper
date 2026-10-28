@@ -131,17 +131,17 @@ type AnalysisLatencyDiagnosticsRecord struct {
 }
 
 type AnalysisRecord struct {
-	Granularity           AnalysisGranularity
-	RangeStart            *time.Time
-	RangeEnd              *time.Time
-	TokenUsage            []AnalysisTokenUsageBucketRecord
-	ModelSpeed            AnalysisModelSpeedRecord
-	ModelUsage            []AnalysisModelUsageRecord
-	APIKeyComposition     []AnalysisCompositionRecord
-	ModelComposition      []AnalysisCompositionRecord
-	AuthFilesComposition  []AnalysisCompositionRecord
-	AIProviderComposition []AnalysisCompositionRecord
-	Heatmap               []AnalysisHeatmapRecord
-	CostSummary           AnalysisCostSummaryRecord
-	ModelEfficiency       []AnalysisModelEfficiencyRecord
+	Granularity            AnalysisGranularity
+	RangeStart             *time.Time
+	RangeEnd               *time.Time
+	TokenUsage             []AnalysisTokenUsageBucketRecord
+	ModelSpeed             AnalysisModelSpeedRecord
+	ModelUsage             []AnalysisModelUsageRecord
+	APIKeyComposition      []AnalysisCompositionRecord
+	ModelComposition       []AnalysisCompositionRecord
+	CredentialsComposition []AnalysisCompositionRecord
+	AIProviderComposition  []AnalysisCompositionRecord
+	Heatmap                []AnalysisHeatmapRecord
+	CostSummary            AnalysisCostSummaryRecord
+	ModelEfficiency        []AnalysisModelEfficiencyRecord
 }

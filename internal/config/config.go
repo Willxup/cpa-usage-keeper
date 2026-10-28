@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/oidc"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
@@ -66,9 +67,9 @@ type Config struct {
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
 	RedisQueueIdleInterval time.Duration
-	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
+	// MetadataSyncInterval 是 credentials 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
-	// QuotaRefreshWorkerLimit 是 Auth Files 限额刷新队列的最大并发数。
+	// QuotaRefreshWorkerLimit 是 Credentials 限额刷新队列的最大并发数。
 	QuotaRefreshWorkerLimit int
 	// QuotaUpstreamResponsesEnabled 控制是否缓存并返回限额查询的原始上游响应。
 	QuotaUpstreamResponsesEnabled bool
@@ -104,6 +105,8 @@ type Config struct {
 	LoginPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
 	AuthSessionTTL time.Duration
+	// OIDC 是可选的管理员身份平台登录；配置加载只做本地校验。
+	OIDC oidc.Config
 }
 
 type LoadOptions struct {
@@ -255,6 +258,29 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
 	}
+	if strings.TrimSpace(os.Getenv("AUTH_OIDC_ALLOWED_USERS")) != "" {
+		return nil, fmt.Errorf("AUTH_OIDC_ALLOWED_USERS is no longer supported; migrate exact subjects to AUTH_OIDC_ALLOWED_SUBJECTS (JSON string array) or manage access at the identity provider before removing the old setting")
+	}
+	oidcEnabled, err := getBool("AUTH_OIDC_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	oidcPromptLogin, err := getBool("AUTH_OIDC_PROMPT_LOGIN", true)
+	if err != nil {
+		return nil, err
+	}
+	oidcSubjects, err := oidc.ParseAllowedSubjects(os.Getenv("AUTH_OIDC_ALLOWED_SUBJECTS"))
+	if err != nil {
+		return nil, err
+	}
+	oidcConfig := oidc.Config{
+		Enabled: oidcEnabled, PromptLogin: oidcPromptLogin, Issuer: strings.TrimSpace(os.Getenv("AUTH_OIDC_ISSUER")),
+		ClientID: strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_ID")), ClientSecret: strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_SECRET")),
+		RedirectURL: strings.TrimSpace(os.Getenv("AUTH_OIDC_REDIRECT_URL")), AllowedSubjects: oidcSubjects,
+	}
+	if err := oidcConfig.Validate(appBasePath, authEnabled); err != nil {
+		return nil, err
+	}
 
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
@@ -293,6 +319,7 @@ func Load(options LoadOptions) (*Config, error) {
 		LoginPassword:                 strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:                authSessionTTL,
 		UsageRawRetentionDays:         usageRawRetentionDays,
+		OIDC:                          oidcConfig,
 	}
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
 		cfg.AppHost = appHost
@@ -320,6 +347,13 @@ func Load(options LoadOptions) (*Config, error) {
 		}
 		if cfg.TLSKeyFile == "" {
 			return nil, fmt.Errorf("TLS_KEY_FILE is required when TLS_ENABLED is true")
+		}
+	}
+	if cfg.OIDC.Enabled {
+		issuer, _ := oidc.ParseEndpoint(cfg.OIDC.Issuer)
+		callback, _ := oidc.ParseEndpoint(cfg.OIDC.RedirectURL)
+		if issuer.Scheme == "http" || callback.Scheme == "http" {
+			logrus.Warn("OIDC is configured with HTTP; identity traffic or Keeper cookies may be sent without transport encryption; HTTPS is recommended")
 		}
 	}
 	cfg.resolveRelativePaths(envBaseDir)

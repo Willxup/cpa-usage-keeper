@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/benchmark/capacity"
+	"cpa-usage-keeper/internal/entities"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -77,7 +78,6 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 	if result.QuickCheck != "ok" {
 		t.Fatalf("quick check=%q", result.QuickCheck)
 	}
-	// 合成事件使用已存模型报价，热表和归档各抽样核对一次独立算式。
 	db, err := gorm.Open(sqlite.Open(options.Path), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open generated dataset: %v", err)
@@ -87,6 +87,19 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 		t.Fatalf("load generated database handle: %v", err)
 	}
 	defer sqlDB.Close()
+	var credentialAuthTypeNames []string
+	if err := db.Model(&entities.UsageIdentity{}).Where("auth_type = ?", entities.UsageIdentityAuthTypeCredential).Pluck("auth_type_name", &credentialAuthTypeNames).Error; err != nil {
+		t.Fatalf("inspect generated credential auth type names: %v", err)
+	}
+	if len(credentialAuthTypeNames) == 0 {
+		t.Fatal("generated dataset has no credential identities")
+	}
+	for _, authTypeName := range credentialAuthTypeNames {
+		if authTypeName != "oauth" {
+			t.Fatalf("generated credential auth type name=%q, want oauth", authTypeName)
+		}
+	}
+	// 合成事件使用已存模型报价，热表和归档各抽样核对一次独立算式。
 	var invalidEventCosts int64
 	if err := db.Raw(`SELECT COUNT(*) FROM (
 		SELECT cost_usd, cost_available FROM usage_events
@@ -205,9 +218,9 @@ func TestValidateDatasetAgainstManifestRejectsStaleOrMismatchedMetadata(t *testi
 		t.Fatalf("valid dataset rejected: %v", err)
 	}
 	staleGenerator := metadata
-	staleGenerator.GeneratorVersion = "production-v9-event-status-stream"
+	staleGenerator.GeneratorVersion = "production-v10-pricing-storage"
 	if err := capacity.ValidateDatasetAgainstManifest(actual, staleGenerator, manifest); err == nil {
-		t.Fatal("dataset generated before pricing storage must fail validation")
+		t.Fatal("dataset generated before credential metadata normalization must fail validation")
 	}
 
 	mismatched := actual

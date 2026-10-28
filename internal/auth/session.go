@@ -43,18 +43,21 @@ func (s *GormSessionStore) Save(token string, session Session) error {
 		return fmt.Errorf("auth session store is not configured")
 	}
 	row := entities.AuthSession{
-		TokenHash:   sessionTokenHash(token),
-		Role:        string(session.Role),
-		Source:      string(NormalizeSessionSource(session.Source)),
-		Alias:       session.Alias,
-		CPAAPIKeyID: session.CPAAPIKeyID,
-		LoginIP:     session.LoginIP,
-		LastSeenIP:  session.LastSeenIP,
-		UserAgent:   session.UserAgent,
-		LastSeenAt:  sessionTimePointer(session.LastSeenAt),
-		ExpiresAt:   session.ExpiresAt,
-		CreatedAt:   session.CreatedAt,
-		UpdatedAt:   session.CreatedAt,
+		TokenHash:    sessionTokenHash(token),
+		Role:         string(session.Role),
+		Source:       string(NormalizeSessionSource(session.Source)),
+		Alias:        session.Alias,
+		CPAAPIKeyID:  session.CPAAPIKeyID,
+		OIDCIssuer:   optionalSessionIdentity(session.OIDCIssuer),
+		OIDCSubject:  optionalSessionIdentity(session.OIDCSubject),
+		OIDCClientID: optionalSessionIdentity(session.OIDCClientID),
+		LoginIP:      session.LoginIP,
+		LastSeenIP:   session.LastSeenIP,
+		UserAgent:    session.UserAgent,
+		LastSeenAt:   sessionTimePointer(session.LastSeenAt),
+		ExpiresAt:    session.ExpiresAt,
+		CreatedAt:    session.CreatedAt,
+		UpdatedAt:    session.CreatedAt,
 	}
 	return s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "token_hash"}},
@@ -166,6 +169,7 @@ func authSessionFromRow(row entities.AuthSession) (Session, error) {
 	case RoleAdmin:
 		return Session{
 			Role: RoleAdmin, Source: source, Alias: row.Alias, LoginIP: row.LoginIP, LastSeenIP: row.LastSeenIP,
+			OIDCIssuer: sessionIdentityValue(row.OIDCIssuer), OIDCSubject: sessionIdentityValue(row.OIDCSubject), OIDCClientID: sessionIdentityValue(row.OIDCClientID),
 			UserAgent: row.UserAgent, LastSeenAt: lastSeenAt, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt,
 		}, nil
 	case RoleAPIKeyViewer:
@@ -185,17 +189,20 @@ func authSessionRecordFromRow(row entities.AuthSession) (SessionRecord, error) {
 		return SessionRecord{}, err
 	}
 	return SessionRecord{
-		TokenHash:   row.TokenHash,
-		Role:        session.Role,
-		Source:      session.Source,
-		Alias:       session.Alias,
-		CPAAPIKeyID: session.CPAAPIKeyID,
-		LoginIP:     session.LoginIP,
-		LastSeenIP:  session.LastSeenIP,
-		UserAgent:   session.UserAgent,
-		LastSeenAt:  session.LastSeenAt,
-		ExpiresAt:   session.ExpiresAt,
-		CreatedAt:   session.CreatedAt,
+		TokenHash:    row.TokenHash,
+		Role:         session.Role,
+		Source:       session.Source,
+		Alias:        session.Alias,
+		CPAAPIKeyID:  session.CPAAPIKeyID,
+		OIDCIssuer:   session.OIDCIssuer,
+		OIDCSubject:  session.OIDCSubject,
+		OIDCClientID: session.OIDCClientID,
+		LoginIP:      session.LoginIP,
+		LastSeenIP:   session.LastSeenIP,
+		UserAgent:    session.UserAgent,
+		LastSeenAt:   session.LastSeenAt,
+		ExpiresAt:    session.ExpiresAt,
+		CreatedAt:    session.CreatedAt,
 	}, nil
 }
 
@@ -220,40 +227,47 @@ type SessionSource string
 const (
 	SessionSourceStandard SessionSource = "standard"
 	SessionSourceEmbed    SessionSource = "embed"
+	SessionSourceOIDC     SessionSource = "oidc"
 )
 
 func NormalizeSessionSource(source SessionSource) SessionSource {
-	if source == SessionSourceEmbed {
-		return SessionSourceEmbed
+	if source == "" {
+		return SessionSourceStandard
 	}
-	return SessionSourceStandard
+	return source
 }
 
 type Session struct {
-	Role        Role
-	Source      SessionSource
-	Alias       string
-	CPAAPIKeyID int64
-	LoginIP     string
-	LastSeenIP  string
-	UserAgent   string
-	LastSeenAt  time.Time
-	ExpiresAt   time.Time
-	CreatedAt   time.Time
+	Role         Role
+	Source       SessionSource
+	Alias        string
+	CPAAPIKeyID  int64
+	OIDCIssuer   string
+	OIDCSubject  string
+	OIDCClientID string
+	LoginIP      string
+	LastSeenIP   string
+	UserAgent    string
+	LastSeenAt   time.Time
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
 }
 
 type SessionRecord struct {
-	TokenHash   string
-	Role        Role
-	Source      SessionSource
-	Alias       string
-	CPAAPIKeyID int64
-	LoginIP     string
-	LastSeenIP  string
-	UserAgent   string
-	LastSeenAt  time.Time
-	ExpiresAt   time.Time
-	CreatedAt   time.Time
+	TokenHash    string
+	Role         Role
+	Source       SessionSource
+	Alias        string
+	CPAAPIKeyID  int64
+	OIDCIssuer   string
+	OIDCSubject  string
+	OIDCClientID string
+	LoginIP      string
+	LastSeenIP   string
+	UserAgent    string
+	LastSeenAt   time.Time
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
 }
 
 type SessionClientMetadata struct {
@@ -281,6 +295,47 @@ type SessionManager struct {
 	sessions              map[string]Session
 	pendingActivity       map[string]sessionActivityUpdate
 	activityWriterRunning bool
+	oidcPolicy            OIDCSessionPolicy
+}
+
+// OIDCSessionPolicy 只用当前启动配置复检本地会话，不调用身份平台。
+type OIDCSessionPolicy struct {
+	Enabled          bool
+	Issuer, ClientID string
+	AllowedSubjects  []string
+}
+
+func (m *SessionManager) SetOIDCPolicy(policy OIDCSessionPolicy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	policy.AllowedSubjects = append([]string(nil), policy.AllowedSubjects...)
+	m.oidcPolicy = policy
+}
+
+func (m *SessionManager) sessionAllowedLocked(session Session) bool {
+	if session.Source == SessionSourceStandard || session.Source == SessionSourceEmbed {
+		return true
+	}
+	if session.Source != SessionSourceOIDC {
+		return false
+	}
+	p := m.oidcPolicy
+	if !p.Enabled || session.Role != RoleAdmin || session.OIDCIssuer == "" || session.OIDCSubject == "" || session.OIDCClientID == "" || session.OIDCIssuer != p.Issuer || session.OIDCClientID != p.ClientID {
+		return false
+	}
+	if len(p.AllowedSubjects) == 0 {
+		return true
+	}
+	for _, subject := range p.AllowedSubjects {
+		if subject == session.OIDCSubject {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *SessionManager) CreateOIDC(issuer, subject, clientID, alias string, metadata SessionClientMetadata) (string, time.Time, error) {
+	return m.create(Session{Role: RoleAdmin, Source: SessionSourceOIDC, OIDCIssuer: issuer, OIDCSubject: subject, OIDCClientID: clientID, Alias: alias}, metadata)
 }
 
 const sessionActivityWriteInterval = time.Minute
@@ -335,6 +390,9 @@ func (m *SessionManager) create(session Session, metadata SessionClientMetadata)
 	defer m.mu.Unlock()
 
 	m.cleanupExpiredLocked()
+	if !m.sessionAllowedLocked(session) {
+		return "", time.Time{}, fmt.Errorf("OIDC session is not permitted by current configuration")
+	}
 	now := m.now()
 	expiresAt := now.Add(m.ttl)
 	metadata = normalizeSessionClientMetadata(metadata)
@@ -437,11 +495,12 @@ func (m *SessionManager) Get(token string) (Session, bool) {
 
 	m.mu.RLock()
 	session, ok := m.sessions[token]
+	allowed := m.sessionAllowedLocked(session)
 	m.mu.RUnlock()
 	if !ok {
 		return m.getPersisted(token)
 	}
-	if !session.ExpiresAt.After(m.now()) {
+	if !session.ExpiresAt.After(m.now()) || !allowed {
 		m.Delete(token)
 		return Session{}, false
 	}
@@ -471,23 +530,35 @@ func (m *SessionManager) List() []SessionRecord {
 				records[index].LastSeenAt = session.LastSeenAt
 			}
 		}
-		return records
+		valid := records[:0]
+		for _, record := range records {
+			if m.sessionAllowedLocked(Session{Role: record.Role, Source: record.Source, OIDCIssuer: record.OIDCIssuer, OIDCSubject: record.OIDCSubject, OIDCClientID: record.OIDCClientID}) {
+				valid = append(valid, record)
+			}
+		}
+		return valid
 	}
 
 	records := make([]SessionRecord, 0, len(m.sessions))
 	for token, session := range m.sessions {
+		if !m.sessionAllowedLocked(session) {
+			continue
+		}
 		records = append(records, SessionRecord{
-			TokenHash:   sessionTokenHash(token),
-			Role:        session.Role,
-			Source:      NormalizeSessionSource(session.Source),
-			Alias:       session.Alias,
-			CPAAPIKeyID: session.CPAAPIKeyID,
-			LoginIP:     session.LoginIP,
-			LastSeenIP:  session.LastSeenIP,
-			UserAgent:   session.UserAgent,
-			LastSeenAt:  session.LastSeenAt,
-			ExpiresAt:   session.ExpiresAt,
-			CreatedAt:   session.CreatedAt,
+			TokenHash:    sessionTokenHash(token),
+			Role:         session.Role,
+			Source:       NormalizeSessionSource(session.Source),
+			Alias:        session.Alias,
+			CPAAPIKeyID:  session.CPAAPIKeyID,
+			OIDCIssuer:   session.OIDCIssuer,
+			OIDCSubject:  session.OIDCSubject,
+			OIDCClientID: session.OIDCClientID,
+			LoginIP:      session.LoginIP,
+			LastSeenIP:   session.LastSeenIP,
+			UserAgent:    session.UserAgent,
+			LastSeenAt:   session.LastSeenAt,
+			ExpiresAt:    session.ExpiresAt,
+			CreatedAt:    session.CreatedAt,
 		})
 	}
 	sort.Slice(records, func(i, j int) bool {
@@ -540,7 +611,7 @@ func (m *SessionManager) getPersisted(token string) (Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if session, ok := m.sessions[token]; ok {
-		if !session.ExpiresAt.After(m.now()) {
+		if !session.ExpiresAt.After(m.now()) || !m.sessionAllowedLocked(session) {
 			delete(m.sessions, token)
 			if err := m.store.Delete(token); err != nil {
 				panic(fmt.Errorf("delete auth session: %w", err))
@@ -557,7 +628,7 @@ func (m *SessionManager) getPersisted(token string) (Session, bool) {
 	if !ok {
 		return Session{}, false
 	}
-	if !session.ExpiresAt.After(m.now()) {
+	if !session.ExpiresAt.After(m.now()) || !m.sessionAllowedLocked(session) {
 		if err := m.store.Delete(token); err != nil {
 			panic(fmt.Errorf("delete auth session: %w", err))
 		}
@@ -682,4 +753,18 @@ func sessionTimePointer(value time.Time) *time.Time {
 	}
 	copy := value
 	return &copy
+}
+
+func optionalSessionIdentity(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func sessionIdentityValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

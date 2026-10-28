@@ -26,7 +26,7 @@ func TestUsageNonCostAggregatesIgnorePriceAndStoredFeeChanges(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
-	if err := db.Create(&entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "authfile", Identity: "auth-a", Name: "Auth A"}).Error; err != nil {
+	if err := db.Create(&entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-a", Name: "Auth A"}).Error; err != nil {
 		t.Fatalf("seed identity: %v", err)
 	}
 	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{Model: "model-a", PromptPricePer1M: 1}); err != nil {

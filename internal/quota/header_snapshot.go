@@ -11,11 +11,11 @@ import (
 const codexHeaderSnapshotValueMaxLength = 4096
 
 type UsageHeaderSnapshotInput struct {
-	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应支持的 Auth File。
+	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应支持的 Credential。
 	AuthType string
 	// AuthIndex 是 UsageEvent 携带的 CPA auth-index，空值不能建立 cache 或历史归属。
 	AuthIndex string
-	// Provider 选择当前 Header 的解码协议；cache/history 仍需核对数据库真实 Auth File type。
+	// Provider 选择当前 Header 的解码协议；cache/history 仍需核对数据库真实 Credential type。
 	Provider string
 	// ObservedAt 是 Header 对应 UsageEvent 的发生 instant，不得替换为解码或入队时间。
 	ObservedAt time.Time
@@ -26,7 +26,7 @@ type UsageHeaderSnapshotInput struct {
 type UsageHeaderSnapshot struct {
 	// AuthType 是标准化身份来源；Header 快照只接受 oauth。
 	AuthType string
-	// AuthIndex 是 CPA Auth File 稳定账号键，供 cache 身份匹配和历史回溯使用。
+	// AuthIndex 是 CPA Credential 稳定账号键，供 cache 身份匹配和历史回溯使用。
 	AuthIndex string
 	// Provider 是规范化后的已选解码来源，不替代 usage_identities.type 的身份校验。
 	Provider string
@@ -41,6 +41,8 @@ type UsageHeaderSnapshot struct {
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。
 	pendingMainObservedAt time.Time
+	// pendingMainLimitReachedObservedAt 单独记录明确限流标记的时间，缺字段的 Header 不刷新它。
+	pendingMainLimitReachedObservedAt time.Time
 	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
 	pendingAdditionalObservedAt map[string]time.Time
 	// pendingClaudeObservedAt 保留各 Claude 主窗口的观察时间，避免部分 Header 相互覆盖或被刷新为新时间。
@@ -129,7 +131,7 @@ func codexQuotaSnapshotHeaders(headers http.Header) http.Header {
 }
 
 func isCodexQuotaHeaderKey(key string) bool {
-	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" {
+	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" || key == "X-Codex-Limit-Reached" {
 		return true
 	}
 	if !strings.HasPrefix(key, codexHeaderPrefix) {

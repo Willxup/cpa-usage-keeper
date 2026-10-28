@@ -16,14 +16,14 @@ func TestUsageIdentityServiceAddsCredentialHealthToPagedRows(t *testing.T) {
 	now := time.Now().Add(-time.Minute).Truncate(time.Second)
 	if err := db.Create(&[]entities.UsageIdentity{
 		{Name: "Provider Team", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "shared-auth", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
-		{Name: "Auth File", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "shared-auth", Type: "codex", Provider: "Codex", CreatedAt: now, UpdatedAt: now},
+		{Name: "Credential", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "shared-auth", Type: "codex", Provider: "Codex", CreatedAt: now, UpdatedAt: now},
 	}).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
 		{EventKey: "provider-success", AuthType: "apikey", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false, InputTokens: 400, CacheReadTokens: 250},
 		{EventKey: "provider-failure", AuthType: "apikey", AuthIndex: "shared-auth", Timestamp: now.Add(-4 * time.Minute), Failed: true},
-		{EventKey: "auth-file-success", AuthType: "oauth", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false},
+		{EventKey: "credential-success", AuthType: "oauth", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestUsageIdentityServiceRunsDisplayNameChangeCallbackAfterAliasUpdate(t *te
 		Identity: "auth-1",
 		Type:     "claude",
 		Provider: "Claude",
-	}}, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+	}}, entities.UsageIdentityAuthTypeCredential, now); err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}
 	var callbackRows []entities.UsageIdentity

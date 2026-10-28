@@ -73,7 +73,7 @@ type RealtimeUsageTopItemRecord struct {
 type RealtimeCurrentUsageRecord struct {
 	Models      []RealtimeUsageTopItemRecord
 	APIKeys     []RealtimeUsageTopItemRecord
-	AuthFiles   []RealtimeUsageTopItemRecord
+	Credentials []RealtimeUsageTopItemRecord
 	AIProviders []RealtimeUsageTopItemRecord
 }
 
@@ -164,7 +164,7 @@ type UsageOverviewComparisonsRecord struct {
 	Granularity string
 	Models      map[string]*UsageComparisonItemRecord
 	APIKeys     map[string]*UsageComparisonItemRecord
-	AuthFiles   map[string]*UsageComparisonItemRecord
+	Credentials map[string]*UsageComparisonItemRecord
 	AIProviders map[string]*UsageComparisonItemRecord
 }
 

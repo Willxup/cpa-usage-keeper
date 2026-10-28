@@ -11,7 +11,7 @@ import (
 
 func TestUsageAnalysisPreservesStoredCostWithPricingDimensions(t *testing.T) {
 	db := openTestDatabase(t)
-	bucket := time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local)
+	bucket := time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local).Truncate(time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-a", DisplayKey: "sk-***"}).Error; err != nil {
 		t.Fatalf("seed API key: %v", err)
 	}

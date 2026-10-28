@@ -21,7 +21,7 @@ func TestAppWiredUsageAggregationRunnerCatchesUpExistingEventsAndStops(t *testin
 		t.Fatalf("open seed database: %v", err)
 	}
 	eventTime := time.Date(2026, 7, 20, 10, 0, 0, 0, time.Local)
-	identity := entities.UsageIdentity{Name: "startup-auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "startup-auth", Type: "codex"}
+	identity := entities.UsageIdentity{Name: "startup-auth", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "startup-auth", Type: "codex"}
 	if err := seedDB.Create(&identity).Error; err != nil {
 		t.Fatalf("seed startup identity: %v", err)
 	}

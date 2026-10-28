@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteCredentials, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setCredentialsDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -243,7 +243,7 @@ describe('fetchUsageEvents', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(response.current_usage.models).toEqual([{ key: 'gpt-5', label: 'gpt-5', tokens: 20, requests: 1, share: 100 }]);
     expect(response.current_usage.api_keys).toEqual([]);
-    expect(response.current_usage.auth_files).toEqual([]);
+    expect(response.current_usage.credentials).toEqual([]);
     expect(response.current_usage.ai_providers).toEqual([]);
     expect(response.latency_scatter).toEqual({
       points: [{ ttft_ms: 120, latency_ms: 800 }],
@@ -664,6 +664,20 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
   });
 
+  it.each(['overview', 'analysis', 'request-events'] as const)('loads %s candidates with the shared range', async (scope) => {
+    const fetchMock = mockJSON({ options: [] });
+    await fetchCpaApiKeyOptions(undefined, { scope, range: { range: '24h' } });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope, range: '24h' });
+  });
+
+  it.each(['15m', '30m', '60m'] as const)('loads realtime candidates for %s without the overview range', async (window) => {
+    const fetchMock = mockJSON({ options: [] });
+    await fetchCpaApiKeyOptions(undefined, { scope: 'realtime', window });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: 'realtime', window });
+  });
+
   it('loads CPA API key options and updates aliases', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(Response.json({ options: [{ id: '123', keyAlias: 'Main', displayKey: 'sk-*********123456', label: 'Main', lastSyncedAt: '2026-05-13T00:00:00Z' }] }))
@@ -854,16 +868,16 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
   });
 
-  it('disables selected auth files through the protected management endpoint', async () => {
+  it('disables selected credentials through the protected management endpoint', async () => {
     const fetchMock = mockJSON({ names: ['a.json'], affected: 1 });
 
-    const response = await setAuthFilesDisabled(['a.json'], true);
+    const response = await setCredentialsDisabled(['a.json'], true);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.affected).toBe(1);
-    expect(parsed.pathname).toBe('/api/v1/auth-files/status');
+    expect(parsed.pathname).toBe('/api/v1/credentials/status');
     expect(init).toMatchObject({ credentials: 'include', method: 'PATCH' });
     expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ names: ['a.json'], disabled: true }));
@@ -889,10 +903,10 @@ describe('fetchUsageEvents', () => {
 
   it('sends only an integer priority and encoded auth index for each credential kind', async () => {
     const fetchMock = mockJSON({ auth_index: 'idx/one', priority: -3 });
-    await setCredentialPriority('auth-file', 'idx/one', -3);
+    await setCredentialPriority('credential', 'idx/one', -3);
     await setCredentialPriority('ai-provider', 'idx/one', 0);
     const paths = fetchMock.mock.calls.map(([url]) => new URL(String(url), 'http://localhost').pathname);
-    expect(paths).toEqual(['/api/v1/auth-files/idx%2Fone/priority', '/api/v1/ai-providers/idx%2Fone/priority']);
+    expect(paths).toEqual(['/api/v1/credentials/idx%2Fone/priority', '/api/v1/ai-providers/idx%2Fone/priority']);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init).toMatchObject({ credentials: 'include', method: 'PATCH' });
       expect(Object.keys(JSON.parse(String(init?.body)))).toEqual(['priority']);
@@ -901,16 +915,16 @@ describe('fetchUsageEvents', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ priority: 0 });
   });
 
-  it('deletes selected auth files through the protected management endpoint', async () => {
+  it('deletes selected credentials through the protected management endpoint', async () => {
     const fetchMock = mockJSON({ names: ['a.json', 'b.json'], affected: 2 });
 
-    const response = await deleteAuthFiles(['a.json', 'b.json']);
+    const response = await deleteCredentials(['a.json', 'b.json']);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.names).toEqual(['a.json', 'b.json']);
-    expect(parsed.pathname).toBe('/api/v1/auth-files');
+    expect(parsed.pathname).toBe('/api/v1/credentials');
     expect(init).toMatchObject({ credentials: 'include', method: 'DELETE' });
     expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ names: ['a.json', 'b.json'] }));

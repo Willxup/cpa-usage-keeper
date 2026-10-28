@@ -90,8 +90,8 @@ func TestKeyViewerOverviewAndAnalysisReadOnlySessionKeyStoredCosts(t *testing.T)
 			Key     string  `json:"key"`
 			CostUSD float64 `json:"cost_usd"`
 		} `json:"api_key_composition"`
-		AuthFilesComposition  []json.RawMessage `json:"auth_files_composition"`
-		AIProviderComposition []json.RawMessage `json:"ai_provider_composition"`
+		CredentialsComposition []json.RawMessage `json:"credentials_composition"`
+		AIProviderComposition  []json.RawMessage `json:"ai_provider_composition"`
 	}
 	if err := json.Unmarshal(analysis.Body.Bytes(), &analysisPayload); err != nil {
 		t.Fatalf("decode Viewer Analysis: %v", err)
@@ -99,7 +99,7 @@ func TestKeyViewerOverviewAndAnalysisReadOnlySessionKeyStoredCosts(t *testing.T)
 	if !analysisPayload.CostSummary.CostAvailable || !overviewAPICostClose(analysisPayload.CostSummary.TotalCostUSD, viewerCost) ||
 		len(analysisPayload.TokenUsage) != 1 || analysisPayload.TokenUsage[0].TotalTokens != 100 || !overviewAPICostClose(analysisPayload.TokenUsage[0].CostUSD, viewerCost) ||
 		len(analysisPayload.APIKeyComposition) != 1 || analysisPayload.APIKeyComposition[0].Key != "42" || !overviewAPICostClose(analysisPayload.APIKeyComposition[0].CostUSD, viewerCost) ||
-		len(analysisPayload.AuthFilesComposition) != 0 || len(analysisPayload.AIProviderComposition) != 0 {
+		len(analysisPayload.CredentialsComposition) != 0 || len(analysisPayload.AIProviderComposition) != 0 {
 		t.Fatalf("Viewer Analysis leaked another Key or source identity: %+v", analysisPayload)
 	}
 }

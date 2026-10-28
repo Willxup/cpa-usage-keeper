@@ -13,11 +13,25 @@ import (
 	"cpa-usage-keeper/internal/quota"
 )
 
+// 两类请求各自串行回退，但可同时执行；测试响应按接口分流，不依赖跨接口调用顺序。
+type antigravityRecordingCaller struct {
+	quota        recordingManagementCaller
+	subscription recordingManagementCaller
+}
+
+func (c *antigravityRecordingCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
+	if strings.HasSuffix(request.URL, ":loadCodeAssist") {
+		return c.subscription.CallManagementAPI(ctx, request)
+	}
+	return c.quota.CallManagementAPI(ctx, request)
+}
+
 func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{
 		quotaAPIResponse(200, `{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`),
+	}}, subscription: recordingManagementCaller{responses: []*apicall.Response{
 		quotaAPIResponse(200, `{"body":{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-ultra-tier","name":"Ultra"}}}`),
-	}}
+	}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
@@ -49,25 +63,25 @@ func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 	if !contains(body, `"groups":[`) || !contains(body, `"displayName":"Gemini Models"`) || !contains(body, `"description":"Models within this group: Gemini Flash, Gemini Pro"`) || !contains(body, `"bucketId":"gemini-5h"`) || !contains(body, `"subscription":{"currentTier"`) || contains(body, `"models"`) || contains(body, "bodyText") || contains(body, "statusCode") {
 		t.Fatalf("unexpected antigravity result JSON: %s", body)
 	}
-	if len(caller.requests) != 2 {
-		t.Fatalf("expected quota and subscription api-call requests, got %d", len(caller.requests))
+	if len(caller.quota.requests) != 1 || len(caller.subscription.requests) != 1 {
+		t.Fatalf("expected one quota and one subscription request, got %#v", caller)
 	}
-	request := caller.requests[0]
+	request := caller.quota.requests[0]
 	if request.AuthIndex != "ag-auth" || request.Method != "POST" || request.URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary" {
 		t.Fatalf("unexpected api-call request: %+v", request)
 	}
-	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
+	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "antigravity/hub/2.23.0 darwin/arm64" {
 		t.Fatalf("unexpected api-call headers: %+v", request.Header)
 	}
 	data, ok := request.Data.(map[string]string)
 	if !ok || data["project"] != "project-123" {
 		t.Fatalf("unexpected api-call data: %#v", request.Data)
 	}
-	subscriptionRequest := caller.requests[1]
+	subscriptionRequest := caller.subscription.requests[0]
 	if subscriptionRequest.AuthIndex != "ag-auth" || subscriptionRequest.Method != "POST" || subscriptionRequest.URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
 		t.Fatalf("unexpected subscription request: %+v", subscriptionRequest)
 	}
-	if subscriptionRequest.Header["Authorization"] != "Bearer $TOKEN$" || subscriptionRequest.Header["Content-Type"] != "application/json" || subscriptionRequest.Header["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
+	if subscriptionRequest.Header["Authorization"] != "Bearer $TOKEN$" || subscriptionRequest.Header["Content-Type"] != "application/json" || subscriptionRequest.Header["User-Agent"] != "antigravity/hub/2.23.0 darwin/arm64" {
 		t.Fatalf("unexpected subscription request headers: %+v", subscriptionRequest.Header)
 	}
 	subscriptionData, ok := subscriptionRequest.Data.(map[string]any)
@@ -90,11 +104,12 @@ func TestAntigravityProviderFallsBackToProdSubscriptionEndpoint(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			quotaBody := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
 			subscriptionBody := `{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-pro-tier","name":"Pro"}}`
-			caller := &recordingManagementCaller{responses: []*apicall.Response{
+			caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{
 				quotaAPIResponse(200, quotaBody),
+			}}, subscription: recordingManagementCaller{responses: []*apicall.Response{
 				test.dailyResponse,
 				quotaAPIResponse(200, subscriptionBody),
-			}}
+			}}}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
@@ -109,11 +124,11 @@ func TestAntigravityProviderFallsBackToProdSubscriptionEndpoint(t *testing.T) {
 			if result.Subscription == nil || result.Subscription.PaidTier == nil || result.Subscription.PaidTier.ID != "g1-pro-tier" {
 				t.Fatalf("expected prod subscription fallback result, got %#v", result.Subscription)
 			}
-			if len(caller.requests) != 3 {
-				t.Fatalf("expected quota plus two subscription requests, got %d", len(caller.requests))
+			if len(caller.quota.requests) != 1 || len(caller.subscription.requests) != 2 {
+				t.Fatalf("expected quota plus two subscription requests, got %#v", caller)
 			}
-			if caller.requests[1].URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" || caller.requests[2].URL != "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
-				t.Fatalf("unexpected subscription fallback order: %+v", caller.requests[1:])
+			if caller.subscription.requests[0].URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" || caller.subscription.requests[1].URL != "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
+				t.Fatalf("unexpected subscription fallback order: %+v", caller.subscription.requests)
 			}
 		})
 	}
@@ -134,10 +149,10 @@ func TestAntigravityProviderRejectsMissingProjectID(t *testing.T) {
 }
 
 func TestAntigravityProviderContinuesAfterSuccessfulEmptyQuota(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{
 		quotaAPIResponse(200, `{"groups":[]}`),
 		quotaAPIResponse(200, `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.72}]}]}`),
-	}}
+	}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity, configs.AntigravitySubscriptions)
 
@@ -152,14 +167,14 @@ func TestAntigravityProviderContinuesAfterSuccessfulEmptyQuota(t *testing.T) {
 	if result.Quota == nil || len(result.Quota.Groups) != 1 {
 		t.Fatalf("expected later non-empty quota response, got %#v", result.Quota)
 	}
-	if len(caller.requests) != 4 {
-		t.Fatalf("expected two quota requests and both subscription fallback requests, got %d requests", len(caller.requests))
+	if len(caller.quota.requests) != 2 || len(caller.subscription.requests) != 2 {
+		t.Fatalf("expected two quota requests and both subscription fallback requests, got %#v", caller)
 	}
 }
 
 func TestAntigravityProviderReturnsSuccessfulEmptyQuotaAfterAllEndpoints(t *testing.T) {
 	emptyResponse := quotaAPIResponse(200, `{"groups":[]}`)
-	caller := &recordingManagementCaller{responses: []*apicall.Response{emptyResponse, emptyResponse, emptyResponse}}
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{emptyResponse, emptyResponse, emptyResponse}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity, configs.AntigravitySubscriptions)
 
@@ -174,14 +189,14 @@ func TestAntigravityProviderReturnsSuccessfulEmptyQuotaAfterAllEndpoints(t *test
 	if result.Quota == nil || len(result.Quota.Groups) != 0 {
 		t.Fatalf("expected empty quota groups, got %#v", result.Quota)
 	}
-	if len(caller.requests) != 5 {
-		t.Fatalf("expected all quota fallback endpoints plus both subscription fallback requests, got %d requests", len(caller.requests))
+	if len(caller.quota.requests) != 3 || len(caller.subscription.requests) != 2 {
+		t.Fatalf("expected all quota fallback endpoints plus both subscription fallback requests, got %#v", caller)
 	}
 }
 
 func TestAntigravityProviderNormalizesFiniteQuotaFractions(t *testing.T) {
 	body := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"percent","window":"5h","remainingFraction":"72%"},{"bucketId":"nan","window":"5h","remainingFraction":"NaN"},{"bucketId":"infinity","window":"5h","remainingFraction":"+Inf"},{"bucketId":"invalid","window":"5h","remainingFraction":"not-a-number"},{"bucketId":"decimal","window":"weekly","remainingFraction":0.5}]}]}`
-	caller := &recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, body)}}
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, body)}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
@@ -209,7 +224,7 @@ func TestAntigravityProviderNormalizesFiniteQuotaFractions(t *testing.T) {
 }
 
 func TestAntigravityProviderReturnsTargetErrorMessage(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(500, `{"error":"backend unavailable"}`)}}
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(500, `{"error":"backend unavailable"}`)}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
@@ -236,11 +251,12 @@ func TestAntigravityProviderKeepsQuotaWhenSubscriptionIsUnavailable(t *testing.T
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			quotaBody := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
-			caller := &recordingManagementCaller{responses: []*apicall.Response{
+			caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{
 				quotaAPIResponse(200, quotaBody),
+			}}, subscription: recordingManagementCaller{responses: []*apicall.Response{
 				test.response,
 				test.response,
-			}}
+			}}}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
@@ -252,39 +268,33 @@ func TestAntigravityProviderKeepsQuotaWhenSubscriptionIsUnavailable(t *testing.T
 			if result.Quota == nil || len(result.Quota.Groups) != 1 || result.Subscription != nil {
 				t.Fatalf("expected quota without optional subscription, got %#v", result)
 			}
-			if len(caller.requests) != 3 {
-				t.Fatalf("expected quota and both subscription fallback requests, got %d", len(caller.requests))
+			if len(caller.quota.requests) != 1 || len(caller.subscription.requests) != 2 {
+				t.Fatalf("expected quota and both subscription fallback requests, got %#v", caller)
 			}
 		})
 	}
 }
 
-func TestAntigravityProviderSkipsSubscriptionWhenQuotaFails(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{
+func TestAntigravityProviderReturnsQuotaParseError(t *testing.T) {
+	caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{
 		{StatusCode: 200, BodyText: `not-json`, Body: json.RawMessage(`null`)},
-		quotaAPIResponse(200, `{}`),
-	}}
+	}}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
 	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
-	if err == nil {
-		t.Fatal("expected quota failure")
-	}
-	if len(caller.requests) != 1 || caller.requests[0].URL != configs.Antigravity[0].URL {
-		t.Fatalf("expected only the quota request, got %+v", caller.requests)
+	if err == nil || err.Error() != "parse quota response body" {
+		t.Fatalf("expected quota parse failure, got %v", err)
 	}
 }
 
 type antigravitySubscriptionContextCaller struct {
-	calls                 int
 	subscriptionDeadlines []time.Time
 	subscriptionErr       error
 }
 
-func (c *antigravitySubscriptionContextCaller) CallManagementAPI(ctx context.Context, _ apicall.Request) (*apicall.Response, error) {
-	c.calls++
-	if c.calls == 1 {
+func (c *antigravitySubscriptionContextCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
+	if strings.HasSuffix(request.URL, ":retrieveUserQuotaSummary") {
 		body := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
 		return quotaAPIResponse(200, body), nil
 	}
@@ -324,8 +334,8 @@ func TestAntigravityProviderBoundsOptionalSubscriptionContext(t *testing.T) {
 			if result.Quota == nil || result.Subscription != nil {
 				t.Fatalf("expected quota without optional subscription, got %#v", result)
 			}
-			if caller.calls != 3 || len(caller.subscriptionDeadlines) != 2 || caller.subscriptionDeadlines[0].IsZero() {
-				t.Fatalf("expected both subscription calls with deadlines, calls=%d deadlines=%v", caller.calls, caller.subscriptionDeadlines)
+			if len(caller.subscriptionDeadlines) != 2 || caller.subscriptionDeadlines[0].IsZero() {
+				t.Fatalf("expected both subscription calls with deadlines, got %v", caller.subscriptionDeadlines)
 			}
 			if !caller.subscriptionDeadlines[0].Equal(caller.subscriptionDeadlines[1]) {
 				t.Fatalf("expected subscription fallbacks to share one deadline, got %v", caller.subscriptionDeadlines)

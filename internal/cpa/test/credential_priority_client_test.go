@@ -52,7 +52,7 @@ func TestProviderConfigClientPUTsEachSupplierList(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer server.Close()
-			status, err := cpa.NewClient(server.URL, "management-secret", 2*time.Second, false).UpdateProviderConfig(context.Background(), providerType, &document)
+			status, err := cpa.NewClient(server.URL, "management-secret", 2*time.Second, false).UpdateProviderConfig(context.Background(), providerType, &document, "")
 			if err != nil || status != http.StatusOK {
 				t.Fatalf("PUT status = %d, err = %v", status, err)
 			}
@@ -63,7 +63,7 @@ func TestProviderConfigClientPUTsEachSupplierList(t *testing.T) {
 	}
 }
 
-func TestAuthFilePriorityClientSendsNameAndPriorityOnly(t *testing.T) {
+func TestCredentialPriorityClientSendsNameAndPriorityOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch || r.URL.Path != "/v8/management/credentials/fields" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -80,7 +80,7 @@ func TestAuthFilePriorityClientSendsNameAndPriorityOnly(t *testing.T) {
 	}))
 	defer server.Close()
 	client := cpa.NewClient(server.URL, "management-secret", 2*time.Second, false)
-	if status, err := client.UpdateAuthFilePriority(context.Background(), "auth.json", 0); err != nil || status != http.StatusOK {
+	if status, err := client.UpdateCredentialPriority(context.Background(), "auth.json", 0); err != nil || status != http.StatusOK {
 		t.Fatalf("priority patch status=%d err=%v", status, err)
 	}
 }

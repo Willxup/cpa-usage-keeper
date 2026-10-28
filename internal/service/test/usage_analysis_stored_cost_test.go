@@ -23,7 +23,7 @@ func TestUsageServiceAnalysisKeepsStoredCostsAcrossViewsAndPricingChanges(t *tes
 		t.Fatal(err)
 	}
 	identities := []entities.UsageIdentity{
-		{Name: "Same name", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "analysis-auth"},
+		{Name: "Same name", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "analysis-auth"},
 		{Name: "Same name", AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "analysis-provider"},
 	}
 	if err := db.Create(&identities).Error; err != nil {
@@ -70,7 +70,7 @@ func TestUsageServiceAnalysisKeepsStoredCostsAcrossViewsAndPricingChanges(t *tes
 		}{
 			{"model", result.ModelComposition, "analysis-model", 6.25},
 			{"key", result.APIKeyComposition, key.APIKey, 6.25},
-			{"auth", result.AuthFilesComposition, "analysis-auth", feeAuth},
+			{"auth", result.CredentialsComposition, "analysis-auth", feeAuth},
 			{"provider", result.AIProviderComposition, "analysis-provider", feeProvider},
 		} {
 			if len(view.items) != 1 || view.items[0].Key != view.key || !view.items[0].CostAvailable || !usageFilterCostClose(view.items[0].CostUSD, view.cost) {

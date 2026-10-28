@@ -3,7 +3,7 @@ import type { UsageIdentityTypeCount } from '@/lib/types'
 import { buildCredentialProviderFilterOptions, credentialProviderFilterTypes } from '../credentialProviderFilters'
 describe('credentialProviderFilters', () => {
   // 未知类型计入 All；Gemini 合并兼容 type。
-  it('keeps CPA built-in Auth Files filters and Gemini CLI compatibility', () => {
+  it('keeps CPA built-in Credentials filters and Gemini CLI compatibility', () => {
     const counts: UsageIdentityTypeCount[] = [
       { type: 'antigravity', count: 1 },
       { type: 'claude', count: 2 },
@@ -22,7 +22,7 @@ describe('credentialProviderFilters', () => {
       { type: 'gemini-interactions', count: 3 },
       { type: 'unknown-auth', count: 8 },
     ]
-    const options = buildCredentialProviderFilterOptions('auth-files', counts)
+    const options = buildCredentialProviderFilterOptions('credentials', counts)
     expect(options.map((option) => [option.key, option.count])).toEqual([
       ['all', 70],
       ['antigravity', 1],
@@ -34,11 +34,11 @@ describe('credentialProviderFilters', () => {
       ['xai', 6],
       ['vertex', 7],
     ])
-    expect(credentialProviderFilterTypes('auth-files', 'gemini')).toEqual(['gemini', 'gemini-cli'])
-    expect(credentialProviderFilterTypes('auth-files', 'devin')).toEqual(['devin'])
-    expect(credentialProviderFilterTypes('auth-files', 'kimi')).toEqual(['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'])
-    expect(credentialProviderFilterTypes('auth-files', 'xai')).toEqual(['xai'])
-    expect(credentialProviderFilterTypes('auth-files', 'vertex')).toEqual(['vertex'])
+    expect(credentialProviderFilterTypes('credentials', 'gemini')).toEqual(['gemini', 'gemini-cli'])
+    expect(credentialProviderFilterTypes('credentials', 'devin')).toEqual(['devin'])
+    expect(credentialProviderFilterTypes('credentials', 'kimi')).toEqual(['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'])
+    expect(credentialProviderFilterTypes('credentials', 'xai')).toEqual(['xai'])
+    expect(credentialProviderFilterTypes('credentials', 'vertex')).toEqual(['vertex'])
   })
   // AI Provider 的 Gemini 还包括 Interactions，顺序沿用 CPA registry。
   it('uses the CPA built-in AI Provider registry order', () => {

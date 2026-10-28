@@ -28,6 +28,8 @@ type codexDecodedHeaderQuota struct {
 	PlanType string
 	// ActiveLimit 是 X-Codex-Active-Limit，用于判断无 group 窗口是否只是 Additional 的兼容投影。
 	ActiveLimit string
+	// LimitReached 只接收 Header 明确的布尔值；nil 表示保留已有缓存标记。
+	LimitReached *bool
 	// PrimaryWindow 是无 group Primary；Active-Limit 命中 Additional 时，它可能是兼容投影。
 	PrimaryWindow *CodexUsageWindow
 	// SecondaryWindow 是无 group Secondary；归属规则与 PrimaryWindow 相同。
@@ -57,6 +59,12 @@ func decodeCodexHeaderQuota(headers http.Header) (codexDecodedHeaderQuota, bool)
 		ActiveLimit:     strings.TrimSpace(firstHeaderValue(filtered, "X-Codex-Active-Limit")),
 		PrimaryWindow:   parseCodexDecodedHeaderUsageWindow(filtered, codexHeaderPrefix+"Primary-"),
 		SecondaryWindow: parseCodexDecodedHeaderUsageWindow(filtered, codexHeaderPrefix+"Secondary-"),
+	}
+	switch strings.ToLower(strings.TrimSpace(firstHeaderValue(filtered, "X-Codex-Limit-Reached"))) {
+	case "true":
+		decoded.LimitReached = boolPtr(true)
+	case "false":
+		decoded.LimitReached = boolPtr(false)
 	}
 	// Additional 每个 group 同样只解析一次，结果只进入现有 cache 投影。
 	decoded.Additional = parseCodexDecodedAdditionalHeaderLimits(filtered)
@@ -125,6 +133,9 @@ func (decoded codexDecodedHeaderQuota) cacheOutput() (ProviderOutput, bool) {
 	if !decoded.activeLimitMatchesAdditionalGroup(activeAlias) {
 		// 普通、缺失或未知 Active-Limit 仍沿用原 cache 合同，只过滤未支持窗口和负 used percent。
 		usage.RateLimit = codexDecodedCacheRateLimit(decoded.PrimaryWindow, decoded.SecondaryWindow)
+		if usage.RateLimit != nil {
+			usage.RateLimit.LimitReached = decoded.LimitReached
+		}
 	}
 	// Additional group 按已排序解码顺序投影，保持既有 quota row 稳定顺序。
 	for _, additional := range decoded.Additional {

@@ -11,7 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let latest: ReturnType<typeof useCredentialPages> | null = null
 
 function Harness() {
-  const result = useCredentialPages({ enabledAuthFiles: true, enabledAiProviders: true })
+  const result = useCredentialPages({ enabledCredentials: true, enabledAiProviders: true })
   useEffect(() => { latest = result }, [result])
   return null
 }
@@ -24,7 +24,7 @@ const requestFor = (fetchMock: ReturnType<typeof vi.spyOn>, authType: string) =>
   return call?.searchParams
 }
 
-const storedPreferences = (scope: 'auth-files' | 'ai-provider') => (
+const storedPreferences = (scope: 'credentials' | 'ai-provider') => (
   JSON.parse(String(window.localStorage.getItem(CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS[scope])))
 )
 
@@ -55,20 +55,20 @@ describe('credential list preferences wiring', () => {
   it('starts from each section default when nothing is stored', async () => {
     await act(async () => root.render(<Harness />))
 
-    expect(latest?.authFileSort).toBe('priority')
+    expect(latest?.credentialSort).toBe('priority')
     expect(latest?.aiProviderSort).toBe('total_requests')
-    expect(latest?.authFilePageSize).toBe(10)
+    expect(latest?.credentialPageSize).toBe(10)
     expect(latest?.aiProviderProviderFilter).toBe('all')
     expect(requestFor(fetchMock, '1')?.get('sort')).toBe('priority')
     expect(requestFor(fetchMock, '2')?.get('sort')).toBe('total_requests')
   })
 
   it.each([
-    ['auth-files', 'codex', '1', 'codex'],
+    ['credentials', 'codex', '1', 'codex'],
     ['ai-provider', 'openai', '2', 'openai'],
-    ['auth-files', 'all', '1', null],
-    ['auth-files', 'unknown', '1', 'claude'],
-    ['auth-files', 'openai', '1', 'claude'],
+    ['credentials', 'all', '1', null],
+    ['credentials', 'unknown', '1', 'claude'],
+    ['credentials', 'openai', '1', 'claude'],
     ['ai-provider', 'antigravity', '2', 'claude'],
   ] as const)('resolves %s URL provider %s before the first request without saving it', async (scope, provider, authType, expectedType) => {
     window.__APP_BASE_PATH__ = '/cpa'
@@ -84,7 +84,7 @@ describe('credential list preferences wiring', () => {
     expect(requestFor(fetchMock, authType === '1' ? '2' : '1')?.get('type')).toBe('claude')
     expect(storedPreferences(scope).providerFilter).toBe('claude')
     // 改分页、排序也不能把仅来自链接的 provider 写成默认偏好。
-    await act(async () => latest!.setAuthFilePageSize(20))
+    await act(async () => latest!.setCredentialPageSize(20))
     await act(async () => latest!.setAiProviderSort('total_tokens'))
     expect(storedPreferences(scope).providerFilter).toBe('claude')
   })
@@ -107,10 +107,10 @@ describe('credential list preferences wiring', () => {
     expect(aiProviderRequest?.get('page_size')).toBe('50')
     expect(aiProviderRequest?.get('type')).toBe('openai')
 
-    // Auth 文件分区没有存过任何偏好，必须保持自己的默认值。
-    expect(latest?.authFileSort).toBe('priority')
-    expect(latest?.authFilePageSize).toBe(10)
-    expect(latest?.authFileProviderFilter).toBe('all')
+    // 凭证分区没有存过任何偏好，必须保持自己的默认值。
+    expect(latest?.credentialSort).toBe('priority')
+    expect(latest?.credentialPageSize).toBe(10)
+    expect(latest?.credentialProviderFilter).toBe('all')
   })
 
   it('persists each selection and returns to the first page', async () => {
@@ -135,11 +135,11 @@ describe('credential list preferences wiring', () => {
 
   it('keeps the two sections in separate records', async () => {
     await act(async () => root.render(<Harness />))
-    await act(async () => latest!.setAuthFileSort('last_used_at'))
+    await act(async () => latest!.setCredentialSort('last_used_at'))
 
-    expect(latest?.authFileSort).toBe('last_used_at')
+    expect(latest?.credentialSort).toBe('last_used_at')
     expect(latest?.aiProviderSort).toBe('total_requests')
-    expect(storedPreferences('auth-files').sort).toBe('last_used_at')
+    expect(storedPreferences('credentials').sort).toBe('last_used_at')
     expect(window.localStorage.getItem(CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS['ai-provider'])).toBeNull()
   })
 

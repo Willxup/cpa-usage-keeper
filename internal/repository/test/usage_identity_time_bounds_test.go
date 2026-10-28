@@ -17,7 +17,7 @@ func TestUsageIdentityAggregationPreservesStoredTimeBounds(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			db := openTestDatabase(t)
-			identity := entities.UsageIdentity{Identity: "time-bounds", AuthType: entities.UsageIdentityAuthTypeAuthFile, Type: "codex"}
+			identity := entities.UsageIdentity{Identity: "time-bounds", AuthType: entities.UsageIdentityAuthTypeCredential, Type: "codex"}
 			if err := db.Create(&identity).Error; err != nil {
 				t.Fatal(err)
 			}

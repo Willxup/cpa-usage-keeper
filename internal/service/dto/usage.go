@@ -58,39 +58,40 @@ type UsageEventFilterOptions struct {
 
 // UsageEventRecord 是单条 usage event 的服务层结果。
 type UsageEventRecord struct {
-	ID                  int64
-	Timestamp           time.Time
-	APIGroupKey         string
-	Model               string
-	ModelAlias          string
-	ResponseModel       string
-	ReasoningEffort     string
-	ServiceTier         string
-	ResponseServiceTier string
-	ClientIP            *string
-	XForwardedFor       *string
-	UserAgent           *string
-	ExecutorType        string
-	Endpoint            string
-	AuthType            string
-	RequestID           string
-	Provider            string
-	Source              string
-	AuthIndex           string
-	Failed              bool
-	StatusCode          *int
-	Stream              *bool
-	LatencyMS           int64
-	TTFTMS              *int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	CostUSD             float64
-	CostAvailable       bool
-	PricingStyle        string
+	ID                   int64
+	Timestamp            time.Time
+	APIGroupKey          string
+	Model                string
+	ModelAlias           string
+	ResponseModel        string
+	ReasoningEffort      string
+	ServiceTier          string
+	EffectiveServiceTier string
+	ResponseServiceTier  string
+	ClientIP             *string
+	XForwardedFor        *string
+	UserAgent            *string
+	ExecutorType         string
+	Endpoint             string
+	AuthType             string
+	RequestID            string
+	Provider             string
+	Source               string
+	AuthIndex            string
+	Failed               bool
+	StatusCode           *int
+	Stream               *bool
+	LatencyMS            int64
+	TTFTMS               *int64
+	InputTokens          int64
+	OutputTokens         int64
+	ReasoningTokens      int64
+	CacheReadTokens      int64
+	CacheCreationTokens  int64
+	TotalTokens          int64
+	CostUSD              float64
+	CostAvailable        bool
+	PricingStyle         string
 }
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
@@ -156,7 +157,7 @@ type RealtimeUsageTopItem struct {
 type RealtimeCurrentUsage struct {
 	Models      []RealtimeUsageTopItem
 	APIKeys     []RealtimeUsageTopItem
-	AuthFiles   []RealtimeUsageTopItem
+	Credentials []RealtimeUsageTopItem
 	AIProviders []RealtimeUsageTopItem
 }
 

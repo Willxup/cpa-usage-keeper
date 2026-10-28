@@ -38,7 +38,7 @@ func (c *codexRouteCaller) snapshot() []apicall.Request {
 func TestCodexRefreshQueriesSubscriptionInParallelAndCalculatesStatsBeforeItFinishes(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	accountID := "acct_123"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, AccountID: &accountID})
 	usageStarted := make(chan time.Time, 1)
 	subscriptionStarted := make(chan time.Time, 1)
 	releaseUsage := make(chan struct{})
@@ -124,7 +124,7 @@ func TestCodexRefreshQueriesSubscriptionInParallelAndCalculatesStatsBeforeItFini
 func TestCodexSubscriptionDeadlineKeepsCompletedQuota(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	accountID := "acct_123"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, AccountID: &accountID})
 	subscriptionStarted := make(chan struct{}, 1)
 	subscriptionExited := make(chan struct{}, 1)
 	usageBody := fmt.Sprintf(`{"rate_limit":{"allowed":true,"primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_at":%d}},"rate_limit_reset_credits":{"available_count":0}}`, time.Now().Add(time.Hour).Unix())
@@ -169,7 +169,7 @@ func TestCodexSubscriptionDeadlineKeepsCompletedQuota(t *testing.T) {
 func TestCodexQuotaFailureCancelsSubscriptionGoroutine(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	accountID := "acct_123"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, AccountID: &accountID})
 	subscriptionStarted := make(chan struct{}, 1)
 	subscriptionExited := make(chan struct{}, 1)
 	caller := &codexRouteCaller{call: func(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
@@ -207,7 +207,7 @@ func TestCodexQuotaFailureCancelsSubscriptionGoroutine(t *testing.T) {
 func TestCodexTaskCancellationStopsBothRequests(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	accountID := "acct_123"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, AccountID: &accountID})
 	started := make(chan struct{}, 2)
 	exited := make(chan struct{}, 2)
 	caller := &codexRouteCaller{call: func(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
@@ -256,7 +256,7 @@ func (p *nonCodexSubscriptionProbe) FetchSubscriptionActiveUntil(context.Context
 func TestNonCodexManualRefreshDoesNotStartSubscription(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	accountID := "acct_123"
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Type: "claude", Provider: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Type: "claude", Provider: "claude", AuthType: entities.UsageIdentityAuthTypeCredential, AccountID: &accountID})
 	probe := &nonCodexSubscriptionProbe{refreshHandlerStub: refreshHandlerStub{output: quota.ProviderOutput{Result: quota.ClaudeResult{Usage: &quota.ClaudeUsagePayload{FiveHour: &quota.ClaudeUsageWindow{Utilization: 25}}}}}, subscriptionCalled: make(chan struct{}, 1)}
 	service := newQuotaRefreshService(t, db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"claude": probe}))
 	if _, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"claude-auth"}, Source: quota.RefreshSourceManual}); err != nil {

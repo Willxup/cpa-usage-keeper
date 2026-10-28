@@ -120,7 +120,7 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	assertFloatClose(t, usage.CostUSD, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 2, 1_300_000, 9.3)
-	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 2, 1_300_000, 9.3)
+	assertAnalysisProjectionComposition(t, analysis.CredentialsComposition, "identity-a", "Auth Account", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 2, 1_300_000, 9.3)
 	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "group-a" || analysis.Heatmap[0].Model != "model-a" ||
 		analysis.Heatmap[0].Requests != 2 || analysis.Heatmap[0].TotalTokens != 1_300_000 || !analysis.Heatmap[0].CostAvailable {
@@ -230,7 +230,7 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 	}
 	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 5, 550, 0.0138)
 	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 5, 550, 0.0138)
-	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 5, 550, 0.0138)
+	assertAnalysisProjectionComposition(t, analysis.CredentialsComposition, "identity-a", "Auth Account", 5, 550, 0.0138)
 	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 5, 550, 0.0138)
 	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].Requests != 5 || analysis.Heatmap[0].TotalTokens != 550 {
 		t.Fatalf("unexpected daily heatmap: %+v", analysis.Heatmap)
@@ -346,7 +346,7 @@ func analysisProjectionSelectColumns(t *testing.T, query string) []string {
 func seedAnalysisProjectionIdentities(t *testing.T, db *gorm.DB, identity string) {
 	t.Helper()
 	if err := db.Create(&[]entities.UsageIdentity{
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "authfile", Identity: identity, Name: "Auth Account"},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: identity, Name: "Auth Account"},
 		{AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: identity, Name: "Provider Account"},
 	}).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)

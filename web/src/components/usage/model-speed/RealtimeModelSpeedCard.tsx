@@ -161,7 +161,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
     return { model: label, color: colorAt(colors[visibleHover.model], isDark),
       highlighted: visibleHover.half === half,
       detail: mean === null ? t('usage_stats.no_data') : `${mean.toFixed(1)} t/s`,
-      secondary: `${formatModelSpeedTimeRange(start, end, timezone, locale)} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
+      secondary: `${formatModelSpeedTimeRange(start, end, timezone, locale, 'seconds', [speed.start, speed.mid, speed.end].filter((value): value is string => Boolean(value)))} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
   }) : [];
   const legendItems = selected.map((model) => {
     const series = models.get(model);

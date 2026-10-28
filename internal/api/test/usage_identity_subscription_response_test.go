@@ -18,7 +18,7 @@ func TestUsageIdentityResponsePublishesSubscriptionAndRemovesPlanType(t *testing
 	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
 	identity := entities.UsageIdentity{
 		Name:         "Codex Account",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "codex-auth",
 		Type:         "codex",

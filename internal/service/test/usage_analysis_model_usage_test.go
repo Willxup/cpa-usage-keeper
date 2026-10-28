@@ -13,7 +13,7 @@ import (
 
 func TestUsageServiceMapsAnalysisModelUsage(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
-	start := time.Date(2026, 8, 2, 9, 0, 0, 0, time.Local)
+	start := time.Date(2026, 8, 2, 9, 0, 0, 0, time.Local).Truncate(time.Hour)
 	end := start.Add(time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-a", DisplayKey: "sk-***a"}).Error; err != nil {
 		t.Fatalf("seed API key: %v", err)

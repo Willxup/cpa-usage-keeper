@@ -23,7 +23,7 @@ func TestAggregateUsageIdentityStatsBatchCommitsBoundedIdentityPages(t *testing.
 	for index := 1; index <= identityCount; index++ {
 		identity := fmt.Sprintf("batch-auth-%02d", index)
 		identities = append(identities, entities.UsageIdentity{
-			Name: identity, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: identity, Type: "codex",
+			Name: identity, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: identity, Type: "codex",
 		})
 		events = append(events, entities.UsageEvent{
 			EventKey: fmt.Sprintf("batch-event-%02d", index), AuthType: "oauth", AuthIndex: identity,

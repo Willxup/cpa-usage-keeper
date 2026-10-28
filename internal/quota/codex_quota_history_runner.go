@@ -28,7 +28,7 @@ type codexQuotaHistoryInput struct {
 	Snapshot *UsageHeaderSnapshot
 	// Observations 是主动查询成功后构造的最多两条主额度事实；该切片所有权随入队转交 runner。
 	Observations []repositorydto.CodexMainQuotaObservation
-	// IdentityVerified 表示主动查询入口已确认对应 provider 的活跃 Auth File；Header 来源固定为 false 并批量回查。
+	// IdentityVerified 表示主动查询入口已确认对应 provider 的活跃 Credential；Header 来源固定为 false 并批量回查。
 	IdentityVerified bool
 	// Source 决定 Header/可信队列分流、同账号角色 Header 替代、校准权限与失败日志，不写入数据库。
 	Source RefreshSource
@@ -48,7 +48,7 @@ type codexQuotaHistoryCandidate struct {
 type codexQuotaHistoryStateKey struct {
 	Provider string
 	QuotaKey string
-	// AuthIndex 是 CPA OAuth Auth File 稳定账号键。
+	// AuthIndex 是 CPA OAuth Credential 稳定账号键。
 	AuthIndex string
 	// WindowRole 只允许 primary/secondary；额度键由 provider 与角色映射得出。
 	WindowRole string
@@ -82,7 +82,7 @@ type codexQuotaHistoryWriter func(context.Context, *gorm.DB, []repositorydto.Cod
 // codexQuotaHistoryLoader 抽象 writer 状态恢复，保证缓存失效后数据库仍是最终事实。
 type codexQuotaHistoryLoader func(context.Context, *gorm.DB, string, string, string) (repositorydto.CodexQuotaHistoryState, error)
 
-// codexQuotaHistoryIdentityLister 批量读取活跃 Auth File，Header observation 只有通过后才能进入状态机。
+// codexQuotaHistoryIdentityLister 批量读取活跃 Credential，Header observation 只有通过后才能进入状态机。
 type codexQuotaHistoryIdentityLister func(context.Context, *gorm.DB, []string) ([]entities.UsageIdentity, error)
 
 // newCodexQuotaHistoryTimer 创建一次性 flush timer；返回 stop 函数便于 shutdown 释放资源。

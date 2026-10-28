@@ -25,7 +25,7 @@ func metadataDiffIdentity(authType entities.UsageIdentityAuthType, n int) entiti
 		Type:     "claude",
 		Provider: "Claude",
 	}
-	if authType == entities.UsageIdentityAuthTypeAuthFile {
+	if authType == entities.UsageIdentityAuthTypeCredential {
 		row.AuthTypeName = "oauth"
 	} else {
 		row.AuthTypeName = "apikey"
@@ -52,7 +52,7 @@ func metadataDiffKeys(count int) []string {
 func metadataDiffSync(ctx context.Context, db *gorm.DB, kind string, rows []entities.UsageIdentity, keys []string, now time.Time) error {
 	switch kind {
 	case "auth":
-		return repository.ReplaceUsageIdentitiesForAuthType(ctx, db, rows, entities.UsageIdentityAuthTypeAuthFile, now)
+		return repository.ReplaceUsageIdentitiesForAuthType(ctx, db, rows, entities.UsageIdentityAuthTypeCredential, now)
 	case "provider":
 		return repository.ReplaceUsageIdentitiesForProviderTypes(ctx, db, rows, []string{"claude"}, now)
 	default:
@@ -79,7 +79,7 @@ func TestMetadataDiffSyncUnchangedSnapshotDoesNotUpdate(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			db := openTestDatabase(t)
 			ctx := context.Background()
-			rows := metadataDiffRows(entities.UsageIdentityAuthTypeAuthFile, 3)
+			rows := metadataDiffRows(entities.UsageIdentityAuthTypeCredential, 3)
 			if kind == "provider" {
 				rows = metadataDiffRows(entities.UsageIdentityAuthTypeAIProvider, 3)
 			}
@@ -111,7 +111,7 @@ func TestMetadataDiffSyncUnchangedSnapshotDoesNotNeedWriter(t *testing.T) {
 	for _, kind := range []string{"auth", "provider", "key"} {
 		t.Run(kind, func(t *testing.T) {
 			db, writer, _ := openTestDatabasePools(t, kind+".db")
-			rows := metadataDiffRows(entities.UsageIdentityAuthTypeAuthFile, 2)
+			rows := metadataDiffRows(entities.UsageIdentityAuthTypeCredential, 2)
 			if kind == "provider" {
 				rows = metadataDiffRows(entities.UsageIdentityAuthTypeAIProvider, 2)
 			}
@@ -141,7 +141,7 @@ func TestMetadataDiffSyncUpdatesOnlyChangedIdentity(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			db := openTestDatabase(t)
 			ctx := context.Background()
-			authType := entities.UsageIdentityAuthTypeAuthFile
+			authType := entities.UsageIdentityAuthTypeCredential
 			if kind == "provider" {
 				authType = entities.UsageIdentityAuthTypeAIProvider
 			}
@@ -217,7 +217,7 @@ func TestMetadataDiffSyncDoesNotOverwriteLaterCredentialEdit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openTestDatabase(t)
 			ctx := context.Background()
-			authType := entities.UsageIdentityAuthTypeAuthFile
+			authType := entities.UsageIdentityAuthTypeCredential
 			if tc.kind == "provider" {
 				authType = entities.UsageIdentityAuthTypeAIProvider
 			}
@@ -300,7 +300,7 @@ func TestMetadataDiffSyncAppliesPriorityAndDisabledWithoutConflict(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openTestDatabase(t)
-			row := metadataDiffIdentity(entities.UsageIdentityAuthTypeAuthFile, 0)
+			row := metadataDiffIdentity(entities.UsageIdentityAuthTypeCredential, 0)
 			if tc.kind == "provider" {
 				row = metadataDiffIdentity(entities.UsageIdentityAuthTypeAIProvider, 0)
 			}
@@ -330,14 +330,14 @@ func TestMetadataDiffSyncPreservesNullableAndDeletionSemantics(t *testing.T) {
 	ctx := context.Background()
 	zero := 0
 	no := false
-	row := metadataDiffIdentity(entities.UsageIdentityAuthTypeAuthFile, 0)
+	row := metadataDiffIdentity(entities.UsageIdentityAuthTypeCredential, 0)
 	row.Priority = &zero
 	row.Disabled = &no
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime); err != nil {
 		t.Fatal(err)
 	}
 	updates := metadataDiffUpdateCounter(t, db)
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime.Add(time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if updates.Load() != 0 {
@@ -345,7 +345,7 @@ func TestMetadataDiffSyncPreservesNullableAndDeletionSemantics(t *testing.T) {
 	}
 	row.Priority = nil
 	row.Disabled = nil
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime.Add(2*time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	var stored entities.UsageIdentity
@@ -390,10 +390,10 @@ func TestMetadataDiffSyncCodexExpiryNoopKeepsUpdatedAt(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	expiry := metadataDiffTestTime.Add(24 * time.Hour)
-	row := metadataDiffIdentity(entities.UsageIdentityAuthTypeAuthFile, 0)
+	row := metadataDiffIdentity(entities.UsageIdentityAuthTypeCredential, 0)
 	row.Type = "codex"
 	row.ActiveUntil = &expiry
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Model(&entities.UsageIdentity{}).Where("identity = ?", row.Identity).
@@ -407,13 +407,13 @@ func TestMetadataDiffSyncCodexExpiryNoopKeepsUpdatedAt(t *testing.T) {
 	updates := metadataDiffUpdateCounter(t, db)
 	for _, incoming := range []*time.Time{&expiry, nil} {
 		row.ActiveUntil = incoming
-		if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime.Add(time.Hour)); err != nil {
+		if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime.Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	older := expiry.Add(-time.Hour)
 	row.ActiveUntil = &older
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeAuthFile, metadataDiffTestTime.Add(2*time.Hour)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{row}, entities.UsageIdentityAuthTypeCredential, metadataDiffTestTime.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	var stored entities.UsageIdentity
@@ -444,7 +444,7 @@ func BenchmarkMetadataDiffSync(b *testing.B) {
 					b.Fatal(err)
 				}
 				b.Cleanup(func() { _ = readerPool.Close() })
-				rows := metadataDiffRows(entities.UsageIdentityAuthTypeAuthFile, 1000)
+				rows := metadataDiffRows(entities.UsageIdentityAuthTypeCredential, 1000)
 				if kind == "provider" {
 					rows = metadataDiffRows(entities.UsageIdentityAuthTypeAIProvider, 1000)
 				}

@@ -28,7 +28,7 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 			t.Fatalf("seed event %s: %v", model, err)
 		}
 		identity := entities.UsageIdentity{
-			Name: model, AuthType: entities.UsageIdentityAuthTypeAuthFile,
+			Name: model, AuthType: entities.UsageIdentityAuthTypeCredential,
 			AuthTypeName: "oauth", Identity: model, Type: "codex", CreatedAt: end, UpdatedAt: end,
 		}
 		if err := db.Create(&identity).Error; err != nil {
@@ -42,9 +42,9 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 		t.Fatalf("build realtime: %v", err)
 	}
 	for dimension, items := range map[string][]repodto.RealtimeUsageTopItemRecord{
-		"models":     realtime.CurrentUsage.Models,
-		"api_keys":   realtime.CurrentUsage.APIKeys,
-		"auth_files": realtime.CurrentUsage.AuthFiles,
+		"models":      realtime.CurrentUsage.Models,
+		"api_keys":    realtime.CurrentUsage.APIKeys,
+		"credentials": realtime.CurrentUsage.Credentials,
 	} {
 		if len(items) != 6 {
 			t.Fatalf("%s has %d rows, want Top 5 plus Other: %+v", dimension, len(items), items)

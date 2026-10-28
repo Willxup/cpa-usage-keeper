@@ -52,7 +52,7 @@ func backfillUsageEventIdentityFieldsMigration(tx *gorm.DB) error {
 			FROM usage_identities
 			WHERE usage_identities.auth_type = ?
 				AND usage_identities.identity = usage_events.auth_index
-		)`, "oauth", entities.UsageIdentityAuthTypeAuthFile).Error; err != nil {
+		)`, "oauth", entities.UsageIdentityAuthTypeCredential).Error; err != nil {
 		return fmt.Errorf("backfill auth file usage event identity fields: %w", err)
 	}
 	return nil

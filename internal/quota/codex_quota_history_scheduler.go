@@ -170,7 +170,7 @@ func sortCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) {
 	})
 }
 
-// verifyCodexQuotaHistoryCandidates 一次查询确认 Header 属于活跃 Codex Auth File；可信查询已经在 Check 中确认身份。
+// verifyCodexQuotaHistoryCandidates 一次查询确认 Header 属于活跃 Codex Credential；可信查询已经在 Check 中确认身份。
 func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) []codexQuotaHistoryCandidate {
 	if len(candidates) == 0 {
 		return nil
@@ -204,7 +204,7 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 			logrus.WithError(err).Warn("codex quota history identity verification failed")
 		} else {
 			for _, identity := range identities {
-				// repository 已限定 Auth File；这里再取真实 type，与 observation 来源逐条核对。
+				// repository 已限定 Credential；这里再取真实 type，与 observation 来源逐条核对。
 				provider := normalizeIdentityType(identity.Type)
 				if provider != "codex" && provider != "claude" {
 					continue

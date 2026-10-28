@@ -74,4 +74,13 @@ describe('Analysis model speed groups', () => {
     expect(range).not.toContain('2026');
     expect(range).not.toContain(':00');
   });
+  it('uses the complete chart context to distinguish repeated tooltip endpoints', () => {
+    const first = '2026-11-01T01:00:00-07:00';
+    const second = '2026-11-01T01:00:00-08:00';
+    expect(formatModelSpeedTimeRange(first, second, 'America/Los_Angeles', 'en', 'minutes'))
+      .toBe('01:00 UTC-07:00 – 01:00 UTC-08:00');
+    expect(formatModelSpeedTimeRange(second, '2026-11-01T02:00:00-08:00', 'America/Los_Angeles', 'en', 'minutes', [first]))
+      .toBe('01:00 UTC-08:00 – 02:00');
+  });
+
 });

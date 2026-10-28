@@ -188,7 +188,7 @@ func (s *usageIdentityService) credentialHealthSnapshot(item entities.UsageIdent
 
 func usageIdentityEventAuthType(authType entities.UsageIdentityAuthType) (string, bool) {
 	switch authType {
-	case entities.UsageIdentityAuthTypeAuthFile:
+	case entities.UsageIdentityAuthTypeCredential:
 		return "oauth", true
 	case entities.UsageIdentityAuthTypeAIProvider:
 		return "apikey", true

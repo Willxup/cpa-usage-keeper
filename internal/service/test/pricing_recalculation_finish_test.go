@@ -39,7 +39,7 @@ func TestFinishPricingRecalculationRefreshesCachesBeforeReleasingRealPermits(t *
 				t.Fatal(err)
 			}
 			t.Cleanup(recent.Close)
-			identity := entities.UsageIdentity{Identity: "finish-auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, Type: "gemini-cli", Provider: "gemini-cli"}
+			identity := entities.UsageIdentity{Identity: "finish-auth", AuthType: entities.UsageIdentityAuthTypeCredential, Type: "gemini-cli", Provider: "gemini-cli"}
 			if err := db.Create(&identity).Error; err != nil {
 				t.Fatal(err)
 			}

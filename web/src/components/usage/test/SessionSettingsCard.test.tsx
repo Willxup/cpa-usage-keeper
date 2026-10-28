@@ -47,13 +47,20 @@ const renderCard = (props: Partial<React.ComponentProps<typeof SessionSettingsCa
 );
 
 describe('SessionSettingsCard', () => {
+  it('renders OIDC source and verified display alias as plain text', () => {
+    const html = renderCard({ sessions: [{ id: 'oidc', kind: 'admin', role: 'admin', source: 'oidc', alias: '<Admin>' }] });
+    expect(html).toContain('OIDC login');
+    expect(html).toContain('data-session-source="oidc"');
+    expect(html).toContain('&lt;Admin&gt;');
+    expect(html).not.toContain('<Admin>');
+  });
   it('renders admin and API key sessions with shared row details and current marker', () => {
     const html = renderCard();
 
     expect(html).toContain('Session Management');
     expect(html).toContain('Admin Session');
-    expect(html).toContain('Standalone');
-    expect(html).toContain('CPAMC Embed');
+    expect(html).toContain('Keeper login');
+    expect(html).toContain('CPAMC login');
     expect(html).toContain('Current');
     for (const timestamp of ['2026-06-20 10:00:00', '2026-06-20 12:00:00', '2026-06-20 10:05:00', '2026-06-20 12:05:00', '2026-06-20 10:10:00', '2026-06-27 10:10:00']) {
       expect(html).toContain(timestamp);

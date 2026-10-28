@@ -1,10 +1,10 @@
 package cpa
 
 const (
-	cpaManagementAuthFilesEndpoint           = "/v8/management/credentials"
-	cpaManagementAuthFilesDownloadEndpoint   = "/v8/management/credentials/download"
-	cpaManagementAuthFilesStatusEndpoint     = "/v8/management/credentials/status"
-	cpaManagementAuthFilesFieldsEndpoint     = "/v8/management/credentials/fields"
+	cpaManagementCredentialsEndpoint         = "/v8/management/credentials"
+	cpaManagementCredentialsDownloadEndpoint = "/v8/management/credentials/download"
+	cpaManagementCredentialsStatusEndpoint   = "/v8/management/credentials/status"
+	cpaManagementCredentialsFieldsEndpoint   = "/v8/management/credentials/fields"
 	cpaManagementAPIKeysEndpoint             = "/v8/management/config/access/api-keys"
 	cpaManagementVertexAPIKeyEndpoint        = "/v8/management/config/api-keys/vertex"
 	cpaManagementGeminiAPIKeyEndpoint        = "/v8/management/config/api-keys/gemini"

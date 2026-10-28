@@ -16,12 +16,12 @@ func TestCodexMetadataSyncKeepsNewerStoredExpiryAndAcceptsNewerCPAExpiry(t *test
 	accountID := "acct_123"
 	live := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	seed := entities.UsageIdentity{Identity: "codex-auth", Type: "codex", Provider: "codex", AccountID: &accountID, ActiveUntil: &live}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, live.Add(-time.Hour)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, live.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
 	// 官方值允许早于旧值：写入路径不做 max，随后仅拒绝 CPA 的更旧 token 值。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, db, "codex-auth")
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, db, "codex-auth")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestCodexMetadataSyncKeepsNewerStoredExpiryAndAcceptsNewerCPAExpiry(t *test
 	stale := live.Add(-2 * time.Hour)
 	for _, incoming := range []*time.Time{&stale, nil} {
 		seed.ActiveUntil = incoming
-		if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, live); err != nil {
+		if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, live); err != nil {
 			t.Fatal(err)
 		}
 		assertStoredExpiry(t, db, "codex-auth", shorterOfficial)
@@ -42,7 +42,7 @@ func TestCodexMetadataSyncKeepsNewerStoredExpiryAndAcceptsNewerCPAExpiry(t *test
 
 	newer := live.Add(time.Hour)
 	seed.ActiveUntil = &newer
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, live.Add(time.Hour)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, live.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredExpiry(t, db, "codex-auth", newer)
@@ -53,7 +53,7 @@ func TestCodexMetadataSyncComparesOffsetsAsInstants(t *testing.T) {
 	ctx := context.Background()
 	old := time.Date(2026, 10, 1, 9, 0, 0, 0, time.FixedZone("+09", 9*3600))
 	seed := entities.UsageIdentity{Identity: "codex-auth", Type: "codex", Provider: "codex", ActiveUntil: &old}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, old); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, old); err != nil {
 		t.Fatal(err)
 	}
 	// 同一 instant 的不同 offset 不应改写原始值。
@@ -62,7 +62,7 @@ func TestCodexMetadataSyncComparesOffsetsAsInstants(t *testing.T) {
 	}
 	equal := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	seed.ActiveUntil = &equal
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, old.Add(time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, old.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	assertRawExpiry(t, db, "codex-auth", "2026-10-01T09:00:00+09:00")
@@ -70,7 +70,7 @@ func TestCodexMetadataSyncComparesOffsetsAsInstants(t *testing.T) {
 	// 新值字面上更小，但真实时间晚半小时。
 	later := equal.Add(30 * time.Minute)
 	seed.ActiveUntil = &later
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, old.Add(2*time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, old.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredExpiry(t, db, "codex-auth", later)
@@ -80,12 +80,12 @@ func TestCodexMetadataSyncAcceptsCPAExpiryWhenStoredValueIsNull(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	seed := entities.UsageIdentity{Identity: "codex-auth", Type: "codex"}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, time.Now()); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	expiry := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	seed.ActiveUntil = &expiry
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, time.Now()); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredExpiry(t, db, "codex-auth", expiry)
@@ -96,17 +96,17 @@ func TestNonCodexMetadataSyncStillReplacesExpiry(t *testing.T) {
 	ctx := context.Background()
 	newer := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	seed := entities.UsageIdentity{Identity: "claude-auth", Type: "claude", Provider: "claude", ActiveUntil: &newer}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, newer); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, newer); err != nil {
 		t.Fatal(err)
 	}
 	older := newer.Add(-time.Hour)
 	seed.ActiveUntil = &older
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, newer.Add(time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, newer.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredExpiry(t, db, "claude-auth", older)
 	seed.ActiveUntil = nil
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeAuthFile, newer.Add(2*time.Minute)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{seed}, entities.UsageIdentityAuthTypeCredential, newer.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	var identity entities.UsageIdentity

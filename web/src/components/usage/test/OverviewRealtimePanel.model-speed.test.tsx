@@ -17,7 +17,7 @@ let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-const response: OverviewRealtimeBlock = { window: '15m', bucket_seconds: 30, token_velocity: [], request_level: [], cache_level: [], current_usage: { models: [], api_keys: [], auth_files: [], ai_providers: [] }, model_speed: { available: false, series: [] }, timezone: 'Asia/Shanghai' };
+const response: OverviewRealtimeBlock = { window: '15m', bucket_seconds: 30, token_velocity: [], request_level: [], cache_level: [], current_usage: { models: [], api_keys: [], credentials: [], ai_providers: [] }, model_speed: { available: false, series: [] }, timezone: 'Asia/Shanghai' };
 
 it('pairs model speed with Cache Level and forwards the existing response and viewer scope', async () => {
   await act(async () => root.render(<OverviewRealtimePanel realtime={response} loading={false} window="15m" onWindowChange={vi.fn()} isDark isMobile={false} modelSpeedPreferenceScope="key-viewer:42" modelSpeedQueryKey="15m:key42" />));

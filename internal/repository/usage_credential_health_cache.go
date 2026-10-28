@@ -89,13 +89,13 @@ func (c *UsageRecentEventCache) CredentialHealth(authType, authIndex string, now
 	return snapshot, true
 }
 
-func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSize int, handle func([]credentialHealthLoadRow) error) error {
+func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start, anchor time.Time, batchSize int, handle func([]credentialHealthLoadRow) error) error {
 	if batchSize <= 0 {
 		batchSize = credentialHealthStartupBatchSize
 	}
-	rows, err := db.Model(&entities.UsageEvent{}).
+	read := usageEventTimeReadSince(start, anchor)
+	rows, err := read.query(db.Model(&entities.UsageEvent{})).
 		Select("auth_type, auth_index, timestamp, failed, input_tokens, cache_read_tokens").
-		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		Order("timestamp asc, id asc").
 		Rows()
 	if err != nil {
@@ -108,6 +108,9 @@ func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSiz
 		var row credentialHealthLoadRow
 		if err := db.ScanRows(rows, &row); err != nil {
 			return fmt.Errorf("scan credential health cache row: %w", err)
+		}
+		if !read.contains(row.Timestamp) {
+			continue
 		}
 		batch = append(batch, row)
 		if len(batch) < batchSize {

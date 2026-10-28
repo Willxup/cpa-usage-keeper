@@ -122,7 +122,7 @@ func assertUpstreamResponses(t *testing.T, responses []quota.UpstreamResponse) {
 func newUpstreamResponsesService(t *testing.T, caller *recordingManagementCaller, enabled bool) *quota.Service {
 	t.Helper()
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{QuotaUpstreamResponsesEnabled: enabled})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})

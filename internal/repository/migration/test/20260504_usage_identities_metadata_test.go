@@ -35,7 +35,7 @@ func TestOpenDatabaseUsageIdentityMigratesLegacyMetadataIdempotently(t *testing.
 				t.Fatalf("expected unmatched AI provider raw identities to be deleted, got %d: %+v", len(identities), identities)
 			}
 
-			oauth := findUsageIdentity(t, identities, entities.UsageIdentityAuthTypeAuthFile, "auth-1")
+			oauth := findUsageIdentity(t, identities, entities.UsageIdentityAuthTypeCredential, "auth-1")
 			if oauth.Name != "person@example.com" || oauth.AuthTypeName != "oauth" || oauth.Type != "claude" || oauth.Provider != "claude" {
 				t.Fatalf("unexpected oauth identity mapping: %+v", oauth)
 			}
@@ -55,12 +55,12 @@ func TestOpenDatabaseUsageIdentityMigratesLegacyMetadataIdempotently(t *testing.
 				t.Fatalf("expected oauth last aggregated usage event id 3, got %d", oauth.LastAggregatedUsageEventID)
 			}
 
-			deletedOAuth := findUsageIdentity(t, identities, entities.UsageIdentityAuthTypeAuthFile, "auth-deleted")
+			deletedOAuth := findUsageIdentity(t, identities, entities.UsageIdentityAuthTypeCredential, "auth-deleted")
 			if !deletedOAuth.IsDeleted || deletedOAuth.DeletedAt == nil || !deletedOAuth.DeletedAt.Equal(time.Date(2026, 5, 4, 7, 30, 0, 0, time.UTC)) {
-				t.Fatalf("expected deleted auth file state to be preserved, got %+v", deletedOAuth)
+				t.Fatalf("expected deleted credential state to be preserved, got %+v", deletedOAuth)
 			}
 			if deletedOAuth.TotalRequests != 1 || deletedOAuth.TotalTokens != 100 || deletedOAuth.LastAggregatedUsageEventID != 6 {
-				t.Fatalf("expected deleted auth file usage stats to be backfilled, got %+v", deletedOAuth)
+				t.Fatalf("expected deleted credential usage stats to be backfilled, got %+v", deletedOAuth)
 			}
 
 			var duplicateVersions int64

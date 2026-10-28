@@ -23,7 +23,7 @@ func TestUsageServiceComparisonsKeepStoredFeesAcrossPricingMutations(t *testing.
 	}
 	sharedLabel := "Shared Display"
 	identities := []entities.UsageIdentity{
-		{Name: "Auth Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-one", Type: "codex"},
+		{Name: "Auth Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-one", Type: "codex"},
 		{Name: "Provider Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-one", Type: "codex"},
 	}
 	if err := db.Create(&identities).Error; err != nil {
@@ -77,12 +77,12 @@ func TestUsageServiceComparisonsKeepStoredFeesAcrossPricingMutations(t *testing.
 			keys["sk-comparison-deleted"].CostAvailable {
 			t.Fatalf("Key comparison lost stored fee/deleted history: %+v", keys)
 		}
-		authFiles, aiProviders := result.Comparisons.AuthFiles, result.Comparisons.AIProviders
-		if len(authFiles) != 1 || len(aiProviders) != 1 || authFiles["auth-one"] == nil || aiProviders["provider-one"] == nil ||
-			authFiles["auth-one"].Label != sharedLabel || aiProviders["provider-one"].Label != sharedLabel ||
-			!authFiles["auth-one"].CostAvailable || !aiProviders["provider-one"].CostAvailable ||
-			!usageFilterCostClose(authFiles["auth-one"].CostUSD, feeAuth) || !usageFilterCostClose(aiProviders["provider-one"].CostUSD, feeProvider) {
-			t.Fatalf("typed identity comparison lost stored fee/alias: auth=%+v provider=%+v", authFiles, aiProviders)
+		credentials, aiProviders := result.Comparisons.Credentials, result.Comparisons.AIProviders
+		if len(credentials) != 1 || len(aiProviders) != 1 || credentials["auth-one"] == nil || aiProviders["provider-one"] == nil ||
+			credentials["auth-one"].Label != sharedLabel || aiProviders["provider-one"].Label != sharedLabel ||
+			!credentials["auth-one"].CostAvailable || !aiProviders["provider-one"].CostAvailable ||
+			!usageFilterCostClose(credentials["auth-one"].CostUSD, feeAuth) || !usageFilterCostClose(aiProviders["provider-one"].CostUSD, feeProvider) {
+			t.Fatalf("typed identity comparison lost stored fee/alias: auth=%+v provider=%+v", credentials, aiProviders)
 		}
 		filtered := filter
 		filtered.APIKeyID = strconv.FormatInt(key.ID, 10)

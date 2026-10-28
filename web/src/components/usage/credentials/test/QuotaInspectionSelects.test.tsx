@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { resolve } from 'node:path'
 import { compile } from 'sass'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { QuotaAutoRefreshSettingsModal, QuotaInspectionModal } from '../AuthFileCredentialsSection'
+import { QuotaAutoRefreshSettingsModal, QuotaInspectionModal } from '../CredentialsSection'
 import credentialStyles from '../CredentialSections.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true

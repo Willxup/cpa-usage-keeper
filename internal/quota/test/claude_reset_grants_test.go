@@ -175,7 +175,7 @@ func (c *claudeResetCaller) posts() []apicall.Request {
 func claudeResetFixture(t *testing.T, caller *claudeResetCaller) (*quota.Service, *gorm.DB) {
 	t.Helper()
 	db := openQuotaTestDB(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "claude", Type: "claude", Provider: "claude"})
+	seedUsageIdentity(t, db, entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "claude", Type: "claude", Provider: "claude"})
 	config := quota.DefaultProviderConfigs()
 	service := newQuotaServiceWithRegistry(t, db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"claude": quota.NewClaudeProvider(caller, config.ClaudeUsage, config.ClaudeProfile)}))
 	return service, db

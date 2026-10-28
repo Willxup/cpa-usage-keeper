@@ -12,7 +12,8 @@ import (
 
 func TestAnalysisModelUsageAggregatesHourlyBucketsByNormalizedModel(t *testing.T) {
 	db := openTestDatabase(t)
-	start := time.Date(2026, 8, 1, 10, 0, 0, 0, time.Local)
+	// 与实际 Overview 聚合一致，小时桶按绝对整点存储，不能假定本地整点也对齐。
+	start := time.Date(2026, 8, 1, 10, 0, 0, 0, time.Local).Truncate(time.Hour)
 	end := start.Add(2 * time.Hour)
 	if err := db.Create(&[]entities.CPAAPIKey{
 		{APIKey: "group-a", DisplayKey: "sk-***a"},

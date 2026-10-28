@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildAiProviderCredentialRows,
-  buildAuthFileCredentialRows,
+  buildCredentialRows,
   selectQuotaEligibleAuthIndexes,
   type AiProviderCredentialRow,
   type CredentialEditChange,
-  type AuthFileCredentialRow,
+  type CredentialRow,
 } from './credentialViewModels'
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
@@ -16,7 +16,7 @@ import type { UsageIdentity, UsageIdentityTypeCount, UsageQuotaInspectionStatusR
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
 import type { CredentialProviderFilterKey } from './credentialProviderFilters'
 
-type CredentialQuotaState = Pick<AuthFileCredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>
+type CredentialQuotaState = Pick<CredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>
 
 interface CredentialResetState {
   quotaResetting?: boolean
@@ -33,7 +33,7 @@ export interface CredentialStatusFailureHandling {
 
 /**
  * 把凭证开关失败映射为提示与刷新决策。
- * 409 分两种来源：认证文件的插件多账号子行，以及不支持启停的供应商类型。
+ * 409 分两种来源：凭证的插件多账号子行，以及不支持启停的供应商类型。
  */
 export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error: unknown): CredentialStatusFailureHandling {
   if (error instanceof ApiError && error.status === 401) {
@@ -42,10 +42,13 @@ export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error
   if (error instanceof ApiError && error.status === 404) {
     return { authRequired: false, noticeKey: 'usage_stats.credentials_status_stale_target', refresh: true }
   }
+  if (error instanceof ApiError && error.status === 412) {
+    return { authRequired: false, noticeKey: 'usage_stats.credentials_config_changed', refresh: false }
+  }
   if (error instanceof ApiError && error.status === 409) {
     return {
       authRequired: false,
-      noticeKey: kind === 'auth-file' ? 'usage_stats.credentials_status_conflict_auth_file' : 'usage_stats.credentials_status_conflict_ai_provider',
+      noticeKey: kind === 'credential' ? 'usage_stats.credentials_status_conflict_credential' : 'usage_stats.credentials_status_conflict_ai_provider',
       refresh: false,
     }
   }
@@ -53,7 +56,7 @@ export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error
 }
 
 interface UseCredentialsTabDataOptions {
-  enabledAuthFiles: boolean
+  enabledCredentials: boolean
   enabledAiProviders: boolean
   onAuthRequired?: () => void
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void
@@ -61,33 +64,33 @@ interface UseCredentialsTabDataOptions {
 }
 
 export interface CredentialsTabData {
-  authFileRows: AuthFileCredentialRow[]
+  credentialRows: CredentialRow[]
   aiProviderRows: AiProviderCredentialRow[]
-  authFileTypeCounts: UsageIdentityTypeCount[]
+  credentialTypeCounts: UsageIdentityTypeCount[]
   aiProviderTypeCounts: UsageIdentityTypeCount[]
-  authFileTotal: number
+  credentialTotal: number
   aiProviderTotal: number
-  authFilePageSize: number
+  credentialPageSize: number
   aiProviderPageSize: number
-  authFilePage: number
+  credentialPage: number
   aiProviderPage: number
-  authFileTotalPages: number
+  credentialTotalPages: number
   aiProviderTotalPages: number
-  authFileActiveOnly: boolean
+  credentialActiveOnly: boolean
   aiProviderActiveOnly: boolean
-  authFileProviderFilter: CredentialProviderFilterKey
+  credentialProviderFilter: CredentialProviderFilterKey
   aiProviderProviderFilter: CredentialProviderFilterKey
-  authFileSort: UsageIdentityPageSort
+  credentialSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
-  setAuthFilePage: (page: number) => void
+  setCredentialPage: (page: number) => void
   setAiProviderPage: (page: number) => void
-  setAuthFilePageSize: (pageSize: number) => void
+  setCredentialPageSize: (pageSize: number) => void
   setAiProviderPageSize: (pageSize: number) => void
-  setAuthFileActiveOnly: (activeOnly: boolean) => void
+  setCredentialActiveOnly: (activeOnly: boolean) => void
   setAiProviderActiveOnly: (activeOnly: boolean) => void
-  setAuthFileProviderFilter: (filter: CredentialProviderFilterKey) => void
+  setCredentialProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAiProviderProviderFilter: (filter: CredentialProviderFilterKey) => void
-  setAuthFileSort: (sort: UsageIdentityPageSort) => void
+  setCredentialSort: (sort: UsageIdentityPageSort) => void
   setAiProviderSort: (sort: UsageIdentityPageSort) => void
   loading: boolean
   error: string
@@ -99,34 +102,34 @@ export interface CredentialsTabData {
   quotaInspectionError: string
   /** 正在写入上游状态的 Keeper identity id 集合，两个列表共用同一份进行中状态。 */
   credentialStatusPendingIdentityIds: ReadonlySet<string>
-  toggleAuthFileStatus: (identityId: string, authIndex: string, disabled: boolean) => void
+  toggleCredentialStatus: (identityId: string, authIndex: string, disabled: boolean) => void
   toggleAiProviderStatus: (identityId: string, authIndex: string, disabled: boolean) => void
-  saveAuthFilePriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
+  saveCredentialPriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
   saveAiProviderPriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
   refresh: () => Promise<void>
   refreshAfterRecalculation: () => Promise<void>
   saveCredentialField: (kind: CredentialStatusKind, id: string, authIndex: string, change: CredentialEditChange) => Promise<void>
   resetUsageIdentityStats: (id: string) => Promise<UsageIdentity>
-  refreshQuotaForCurrentAuthFilePage: () => Promise<void>
+  refreshQuotaForCurrentCredentialPage: () => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   resetQuotaForAuthIndex: (authIndex: string, grantId?: string, organizationId?: string) => Promise<UsageQuotaResetResponse | void>
   refreshQuotaInspectionStatus: () => Promise<void>
   startQuotaInspection: () => Promise<void>
 }
 
-export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice, onPrioritySaved }: UseCredentialsTabDataOptions): CredentialsTabData {
-  const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
+export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, onAuthRequired, onNotice, onPrioritySaved }: UseCredentialsTabDataOptions): CredentialsTabData {
+  const credentialPages = useCredentialPages({ enabledCredentials, enabledAiProviders, onAuthRequired })
   const currentAuthIndexes = useMemo(
-    () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
-    [credentialPages.authFileIdentities],
+    () => selectQuotaEligibleAuthIndexes(credentialPages.credentialIdentities),
+    [credentialPages.credentialIdentities],
   )
   const { quotaResponseByAuthIndex, quotaStateByAuthIndex, applyRefreshUpdates, refreshQuotaCache, resetQuotaCache } = useQuotaCache({
-    enabled: enabledAuthFiles,
+    enabled: enabledCredentials,
     authIndexes: currentAuthIndexes,
     onAuthRequired,
   })
   const quotaRefreshTasks = useQuotaRefreshTasks({
-    enabled: enabledAuthFiles,
+    enabled: enabledCredentials,
     currentAuthIndexes,
     quotaStateByAuthIndex,
     applyRefreshUpdates,
@@ -136,7 +139,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
   const [quotaResetStateByAuthIndex, setQuotaResetStateByAuthIndex] = useState<Record<string, CredentialResetState>>({})
   const [credentialStatusPending, setCredentialStatusPending] = useState<Record<string, boolean>>({})
   const quotaInspection = useQuotaInspection({
-    enabled: enabledAuthFiles,
+    enabled: enabledCredentials,
     onAuthRequired,
     onInspectionCompleted: refreshQuotaCache,
   })
@@ -148,9 +151,9 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     [quotaStateByAuthIndex, quotaResetStateByAuthIndex],
   )
 
-  const authFileRows = useMemo(
-    () => buildAuthFileCredentialRows(credentialPages.authFileIdentities, quotaResponsesByAuthIndex, quotaStates),
-    [credentialPages.authFileIdentities, quotaResponsesByAuthIndex, quotaStates],
+  const credentialRows = useMemo(
+    () => buildCredentialRows(credentialPages.credentialIdentities, quotaResponsesByAuthIndex, quotaStates),
+    [credentialPages.credentialIdentities, quotaResponsesByAuthIndex, quotaStates],
   )
   const aiProviderRows = useMemo(
     () => buildAiProviderCredentialRows(credentialPages.aiProviderIdentities),
@@ -171,10 +174,10 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     resetQuotaCache()
     resetQuotaRefreshTasks()
     resetQuotaInspection()
-    if (enabledAuthFiles) {
+    if (enabledCredentials) {
       await Promise.all([refreshQuotaCache(), refreshQuotaInspectionStatus()])
     }
-  }, [enabledAuthFiles, refreshQuotaCache, refreshQuotaInspectionStatus, resetQuotaCache, resetQuotaInspection, resetQuotaRefreshTasks])
+  }, [enabledCredentials, refreshQuotaCache, refreshQuotaInspectionStatus, resetQuotaCache, resetQuotaInspection, resetQuotaRefreshTasks])
 
   // 开关按钮改用 aria-disabled 后不再由浏览器拦截重复点击，这里用 ref 做与渲染时序无关的兜底。
   const credentialStatusInFlightRef = useRef<Set<string>>(new Set())
@@ -183,7 +186,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     [credentialStatusPending],
   )
 
-  const toggleCredentialStatus = useCallback(async (kind: CredentialStatusKind, identityId: string, authIndex: string, disabled: boolean) => {
+  const toggleStatusByKind = useCallback(async (kind: CredentialStatusKind, identityId: string, authIndex: string, disabled: boolean) => {
     // Keeper identity id 是全局唯一的本地主键；auth_index 只用于后端调用，不参与两个列表的 pending 隔离。
     const pendingIdentityId = identityId || authIndex
     if (credentialStatusInFlightRef.current.has(pendingIdentityId)) {
@@ -220,15 +223,15 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     // 刷新只经由 refreshCredentialPagesRef，避免把点击时的旧闭包固化进依赖列表。
   }, [onAuthRequired, onNotice])
 
-  const toggleAuthFileStatus = useCallback((identityId: string, authIndex: string, disabled: boolean) => {
-    void toggleCredentialStatus('auth-file', identityId, authIndex, disabled)
-  }, [toggleCredentialStatus])
+  const toggleCredentialStatus = useCallback((identityId: string, authIndex: string, disabled: boolean) => {
+    void toggleStatusByKind('credential', identityId, authIndex, disabled)
+  }, [toggleStatusByKind])
 
   const toggleAiProviderStatus = useCallback((identityId: string, authIndex: string, disabled: boolean) => {
-    void toggleCredentialStatus('ai-provider', identityId, authIndex, disabled)
-  }, [toggleCredentialStatus])
+    void toggleStatusByKind('ai-provider', identityId, authIndex, disabled)
+  }, [toggleStatusByKind])
 
-  const saveCredentialPriority = useCallback(async (kind: CredentialStatusKind, _identityId: string, authIndex: string, priority: number) => {
+  const savePriorityByKind = useCallback(async (kind: CredentialStatusKind, _identityId: string, authIndex: string, priority: number) => {
     try {
       await setCredentialPriority(kind, authIndex, priority)
       // 重新读取当前筛选和排序；OpenAI provider 的其它 key 也通过服务端结果对齐。
@@ -242,18 +245,20 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
       }
       const key = error instanceof ApiError && error.status === 404
         ? 'usage_stats.credentials_priority_stale_target'
-        : error instanceof ApiError && error.status === 409 && kind === 'auth-file'
-          ? 'usage_stats.credentials_priority_conflict_auth_file'
-          : 'usage_stats.credentials_priority_save_failed'
+        : error instanceof ApiError && error.status === 412
+          ? 'usage_stats.credentials_config_changed'
+          : error instanceof ApiError && error.status === 409 && kind === 'credential'
+            ? 'usage_stats.credentials_priority_conflict_credential'
+            : 'usage_stats.credentials_priority_save_failed'
       onNotice?.('error', i18n.t(key))
       throw error
     }
   }, [onAuthRequired, onNotice, onPrioritySaved])
 
-  const saveAuthFilePriority = useCallback((identityId: string, authIndex: string, priority: number) =>
-    saveCredentialPriority('auth-file', identityId, authIndex, priority), [saveCredentialPriority])
+  const saveCredentialPriority = useCallback((identityId: string, authIndex: string, priority: number) =>
+    savePriorityByKind('credential', identityId, authIndex, priority), [savePriorityByKind])
   const saveAiProviderPriority = useCallback((identityId: string, authIndex: string, priority: number) =>
-    saveCredentialPriority('ai-provider', identityId, authIndex, priority), [saveCredentialPriority])
+    savePriorityByKind('ai-provider', identityId, authIndex, priority), [savePriorityByKind])
 
   const saveCredentialField = useCallback(async (kind: CredentialStatusKind, id: string, authIndex: string, change: CredentialEditChange) => {
     try {
@@ -306,33 +311,33 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
   }, [onNotice, refreshQuotaForAuthIndex])
 
   return {
-    authFileRows,
+    credentialRows,
     aiProviderRows,
-    authFileTypeCounts: credentialPages.authFileTypeCounts,
+    credentialTypeCounts: credentialPages.credentialTypeCounts,
     aiProviderTypeCounts: credentialPages.aiProviderTypeCounts,
-    authFileTotal: credentialPages.authFileTotal,
+    credentialTotal: credentialPages.credentialTotal,
     aiProviderTotal: credentialPages.aiProviderTotal,
-    authFilePageSize: credentialPages.authFilePageSize,
+    credentialPageSize: credentialPages.credentialPageSize,
     aiProviderPageSize: credentialPages.aiProviderPageSize,
-    authFilePage: credentialPages.authFilePage,
+    credentialPage: credentialPages.credentialPage,
     aiProviderPage: credentialPages.aiProviderPage,
-    authFileTotalPages: credentialPages.authFileTotalPages,
+    credentialTotalPages: credentialPages.credentialTotalPages,
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
-    authFileActiveOnly: credentialPages.authFileActiveOnly,
+    credentialActiveOnly: credentialPages.credentialActiveOnly,
     aiProviderActiveOnly: credentialPages.aiProviderActiveOnly,
-    authFileProviderFilter: credentialPages.authFileProviderFilter,
+    credentialProviderFilter: credentialPages.credentialProviderFilter,
     aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
-    authFileSort: credentialPages.authFileSort,
+    credentialSort: credentialPages.credentialSort,
     aiProviderSort: credentialPages.aiProviderSort,
-    setAuthFilePage: credentialPages.setAuthFilePage,
+    setCredentialPage: credentialPages.setCredentialPage,
     setAiProviderPage: credentialPages.setAiProviderPage,
-    setAuthFilePageSize: credentialPages.setAuthFilePageSize,
+    setCredentialPageSize: credentialPages.setCredentialPageSize,
     setAiProviderPageSize: credentialPages.setAiProviderPageSize,
-    setAuthFileActiveOnly: credentialPages.setAuthFileActiveOnly,
+    setCredentialActiveOnly: credentialPages.setCredentialActiveOnly,
     setAiProviderActiveOnly: credentialPages.setAiProviderActiveOnly,
-    setAuthFileProviderFilter: credentialPages.setAuthFileProviderFilter,
+    setCredentialProviderFilter: credentialPages.setCredentialProviderFilter,
     setAiProviderProviderFilter: credentialPages.setAiProviderProviderFilter,
-    setAuthFileSort: credentialPages.setAuthFileSort,
+    setCredentialSort: credentialPages.setCredentialSort,
     setAiProviderSort: credentialPages.setAiProviderSort,
     loading: credentialPages.loading,
     error: credentialPages.error,
@@ -343,15 +348,15 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     quotaInspectionStarting: quotaInspection.quotaInspectionStarting,
     quotaInspectionError: quotaInspection.quotaInspectionError,
     credentialStatusPendingIdentityIds,
-    toggleAuthFileStatus,
+    toggleCredentialStatus,
     toggleAiProviderStatus,
-    saveAuthFilePriority,
+    saveCredentialPriority,
     saveAiProviderPriority,
     refresh: refresh,
     refreshAfterRecalculation,
     saveCredentialField,
     resetUsageIdentityStats: credentialPages.resetStats,
-    refreshQuotaForCurrentAuthFilePage: quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage,
+    refreshQuotaForCurrentCredentialPage: quotaRefreshTasks.refreshQuotaForCurrentCredentialPage,
     refreshQuotaForAuthIndex: quotaRefreshTasks.refreshQuotaForAuthIndex,
     resetQuotaForAuthIndex,
     refreshQuotaInspectionStatus: quotaInspection.refreshQuotaInspectionStatus,

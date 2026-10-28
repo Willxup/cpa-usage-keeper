@@ -26,6 +26,8 @@ var (
 	ErrCredentialStatusUnsupported = errors.New("credential status is not supported")
 	// ErrCredentialStatusConflict 表示 CPA 明确拒绝单独操作该凭证，例如插件多账号文件展开出的虚拟子账号。
 	ErrCredentialStatusConflict = errors.New("credential status target cannot be changed on its own")
+	// ErrCredentialConfigChanged 表示供应商 GET 后配置已变化，本次 PUT 未保存。
+	ErrCredentialConfigChanged = errors.New("credential configuration changed")
 )
 
 // MetadataRefresher 让本地操作后尽快与 CPA 对齐，不改变当前轮询/通知模式。
@@ -35,14 +37,14 @@ type MetadataRefresher interface {
 
 // CredentialStatusClient 是凭证开关需要的 CPA 能力子集。
 type CredentialStatusClient interface {
-	UpdateAuthFileStatus(ctx context.Context, name string, authIndex string, disabled bool) (int, error)
+	UpdateCredentialStatus(ctx context.Context, name string, authIndex string, disabled bool) (int, error)
 	FetchProviderKeyConfig(ctx context.Context, providerType string) (*response.ProviderKeyConfigResult, error)
-	UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document) (int, error)
+	UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document, etag string) (int, error)
 }
 
 // CredentialStatusProvider 暴露单条凭证开关，调用方只提供 CPA auth_index。
 type CredentialStatusProvider interface {
-	SetAuthFileDisabled(ctx context.Context, authIndex string, disabled bool) (CredentialStatusResponse, error)
+	SetCredentialDisabled(ctx context.Context, authIndex string, disabled bool) (CredentialStatusResponse, error)
 	SetAIProviderDisabled(ctx context.Context, authIndex string, disabled bool) (CredentialStatusResponse, error)
 }
 
@@ -55,25 +57,26 @@ type credentialStatusService struct {
 	db      *gorm.DB
 	client  CredentialStatusClient
 	refresh MetadataRefresher
-	// locks 按认证文件名或供应商配置路径串行化读改写，避免跨操作互相覆盖。
-	locks *CredentialMutationLocks
+	// locks 按凭证名或供应商配置路径串行化读改写，避免跨操作互相覆盖。
+	locks    *CredentialMutationLocks
+	metadata *CredentialMetadataCoordinator
 }
 
-func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher, locks *CredentialMutationLocks) CredentialStatusProvider {
-	return &credentialStatusService{db: db, client: client, refresh: refresh, locks: locks}
+func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher, locks *CredentialMutationLocks, metadata *CredentialMetadataCoordinator) CredentialStatusProvider {
+	return &credentialStatusService{db: db, client: client, refresh: refresh, locks: locks, metadata: metadata}
 }
 
-// SetAuthFileDisabled 用列表里的 auth_index 反查文件名，再按 CPA 的 name + auth_index 定位唯一账号。
-func (s *credentialStatusService) SetAuthFileDisabled(ctx context.Context, authIndex string, disabled bool) (CredentialStatusResponse, error) {
+// SetCredentialDisabled 用列表里的 auth_index 反查文件名，再按 CPA 的 name + auth_index 定位唯一账号。
+func (s *credentialStatusService) SetCredentialDisabled(ctx context.Context, authIndex string, disabled bool) (CredentialStatusResponse, error) {
 	resolvedAuthIndex, err := s.validate(authIndex)
 	if err != nil {
 		return CredentialStatusResponse{}, err
 	}
 
-	identity, err := repository.FindActiveUsageIdentityByAuthTypeAndIdentity(ctx, s.db, entities.UsageIdentityAuthTypeAuthFile, resolvedAuthIndex)
+	identity, err := repository.FindActiveUsageIdentityByAuthTypeAndIdentity(ctx, s.db, entities.UsageIdentityAuthTypeCredential, resolvedAuthIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return CredentialStatusResponse{}, fmt.Errorf("%w: auth file identity", ErrCredentialStatusNotFound)
+			return CredentialStatusResponse{}, fmt.Errorf("%w: credential identity", ErrCredentialStatusNotFound)
 		}
 		return CredentialStatusResponse{}, err
 	}
@@ -82,23 +85,23 @@ func (s *credentialStatusService) SetAuthFileDisabled(ctx context.Context, authI
 		name = strings.TrimSpace(*identity.FileName)
 	}
 	if name == "" {
-		return CredentialStatusResponse{}, fmt.Errorf("%w: auth file name is unavailable", ErrCredentialStatusValidation)
+		return CredentialStatusResponse{}, fmt.Errorf("%w: credential name is unavailable", ErrCredentialStatusValidation)
 	}
 
-	defer s.locks.lockAuthFile(name)()
+	defer s.locks.lockCredential(name)()
 
-	statusCode, err := s.client.UpdateAuthFileStatus(ctx, name, resolvedAuthIndex, disabled)
+	statusCode, err := s.client.UpdateCredentialStatus(ctx, name, resolvedAuthIndex, disabled)
 	if err != nil {
 		if statusCode == http.StatusNotFound {
-			return CredentialStatusResponse{}, fmt.Errorf("%w: auth file", ErrCredentialStatusNotFound)
+			return CredentialStatusResponse{}, fmt.Errorf("%w: credential", ErrCredentialStatusNotFound)
 		}
 		// CPA 只在插件虚拟子账号上返回 409：它没有独立文件，只能整组操作源文件，重试不会成功。
 		if statusCode == http.StatusConflict {
-			return CredentialStatusResponse{}, fmt.Errorf("%w: auth file", ErrCredentialStatusConflict)
+			return CredentialStatusResponse{}, fmt.Errorf("%w: credential", ErrCredentialStatusConflict)
 		}
-		return CredentialStatusResponse{}, fmt.Errorf("update auth file status: %w", err)
+		return CredentialStatusResponse{}, fmt.Errorf("update credential status: %w", err)
 	}
-	if err := s.persistDisabled(ctx, entities.UsageIdentityAuthTypeAuthFile, resolvedAuthIndex, disabled); err != nil {
+	if err := s.persistDisabled(ctx, entities.UsageIdentityAuthTypeCredential, resolvedAuthIndex, disabled); err != nil {
 		return CredentialStatusResponse{}, err
 	}
 	return CredentialStatusResponse{AuthIndex: resolvedAuthIndex, Disabled: disabled}, nil
@@ -150,8 +153,11 @@ func (s *credentialStatusService) SetAIProviderDisabled(ctx context.Context, aut
 	if err := result.Document.SetKeyExcludedModels(location, nextExcludedModels); err != nil {
 		return CredentialStatusResponse{}, err
 	}
-	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document)
+	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document, result.ETag)
 	if err != nil {
+		if statusCode == http.StatusPreconditionFailed {
+			return CredentialStatusResponse{}, fmt.Errorf("%w: %s provider configuration", ErrCredentialConfigChanged, providerType)
+		}
 		if statusCode == http.StatusNotFound {
 			return CredentialStatusResponse{}, fmt.Errorf("%w: %s provider credential", ErrCredentialStatusNotFound, providerType)
 		}
@@ -192,15 +198,17 @@ func (s *credentialStatusService) validate(authIndex string) (string, error) {
 
 // persistDisabled 立即写回本地状态，让页面刷新前就看到一致结果；后续 metadata 同步会再对齐一次。
 func (s *credentialStatusService) persistDisabled(ctx context.Context, authType entities.UsageIdentityAuthType, authIndex string, disabled bool) error {
-	if err := repository.UpdateUsageIdentityDisabled(ctx, s.db, authType, authIndex, disabled); err != nil {
-		// CPA 已经成功时，本地写回失败也要排队一次 metadata 同步，让后台在数据库恢复后重新对齐状态。
+	// CPA 已成功时，本地失败也要失效旧快照并排队刷新；通知放在协调器短锁之外。
+	defer func() {
 		if s.refresh != nil {
 			s.refresh.RequestLocalMetadataRefresh()
 		}
+	}()
+	err := s.metadata.completeMutation(func() error {
+		return repository.UpdateUsageIdentityDisabled(ctx, s.db, authType, authIndex, disabled)
+	})
+	if err != nil {
 		return fmt.Errorf("update usage identity disabled state: %w", err)
-	}
-	if s.refresh != nil {
-		s.refresh.RequestLocalMetadataRefresh()
 	}
 	return nil
 }

@@ -35,7 +35,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	sharedLabel := "Shared Display"
 	identities := []entities.UsageIdentity{
-		{Name: "Auth Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-one", Type: "codex"},
+		{Name: "Auth Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-one", Type: "codex"},
 		{Name: "Provider Source", Alias: &sharedLabel, AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-one", Type: "codex"},
 	}
 	if err := db.Create(&identities).Error; err != nil {
@@ -82,7 +82,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		Timezone    string
 		Models      []comparisonItem
 		APIKeys     []comparisonItem `json:"api_keys"`
-		AuthFiles   []comparisonItem `json:"auth_files"`
+		Credentials []comparisonItem `json:"credentials"`
 		AIProviders []comparisonItem `json:"ai_providers"`
 	}
 	var payload comparisonPayload
@@ -95,14 +95,14 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	if len(payload.Buckets) != 1 || payload.Buckets[0] != today.Format(time.DateOnly) || payload.Granularity != "daily" || payload.Timezone != time.Local.String() {
 		t.Fatalf("incorrect comparison time axis: %+v", payload)
 	}
-	for _, items := range [][]comparisonItem{payload.Models, payload.APIKeys, payload.AuthFiles, payload.AIProviders} {
+	for _, items := range [][]comparisonItem{payload.Models, payload.APIKeys, payload.Credentials, payload.AIProviders} {
 		for _, item := range items {
 			if len(item.TokenSeries) != 1 {
 				t.Fatalf("missing token timeline: %+v", item)
 			}
 		}
 	}
-	if len(payload.AuthFiles) != 1 || payload.AuthFiles[0].TokenSeries[0] != 1_000_000 || len(payload.AIProviders) != 1 || payload.AIProviders[0].TokenSeries[0] != 1_000_000 {
+	if len(payload.Credentials) != 1 || payload.Credentials[0].TokenSeries[0] != 1_000_000 || len(payload.AIProviders) != 1 || payload.AIProviders[0].TokenSeries[0] != 1_000_000 {
 		t.Fatal("credential timeline did not preserve identity grouping")
 	}
 	seen := map[string]bool{}
@@ -156,10 +156,10 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	if apiKeys["42"].Cost == nil || !overviewAPICostClose(*apiKeys["42"].Cost, 6.25) || apiKeys["42"].Label != "Viewer Key" {
 		t.Fatalf("API Key comparison lost stored fee/alias: %+v", payload.APIKeys)
 	}
-	if len(payload.AuthFiles) != 1 || len(payload.AIProviders) != 1 || payload.AuthFiles[0].Key != "auth-one" || payload.AIProviders[0].Key != "provider-one" ||
-		payload.AuthFiles[0].Label != sharedLabel || payload.AIProviders[0].Label != sharedLabel || payload.AuthFiles[0].Cost == nil || payload.AIProviders[0].Cost == nil ||
-		!overviewAPICostClose(*payload.AuthFiles[0].Cost, feeAuth) || !overviewAPICostClose(*payload.AIProviders[0].Cost, feeProvider) {
-		t.Fatalf("typed identities with same display name merged: auth=%+v provider=%+v", payload.AuthFiles, payload.AIProviders)
+	if len(payload.Credentials) != 1 || len(payload.AIProviders) != 1 || payload.Credentials[0].Key != "auth-one" || payload.AIProviders[0].Key != "provider-one" ||
+		payload.Credentials[0].Label != sharedLabel || payload.AIProviders[0].Label != sharedLabel || payload.Credentials[0].Cost == nil || payload.AIProviders[0].Cost == nil ||
+		!overviewAPICostClose(*payload.Credentials[0].Cost, feeAuth) || !overviewAPICostClose(*payload.AIProviders[0].Cost, feeProvider) {
+		t.Fatalf("typed identities with same display name merged: auth=%+v provider=%+v", payload.Credentials, payload.AIProviders)
 	}
 	for _, raw := range []string{key.APIKey, "sk-other654321", "sk-legacy-one-123456", "sk-legacy-two-123456"} {
 		if strings.Contains(response.Body.String(), raw) {
@@ -192,10 +192,10 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewerModels := byKey(payload.Models)
-	if len(viewerModels) != 1 || viewerModels["my-model"].Cost == nil || !overviewAPICostClose(*viewerModels["my-model"].Cost, 6.25) || len(payload.AuthFiles) != 0 || len(payload.AIProviders) != 0 {
+	if len(viewerModels) != 1 || viewerModels["my-model"].Cost == nil || !overviewAPICostClose(*viewerModels["my-model"].Cost, 6.25) || len(payload.Credentials) != 0 || len(payload.AIProviders) != 0 {
 		t.Fatalf("viewer scope or stored fee changed: %+v", payload)
 	}
-	for _, restricted := range []string{"auth_files", "ai_providers", "Auth Source", "Provider Source", "auth-one", "provider-one"} {
+	for _, restricted := range []string{"credentials", "ai_providers", "Auth Source", "Provider Source", "auth-one", "provider-one"} {
 		if strings.Contains(response.Body.String(), restricted) {
 			t.Fatalf("viewer received restricted dimension %s", restricted)
 		}

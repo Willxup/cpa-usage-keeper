@@ -60,7 +60,7 @@ describe('quota refresh task ownership', () => {
     vi.mocked(fetchUsageQuotaRefreshTask).mockResolvedValue({ authIndex: 'auth-1', status: 'completed', quota: { id: 'new', quota: [] } })
     await act(async () => root.render(<Harness />))
     let oldSubmit!: Promise<void>
-    await act(async () => { oldSubmit = latest!.refreshQuotaForCurrentAuthFilePage() })
+    await act(async () => { oldSubmit = latest!.refreshQuotaForCurrentCredentialPage() })
     expect(latest!.quotaRefreshing).toBe(true)
     await act(async () => latest!.resetQuotaRefreshTasks())
     expect(latest!.quotaRefreshing).toBe(false)

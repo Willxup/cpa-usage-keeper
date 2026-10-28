@@ -26,7 +26,7 @@ export interface QuotaRefreshTasksState {
   quotaStateByAuthIndex: Record<string, QuotaState>
   quotaRefreshing: boolean
   quotaRefreshError: string
-  refreshQuotaForCurrentAuthFilePage: () => Promise<void>
+  refreshQuotaForCurrentCredentialPage: () => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   resetQuotaRefreshTasks: () => void
 }
@@ -171,7 +171,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
     }
   }, [onAuthRequired, applyRefreshUpdates])
 
-  const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
+  const refreshQuotaForCurrentCredentialPage = useCallback(async () => {
     // 批量刷新只提交当前页且未在工作的条目，单行刷新中的任务不会重复入队。
     const refreshableAuthIndexes = currentAuthIndexes.filter((authIndex) => !isQuotaRefreshWorking(quotaStateByAuthIndex[authIndex]))
     await startQuotaRefresh(refreshableAuthIndexes, 'batch')
@@ -188,7 +188,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
     quotaStateByAuthIndex,
     quotaRefreshing,
     quotaRefreshError,
-    refreshQuotaForCurrentAuthFilePage,
+    refreshQuotaForCurrentCredentialPage,
     refreshQuotaForAuthIndex,
     resetQuotaRefreshTasks,
   }
@@ -260,8 +260,8 @@ export function quotaRefreshDisplayError(error?: string): string {
       return i18n.t('usage_stats.credentials_refresh_error_duplicate', { defaultValue: 'Quota refresh is already running for this credential.' })
     case 'duplicate_request':
       return i18n.t('usage_stats.credentials_refresh_error_duplicate_request', { defaultValue: 'This credential was already included in the refresh request.' })
-    case 'not_auth_file':
-      return i18n.t('usage_stats.credentials_refresh_error_not_auth_file', { defaultValue: 'Quota refresh only supports local auth files.' })
+    case 'not_credential':
+      return i18n.t('usage_stats.credentials_refresh_error_not_credential', { defaultValue: 'Quota refresh only supports local credentials.' })
     case 'unsupported':
       return i18n.t('usage_stats.credentials_refresh_error_unsupported', { defaultValue: 'Quota refresh is not supported for this credential type.' })
     case 'not_found':

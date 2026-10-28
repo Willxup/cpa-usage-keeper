@@ -24,7 +24,7 @@ func TestHeaderProviderSwitchSurvivesOldRefreshCompletion(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "shared-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "shared-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 			entered := make(chan struct{})
 			unblock := make(chan struct{})
 			release := sync.OnceFunc(func() { close(unblock) })

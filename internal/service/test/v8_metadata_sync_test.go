@@ -217,7 +217,7 @@ func TestV8MetadataSyncPersistsReturnedNumericTextAndClientKeys(t *testing.T) {
 	}
 }
 
-func TestV8MetadataSyncPreservesWholeSourceWhenKeyHasNoAuthIndex(t *testing.T) {
+func TestV8MetadataSyncFiltersOpenAIEntriesAndPreservesIncompleteStandardSource(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		authField string
@@ -264,28 +264,59 @@ func TestV8MetadataSyncPreservesWholeSourceWhenKeyHasNoAuthIndex(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			// 真实响应先建立旧身份；混合合法与缺标识条目后，失败来源不得更新或删除任何旧行。
+			// 真实响应先建立旧身份，再比较 OpenAI 成员过滤与标准来源整组拒绝的边界。
 			syncer := service.NewSyncServiceWithClient(db, server.URL, cpa.NewClient(server.URL, "management-secret", time.Second, false))
 			if err := syncer.SyncMetadata(context.Background()); err != nil {
 				t.Fatal(err)
 			}
+			// 旧身份的本地别名、统计与游标必须在软删除和恢复期间保留。
+			if err := db.Model(&entities.UsageIdentity{}).Where("auth_type = ? AND identity = ?", entities.UsageIdentityAuthTypeAIProvider, "openai-omitted").Updates(map[string]any{"alias": "Local OpenAI", "total_requests": 7, "total_tokens": 77, "last_aggregated_usage_event_id": 42}).Error; err != nil {
+				t.Fatal(err)
+			}
 			before := loadMetadataIdentityMap(t, db)
 			refresh.Store(true)
-			if err := syncer.SyncMetadata(context.Background()); err == nil || !strings.Contains(err.Error(), "auth_index") || strings.Contains(err.Error(), "do-not-expose-api-key") {
+			if err := syncer.SyncMetadata(context.Background()); err == nil || !strings.Contains(err.Error(), "auth_index") || strings.Contains(err.Error(), "openai compatibility") || strings.Contains(err.Error(), "do-not-expose-api-key") {
 				t.Errorf("refresh warning = %v", err)
 			}
 			after := loadMetadataIdentityMap(t, db)
-			for _, authIndex := range []string{"codex-kept", "codex-omitted", "openai-kept", "openai-omitted"} {
+			for _, authIndex := range []string{"codex-kept", "codex-omitted"} {
 				key := metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, authIndex)
 				row, ok := after[key]
 				if !ok || !reflect.DeepEqual(before[key], row) {
 					t.Errorf("%s row changed: deleted = %v, lookup unchanged = %v", authIndex, row.IsDeleted, before[key].LookupKey == row.LookupKey)
 				}
 			}
+			openAIKeptKey := metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "openai-kept")
+			openAIKept := after[openAIKeptKey]
+			if openAIKept.ID != before[openAIKeptKey].ID || openAIKept.IsDeleted || openAIKept.Name != "changed" || openAIKept.LookupKey != "changed-key" {
+				t.Errorf("valid OpenAI sibling did not sync: %+v", openAIKept)
+			}
+			openAIOmittedKey := metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "openai-omitted")
+			openAIOmitted := after[openAIOmittedKey]
+			wantOmitted := before[openAIOmittedKey]
+			wantOmitted.IsDeleted = true
+			wantOmitted.DeletedAt = openAIOmitted.DeletedAt
+			wantOmitted.UpdatedAt = openAIOmitted.UpdatedAt
+			if openAIOmitted.DeletedAt == nil || !reflect.DeepEqual(openAIOmitted, wantOmitted) {
+				t.Errorf("omitted OpenAI identity was not soft-deleted with history preserved: %+v", openAIOmitted)
+			}
+			if len(after) != len(before) {
+				t.Errorf("invalid OpenAI member created an identity: before = %d, after = %d", len(before), len(after))
+			}
 			xai := after[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "xai-auth")]
 			claude := after[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "claude-auth")]
 			if xai.IsDeleted || xai.LookupKey != "updated-xai-key" || !claude.IsDeleted {
 				t.Error("successful sources did not update or delete their own identities")
+			}
+			refresh.Store(false)
+			if err := syncer.SyncMetadata(context.Background()); err != nil {
+				t.Fatalf("restore SyncMetadata returned error: %v", err)
+			}
+			restored := loadMetadataIdentityMap(t, db)[openAIOmittedKey]
+			wantRestored := before[openAIOmittedKey]
+			wantRestored.UpdatedAt = restored.UpdatedAt
+			if !reflect.DeepEqual(restored, wantRestored) {
+				t.Errorf("same OpenAI auth_index did not restore its identity and history: %+v", restored)
 			}
 		})
 	}

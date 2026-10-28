@@ -60,7 +60,7 @@ type updateCPAAPIKeyAliasRequest struct {
 	KeyAlias string `json:"keyAlias"`
 }
 
-func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider) {
+func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider, usageProvider service.UsageProvider) {
 	router.GET("/usage/api-keys", func(c *gin.Context) {
 		rows, err := listCPAAPIKeyRows(c, provider)
 		if err != nil {
@@ -78,6 +78,11 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 	})
 
 	router.GET("/usage/api-keys/options", func(c *gin.Context) {
+		setNoStoreHeaders(c)
+		if scope := strings.TrimSpace(c.Query("scope")); scope != "" {
+			listScopedCPAAPIKeyOptions(c, usageProvider, scope)
+			return
+		}
 		rows, err := listCPAAPIKeyOptionRows(c, provider)
 		if err != nil {
 			return

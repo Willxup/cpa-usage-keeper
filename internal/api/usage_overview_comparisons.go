@@ -31,12 +31,12 @@ type usageOverviewComparisons struct {
 	Timezone    string                        `json:"timezone"`
 	Models      []usageOverviewComparisonItem `json:"models"`
 	APIKeys     []usageOverviewComparisonItem `json:"api_keys,omitempty"`
-	AuthFiles   []usageOverviewComparisonItem `json:"auth_files,omitempty"`
+	Credentials []usageOverviewComparisonItem `json:"credentials,omitempty"`
 	AIProviders []usageOverviewComparisonItem `json:"ai_providers,omitempty"`
 }
 
 func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, infos map[string]analysisAPIKeyInfo) *usageOverviewComparisons {
-	result := &usageOverviewComparisons{Buckets: []string{}, Granularity: "hourly", Timezone: time.Local.String(), Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
+	result := &usageOverviewComparisons{Buckets: []string{}, Granularity: "hourly", Timezone: time.Local.String(), Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, Credentials: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
 	if overview == nil || overview.Comparisons == nil {
 		return result
 	}
@@ -44,7 +44,7 @@ func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, i
 	result.Granularity = overview.Comparisons.Granularity
 	result.Models = mapUsageOverviewComparison(overview.Comparisons.Models, nil, false, result.Buckets)
 	result.APIKeys = mapUsageOverviewComparison(overview.Comparisons.APIKeys, infos, true, result.Buckets)
-	result.AuthFiles = mapUsageOverviewComparison(overview.Comparisons.AuthFiles, nil, false, result.Buckets)
+	result.Credentials = mapUsageOverviewComparison(overview.Comparisons.Credentials, nil, false, result.Buckets)
 	result.AIProviders = mapUsageOverviewComparison(overview.Comparisons.AIProviders, nil, false, result.Buckets)
 	return result
 }

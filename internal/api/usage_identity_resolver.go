@@ -8,12 +8,12 @@ import (
 )
 
 type usageIdentityResolver struct {
-	authFilesByIdentity map[string]entities.UsageIdentity
-	providersByIdentity map[string]entities.UsageIdentity
+	credentialsByIdentity map[string]entities.UsageIdentity
+	providersByIdentity   map[string]entities.UsageIdentity
 }
 
 func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentityResolver {
-	authFilesByIdentity := make(map[string]entities.UsageIdentity, len(identities))
+	credentialsByIdentity := make(map[string]entities.UsageIdentity, len(identities))
 	providersByIdentity := make(map[string]entities.UsageIdentity, len(identities))
 	for _, identity := range identities {
 		if identity.IsDeleted {
@@ -24,16 +24,16 @@ func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentity
 			continue
 		}
 		switch identity.AuthType {
-		case entities.UsageIdentityAuthTypeAuthFile:
-			authFilesByIdentity[key] = identity
+		case entities.UsageIdentityAuthTypeCredential:
+			credentialsByIdentity[key] = identity
 		case entities.UsageIdentityAuthTypeAIProvider:
 			providersByIdentity[key] = identity
 		}
 	}
 
 	return usageIdentityResolver{
-		authFilesByIdentity: authFilesByIdentity,
-		providersByIdentity: providersByIdentity,
+		credentialsByIdentity: credentialsByIdentity,
+		providersByIdentity:   providersByIdentity,
 	}
 }
 
@@ -57,7 +57,7 @@ func (r usageIdentityResolver) resolveByAuthIndex(authIndex string) (resolvedUsa
 	if identity, ok := r.providersByIdentity[key]; ok {
 		return resolvedUsageIdentityFromEntity(identity), true
 	}
-	if identity, ok := r.authFilesByIdentity[key]; ok {
+	if identity, ok := r.credentialsByIdentity[key]; ok {
 		return resolvedUsageIdentityFromEntity(identity), true
 	}
 	return resolvedUsageIdentity{}, false

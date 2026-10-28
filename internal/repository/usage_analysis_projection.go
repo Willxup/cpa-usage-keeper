@@ -3,6 +3,7 @@ package repository
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,10 +53,8 @@ func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQuery
 // loadAnalysisOverviewStatProjection 保留原时间／Key筛选，并拒绝未回填或非法金额。
 func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string) ([]analysisOverviewStatProjection, error) {
 	rows := make([]analysisOverviewStatProjection, 0)
-	query = query.
-		Select(analysisOverviewProjectionColumns).
-		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
-		Order("bucket_start asc")
+	buckets := overviewBucketRead(start, end, grain)
+	query = buckets.query(query).Select(analysisOverviewProjectionColumns).Order("bucket_start asc")
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
@@ -70,5 +69,9 @@ func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFil
 			return nil, fmt.Errorf("analysis %s bucket %s has non-finite cost", grain, timeutil.FormatStorageTime(row.BucketStart))
 		}
 	}
+	for index := range rows {
+		rows[index].BucketStart = buckets.displayStart(rows[index].BucketStart)
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].BucketStart.Before(rows[j].BucketStart) })
 	return rows, nil
 }

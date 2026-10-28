@@ -95,7 +95,7 @@ func (s *resetHandlerStub) ListResetCredits(ctx context.Context, input ProviderI
 
 func TestResetConsumesCodexCredit(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
@@ -113,7 +113,7 @@ func TestResetConsumesCodexCredit(t *testing.T) {
 
 func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	availableCount := 1
 	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{
 		AvailableCount: &availableCount,
@@ -142,7 +142,7 @@ func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) 
 
 func TestGetResetCreditsPreservesUnknownAvailableCount(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{Credits: []CodexRateLimitResetCredit{}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
@@ -161,7 +161,7 @@ func TestGetResetCreditsPreservesUnknownAvailableCount(t *testing.T) {
 
 func TestGetResetCreditsRejectsUnsupportedProvider(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &resetHandlerStub{}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -173,7 +173,7 @@ func TestGetResetCreditsRejectsUnsupportedProvider(t *testing.T) {
 
 func TestResetRejectsUnsupportedProvider(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 1}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -218,7 +218,7 @@ func TestResetReturnsNotFoundForMissingAuthIndex(t *testing.T) {
 
 func TestResetRejectsConcurrentRequestsForSameAuthIndex(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	handler := &resetHandlerStub{refreshHandlerStub: refreshHandlerStub{block: block}, resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
@@ -260,8 +260,8 @@ func TestResetRejectsConcurrentRequestsForSameAuthIndex(t *testing.T) {
 
 func TestResetAllowsConcurrentRequestsForDifferentAuthIndexes(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-1", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-2", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-1", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-2", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	entered := make(chan string, 2)
 	handler := &resetHandlerStub{
@@ -313,7 +313,7 @@ func TestResetAllowsConcurrentRequestsForDifferentAuthIndexes(t *testing.T) {
 
 func TestCheckExposesCodexRateLimitResetCredits(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: new(2)}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
@@ -328,7 +328,7 @@ func TestCheckExposesCodexRateLimitResetCredits(t *testing.T) {
 
 func TestRefreshCachesCodexRateLimitResetCredits(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("codex-user.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, FileName: new("codex-user.json")})
 	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: new(0)}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
@@ -353,7 +353,7 @@ func TestRefreshCachesCodexRateLimitResetCredits(t *testing.T) {
 
 func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("claude-user.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential, FileName: new("claude-user.json")})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -393,7 +393,7 @@ func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 
 func TestRefreshTaskStoresUsageIdentityDisplayName(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -419,7 +419,7 @@ func TestUpdateUsageIdentityDisplayNameSnapshotUpdatesExistingRefreshTask(t *tes
 		Alias:    &alias,
 		Name:     "Upstream Name",
 		Provider: "Claude",
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 	})
 
 	task := refreshTaskRecord(service, "auth-1")
@@ -430,7 +430,7 @@ func TestUpdateUsageIdentityDisplayNameSnapshotUpdatesExistingRefreshTask(t *tes
 
 func TestRefreshOverwritesPreviousCompletedTaskForSameAuthIndex(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -451,7 +451,7 @@ func TestRefreshOverwritesPreviousCompletedTaskForSameAuthIndex(t *testing.T) {
 
 func TestManualRefreshIgnoresRecentAutoRefreshRound(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setLastAutoRefreshRoundAt(service, time.Now())
@@ -466,16 +466,16 @@ func TestManualRefreshIgnoresRecentAutoRefreshRound(t *testing.T) {
 	}
 }
 
-func TestManualRefreshAllowsDisabledAuthFile(t *testing.T) {
+func TestManualRefreshAllowsDisabledCredential(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	// disabled 只限制自动刷新扫描，手动刷新仍允许用户显式触发。
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential, Disabled: boolPtr(true)})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
-		t.Fatalf("expected disabled auth file to be accepted for manual refresh, got %+v", response)
+		t.Fatalf("expected disabled credential to be accepted for manual refresh, got %+v", response)
 	}
 	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 	if handler.callCount() != 1 {
@@ -486,7 +486,7 @@ func TestManualRefreshAllowsDisabledAuthFile(t *testing.T) {
 func TestManualRefreshFallsBackToIdentityTypeWhenProviderUnsupported(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	// provider 不支持但 type 支持时，手动刷新应复用 Check/auto 的同一套 handler 解析规则。
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -500,33 +500,33 @@ func TestManualRefreshFallsBackToIdentityTypeWhenProviderUnsupported(t *testing.
 	}
 }
 
-func TestManualRefreshSkipsUnsupportedAuthFileWithoutCaching(t *testing.T) {
+func TestManualRefreshSkipsUnsupportedCredentialWithoutCaching(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	// Auth File 存在但 provider/type 都没有 handler 时，手动刷新静默跳过，不创建任务缓存或错误缓存。
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	// Credential 存在但 provider/type 都没有 handler 时，手动刷新静默跳过，不创建任务缓存或错误缓存。
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 
 	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 0 || response.Skipped != 1 || len(response.Tasks) != 0 || len(response.Rejected) != 0 {
-		t.Fatalf("expected unsupported auth file to be skipped without rejection, got %+v", response)
+		t.Fatalf("expected unsupported credential to be skipped without rejection, got %+v", response)
 	}
 	if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), "auth-1"); !errors.Is(err, ErrTaskNotFound) {
-		t.Fatalf("expected unsupported auth file to stay out of refresh cache, got %v", err)
+		t.Fatalf("expected unsupported credential to stay out of refresh cache, got %v", err)
 	}
 	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"auth-1"}})
 	if err != nil {
 		t.Fatalf("GetCachedQuota returned error: %v", err)
 	}
 	if len(cache.Items) != 0 {
-		t.Fatalf("expected unsupported auth file to stay out of page cache, got %+v", cache.Items)
+		t.Fatalf("expected unsupported credential to stay out of page cache, got %+v", cache.Items)
 	}
 }
 
 func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "provider-1", Provider: "openai", Type: "openai", AuthType: entities.UsageIdentityAuthTypeAIProvider})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential, IsDeleted: true})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -535,7 +535,7 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 	if response.Accepted != 1 || response.Skipped != 4 || len(response.Tasks) != 1 || len(response.Rejected) != 4 {
 		t.Fatalf("unexpected refresh response: %+v", response)
 	}
-	if !hasRefreshRejection(response.Rejected, "auth-1", "duplicate_request") || !hasRefreshRejection(response.Rejected, "provider-1", "not_auth_file") || !hasRefreshRejection(response.Rejected, "deleted-1", "not_found") || !hasRefreshRejection(response.Rejected, "missing", "not_found") {
+	if !hasRefreshRejection(response.Rejected, "auth-1", "duplicate_request") || !hasRefreshRejection(response.Rejected, "provider-1", "not_credential") || !hasRefreshRejection(response.Rejected, "deleted-1", "not_found") || !hasRefreshRejection(response.Rejected, "missing", "not_found") {
 		t.Fatalf("unexpected rejected entries: %+v", response.Rejected)
 	}
 
@@ -554,7 +554,7 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 
 func TestManualRefreshReturnsDuplicateForRunningTaskEvenWhenIdentityDeleted(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	providerEntered := make(chan struct{})
 	var providerEnteredOnce sync.Once
@@ -612,7 +612,7 @@ func TestNewServiceWithRegistryAndOptionsWorkerLimit(t *testing.T) {
 
 func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	cooldownCalls := make(chan time.Duration, 1)
@@ -635,7 +635,7 @@ func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 
 func TestQueuedRefreshTaskFailsWhenParentContextCancelsBeforeWorkerSlot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 1})
 	releaseWorkerToken := occupyRefreshWorkerToken(service)
@@ -656,8 +656,8 @@ func TestQueuedRefreshTaskFailsWhenParentContextCancelsBeforeWorkerSlot(t *testi
 
 func TestQueuedRefreshDispatcherFailsRemainingTasksOnParentContextCancel(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 1})
 	releaseWorkerToken := occupyRefreshWorkerToken(service)
@@ -679,7 +679,7 @@ func TestQueuedRefreshDispatcherFailsRemainingTasksOnParentContextCancel(t *test
 
 func TestRefreshTaskUsesParentContextCancellation(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -698,7 +698,7 @@ func TestRefreshTaskUsesParentContextCancellation(t *testing.T) {
 
 func TestStopRefreshTasksPreventsNewRefreshWorkers(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -716,7 +716,7 @@ func TestStopRefreshTasksPreventsNewRefreshWorkers(t *testing.T) {
 
 func TestRefreshTaskFailureReturnsFriendlyMessage(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{err: errors.New("upstream exploded")}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -734,17 +734,17 @@ func TestRefreshTaskFailureReturnsFriendlyMessage(t *testing.T) {
 	}
 }
 
-func TestInspectionStatusSummarizesActiveAuthFileCache(t *testing.T) {
+func TestInspectionStatusSummarizesActiveCredentialCache(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "ok", Name: "Claude OK", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unauthorized", Name: "Codex Expired", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "payment", Name: "Gemini Billing", Provider: "gemini", Type: "gemini-cli", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "other", Name: "Claude Other", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "pending", Name: "Pending", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "uncached", Name: "No Cache", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported", Name: "Unsupported", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "ok", Name: "Claude OK", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unauthorized", Name: "Codex Expired", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "payment", Name: "Gemini Billing", Provider: "gemini", Type: "gemini-cli", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "other", Name: "Claude Other", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "pending", Name: "Pending", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "uncached", Name: "No Cache", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported", Name: "Unsupported", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential, Disabled: boolPtr(true)})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential, IsDeleted: true})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "provider", Provider: "openai", Type: "openai", AuthType: entities.UsageIdentityAuthTypeAIProvider})
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 	now := time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC)
@@ -783,7 +783,7 @@ func TestInspectionStatusSummarizesActiveAuthFileCache(t *testing.T) {
 
 func TestInspectionStatusNormalizesIdentityBeforeReadingRefreshTask(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: " auth-1 ", Name: "Claude Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: " auth-1 ", Name: "Claude Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 	now := time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC)
 	setRefreshTasks(service, map[string]*RefreshTaskRecord{
@@ -809,7 +809,7 @@ func TestInspectionStatusNormalizesIdentityBeforeReadingRefreshTask(t *testing.T
 
 func TestManualRefreshDoesNotMarkInspectionCompleted(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -830,7 +830,7 @@ func TestManualRefreshDoesNotMarkInspectionCompleted(t *testing.T) {
 
 func TestManualRefreshAfterInspectionCompletionDoesNotSetInspectionRunning(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -882,7 +882,7 @@ func TestStartInspectionIgnoresNonInspectionActiveRefreshTasks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 			block := make(chan struct{})
 			release := sync.OnceFunc(func() { close(block) })
 			t.Cleanup(release)
@@ -917,7 +917,7 @@ func TestStartInspectionIgnoresNonInspectionActiveRefreshTasks(t *testing.T) {
 	}
 }
 
-func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T) {
+func TestInspectionStatusClassifiesLimitReachedByKnownCredentialType(t *testing.T) {
 	tests := []struct {
 		name             string
 		identity         entities.UsageIdentity
@@ -928,7 +928,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 	}{
 		{
 			name:     "codex limitReached flag",
-			identity: entities.UsageIdentity{Identity: "codex-auth", Name: "Codex", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "codex-auth", Name: "Codex", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:          "rate_limit.primary_window",
 				Label:        "5h",
@@ -939,7 +939,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "claude used percent",
-			identity: entities.UsageIdentity{Identity: "claude-auth", Name: "Claude", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "claude-auth", Name: "Claude", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:         "five_hour",
 				Label:       "5h",
@@ -950,7 +950,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "gemini remaining fraction",
-			identity: entities.UsageIdentity{Identity: "gemini-auth", Name: "Gemini", Provider: "gemini", Type: "gemini-cli", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "gemini-auth", Name: "Gemini", Provider: "gemini", Type: "gemini-cli", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:               "bucket.gemini-pro.PROMPT",
 				Label:             "gemini-pro",
@@ -961,7 +961,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "antigravity remaining fraction",
-			identity: entities.UsageIdentity{Identity: "ag-auth", Name: "Antigravity", Provider: "antigravity", Type: "antigravity", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "ag-auth", Name: "Antigravity", Provider: "antigravity", Type: "antigravity", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:               "model.pro",
 				Label:             "Pro",
@@ -972,7 +972,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "kimi used reaches limit",
-			identity: entities.UsageIdentity{Identity: "kimi-auth", Name: "Kimi", Provider: "kimi", Type: "kimi", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "kimi-auth", Name: "Kimi", Provider: "kimi", Type: "kimi", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:   "usage",
 				Label: "Usage",
@@ -984,13 +984,13 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:       "xai legacy product flag does not exhaust shared quota",
-			identity:   entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity:   entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota:      []QuotaRow{{Key: "billing.weekly", LimitReached: boolPtr(false)}, {Key: "billing.weekly.product.grokbuild", Scope: "product", LimitReached: boolPtr(true)}},
 			wantStatus: "normal", wantNormal: 1,
 		},
 		{
 			name:     "xai limit reached flag",
-			identity: entities.UsageIdentity{Identity: "xai-auth", Name: "xAI", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "xai-auth", Name: "xAI", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:          "billing.monthly",
 				Label:        "Monthly Spend",
@@ -1001,7 +1001,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "xai monthly included spend exhausted with payg available",
-			identity: entities.UsageIdentity{Identity: "xai-payg-auth", Name: "xAI PAYG", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "xai-payg-auth", Name: "xAI PAYG", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{
 				{
 					Key:          "billing.monthly",
@@ -1023,7 +1023,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "generic type with known provider does not use provider fallback",
-			identity: entities.UsageIdentity{Identity: "generic-codex-auth", Name: "Generic Codex", Provider: "codex", Type: "generic", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "generic-codex-auth", Name: "Generic Codex", Provider: "codex", Type: "generic", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:          "quota",
 				Label:        "Quota",
@@ -1034,7 +1034,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		},
 		{
 			name:     "unknown type does not use generic limit detection",
-			identity: entities.UsageIdentity{Identity: "unknown-auth", Name: "Unknown", Provider: "unknown", Type: "unknown", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "unknown-auth", Name: "Unknown", Provider: "unknown", Type: "unknown", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{
 				Key:          "quota",
 				Label:        "Quota",
@@ -1089,7 +1089,7 @@ func TestInspectionStatusClassifiesLimitReachedThroughRefreshPipeline(t *testing
 	}{
 		{
 			name:     "codex limitReached from normalized rate limit",
-			identity: entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential},
 			output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimit: &CodexRateLimitInfo{
 				Allowed:      boolPtr(false),
 				LimitReached: boolPtr(true),
@@ -1101,14 +1101,14 @@ func TestInspectionStatusClassifiesLimitReachedThroughRefreshPipeline(t *testing
 		},
 		{
 			name:     "claude used percent from normalized utilization",
-			identity: entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential},
 			output: ProviderOutput{Provider: "claude", Result: ClaudeResult{Usage: &ClaudeUsagePayload{
 				FiveHour: &ClaudeUsageWindow{Utilization: 100},
 			}}},
 		},
 		{
 			name:     "xai used at billing limit from normalized billing row",
-			identity: entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			identity: entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential},
 			output: ProviderOutput{Provider: "xai", Result: XAIResult{Monthly: &XAIBillingPayload{Config: &XAIBillingConfig{
 				MonthlyLimit:       XAIMoneyValue{Val: floatPtr(100)},
 				Used:               XAIMoneyValue{Val: floatPtr(100)},
@@ -1145,12 +1145,12 @@ func TestInspectionStatusClassifiesLimitReachedThroughRefreshPipeline(t *testing
 	}
 }
 
-func TestStartInspectionClearsSettledCacheAndStartsOneAuthFileRound(t *testing.T) {
+func TestStartInspectionClearsSettledCacheAndStartsOneCredentialRound(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "unsupported", Provider: "vertex", Type: "vertex", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential, Disabled: boolPtr(true)})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -1168,7 +1168,7 @@ func TestStartInspectionClearsSettledCacheAndStartsOneAuthFileRound(t *testing.T
 		t.Fatalf("expected fresh running inspection without stale cache, got %+v", status)
 	}
 	if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), "unsupported"); !errors.Is(err, ErrTaskNotFound) {
-		t.Fatalf("expected unsupported auth file to stay out of inspection cache, got %v", err)
+		t.Fatalf("expected unsupported credential to stay out of inspection cache, got %v", err)
 	}
 
 	waitForRefreshTask(t, service, "auth-1", RefreshTaskStatusRunning)
@@ -1184,13 +1184,13 @@ func TestStartInspectionClearsSettledCacheAndStartsOneAuthFileRound(t *testing.T
 		t.Fatalf("expected completed inspection status, got %+v", finalStatus)
 	}
 	if handler.callCount() != 2 {
-		t.Fatalf("expected inspection to refresh two enabled auth files, got %d calls", handler.callCount())
+		t.Fatalf("expected inspection to refresh two enabled credentials, got %d calls", handler.callCount())
 	}
 }
 
 func TestInspectionStatusUsesRefreshTaskIdentitySnapshot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "Original Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("original.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "Original Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential, FileName: new("original.json")})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -1219,7 +1219,7 @@ func TestInspectionStatusUsesRefreshTaskIdentitySnapshot(t *testing.T) {
 
 func TestInspectionStatusUsesUsageIdentityDisplayNameSnapshot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -1254,8 +1254,8 @@ func TestSortInspectionResultsUsesAuthIndexForMatchingRefreshTime(t *testing.T) 
 
 func TestInspectionStatusCachesCompletedAtWhenExplicitInspectionRoundSettles(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
@@ -1301,7 +1301,7 @@ func TestInspectionStatusCachesCompletedAtWhenExplicitInspectionRoundSettles(t *
 
 func TestRefreshTaskCachesConfiguredHTTPError(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &refreshHandlerStub{err: ProviderHTTPError{StatusCode: 401, Message: "expired token"}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
@@ -1331,7 +1331,7 @@ func TestRefreshTaskCachesConfiguredHTTPError(t *testing.T) {
 
 func TestXAIRefreshCachesCompletedPartialQuota(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential})
 	monthlyJSON := `{"config":{"monthlyLimit":{"val":1000},"used":{"val":250},"onDemandCap":{"val":0},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
 	caller := newXAIManagementCaller(
 		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
@@ -1359,7 +1359,7 @@ func TestXAIRefreshCachesCompletedPartialQuota(t *testing.T) {
 
 func TestXAIRefreshCachesFailureOnlyWhenBothBillingSourcesFail(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential})
 	caller := newXAIManagementCaller(
 		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
 		&apicall.Response{StatusCode: 401, BodyText: "token expired"},
@@ -1445,7 +1445,7 @@ func queueManualQuotaRefresh(t *testing.T, service *Service, authIndexes ...stri
 
 func TestRefreshCachesXAISharedUsageBreakdown(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("xai.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeCredential, FileName: new("xai.json")})
 	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "xai", Result: XAIResult{Weekly: &XAIBillingPayload{Config: &XAIBillingConfig{CreditUsagePercent: floatPtr(16), ProductUsage: []XAIBillingProductUsage{{Product: "GrokBuild", UsagePercent: floatPtr(14)}, {Product: "GrokChat", UsagePercent: floatPtr(2)}}}}}}}
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"xai": handler}))
 	response := queueManualQuotaRefresh(t, service, "xai-auth")

@@ -24,6 +24,8 @@ type LoginErrors = {
 
 interface LoginPageProps extends LoginErrors {
   loading?: boolean;
+  oidcEnabled?: boolean;
+  onOIDCLogin?: () => Promise<void>;
   onPasswordSubmit: (password: string) => Promise<void>;
   onAPIKeySubmit: (apiKey: string) => Promise<void>;
 }
@@ -32,7 +34,7 @@ export const getLoginErrorForMode = (mode: LoginMode, { adminError = '', apiKeyE
   mode === 'api_key' ? apiKeyError : adminError
 );
 
-export function LoginPage({ loading = false, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit }: LoginPageProps) {
+export function LoginPage({ loading = false, oidcEnabled = false, onOIDCLogin, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit }: LoginPageProps) {
   const { t } = useTranslation();
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -85,7 +87,7 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
           <p className={styles.subtitle}>{t('auth.login_subtitle')}</p>
         </div>
 
-        <Card className={styles.loginCard}>
+        <Card className={`${styles.loginCard} ${mode === 'api_key' && oidcEnabled && onOIDCLogin ? styles.loginCardOIDCSpace : ''}`.trim()}>
           <div className={styles.cardHeader}>
             <span className={styles.cardKicker}>{t('auth.console_kicker')}</span>
             <h2 className={styles.cardTitle}>{t('auth.console_title')}</h2>
@@ -141,6 +143,11 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
             <Button type="submit" fullWidth loading={loading} disabled={!canSubmit}>
               {mode === 'api_key' ? t('auth.api_key_login_submit') : t('auth.login_submit')}
             </Button>
+            {mode === 'admin' && oidcEnabled && onOIDCLogin && (
+              <Button type="button" variant="secondary" fullWidth loading={loading} onClick={() => void onOIDCLogin()}>
+                {t('auth.oidc_login_submit')}
+              </Button>
+            )}
           </form>
         </Card>
       </div>

@@ -18,7 +18,7 @@ const storedValue = (storage: ReturnType<typeof createStorage>) => (
 
 describe('credential list preferences', () => {
   it('keeps each section on its own default sort', () => {
-    expect(defaultCredentialListPreferences('auth-files')).toEqual({
+    expect(defaultCredentialListPreferences('credentials')).toEqual({
       sort: 'priority',
       pageSize: 10,
       providerFilter: 'all',
@@ -47,7 +47,7 @@ describe('credential list preferences', () => {
   })
 
   it('drops values that are not on the request whitelist', () => {
-    expect(normalizeCredentialListPreferences('auth-files', {
+    expect(normalizeCredentialListPreferences('credentials', {
       version: 1,
       sort: 'total_cost',
       pageSize: 1000,
@@ -60,8 +60,8 @@ describe('credential list preferences', () => {
   })
 
   it('rejects a provider filter that belongs to the other section', () => {
-    // antigravity 只存在于 Auth 文件分区，AI 供应商恢复时必须回落到 all。
-    expect(normalizeCredentialListPreferences('auth-files', {
+    // antigravity 只存在于 凭证分区，AI 供应商恢复时必须回落到 all。
+    expect(normalizeCredentialListPreferences('credentials', {
       version: 1,
       providerFilter: 'antigravity',
     }).providerFilter).toBe('antigravity')
@@ -87,11 +87,11 @@ describe('credential list preferences', () => {
   })
 
   it('falls back to defaults for unusable storage', () => {
-    expect(loadCredentialListPreferences('auth-files', createStorage('not json'))).toEqual(defaultCredentialListPreferences('auth-files'))
-    expect(loadCredentialListPreferences('auth-files', {
+    expect(loadCredentialListPreferences('credentials', createStorage('not json'))).toEqual(defaultCredentialListPreferences('credentials'))
+    expect(loadCredentialListPreferences('credentials', {
       getItem: () => { throw new Error('blocked') },
       setItem: vi.fn(),
-    })).toEqual(defaultCredentialListPreferences('auth-files'))
+    })).toEqual(defaultCredentialListPreferences('credentials'))
   })
 
   it('merges a single field into the existing record instead of overwriting it', () => {
@@ -132,7 +132,7 @@ describe('credential list preferences', () => {
   })
 
   it('reports a failed write without throwing', () => {
-    expect(persistCredentialListPreferences('auth-files', { pageSize: 20 }, {
+    expect(persistCredentialListPreferences('credentials', { pageSize: 20 }, {
       getItem: vi.fn(() => null),
       setItem: () => { throw new Error('blocked') },
     })).toBe(false)

@@ -358,7 +358,7 @@ func TestListUsageEventsWithFilterAppliesAuthTypeWithSharedAuthIndex(t *testing.
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
 	if page.TotalCount != 1 || len(page.Events) != 1 || page.Events[0].AuthType != "oauth" {
-		t.Fatalf("expected only the auth-file event, got %+v", page)
+		t.Fatalf("expected only the credential event, got %+v", page)
 	}
 }
 

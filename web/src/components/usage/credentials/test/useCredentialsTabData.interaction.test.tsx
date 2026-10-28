@@ -26,7 +26,7 @@ function createDeferred<T>(): Deferred<T> {
 let latest: TabData | null = null
 
 function Harness({ onNotice }: { onNotice: (kind: 'success' | 'info' | 'error', message: string) => void }) {
-  const result = useCredentialsTabData({ enabledAuthFiles: true, enabledAiProviders: true, onNotice })
+  const result = useCredentialsTabData({ enabledCredentials: true, enabledAiProviders: true, onNotice })
   useEffect(() => {
     latest = result
   }, [result])
@@ -134,10 +134,10 @@ describe('credential status refresh after toggle', () => {
     await flush()
 
     await act(async () => {
-      latest?.toggleAuthFileStatus('1', 'idx-a', true)
+      latest?.toggleCredentialStatus('1', 'idx-a', true)
     })
     // 列表被判定过期时，用户已经打开了「仅启用」，刷新必须带上该筛选。
-    await act(async () => latest?.setAuthFileActiveOnly(true))
+    await act(async () => latest?.setCredentialActiveOnly(true))
     await flush()
 
     const requestsBeforeResolution = pageCalls(fetchMock, 1).length
@@ -191,11 +191,11 @@ describe('credential status pending identity', () => {
     await flush()
 
     await act(async () => {
-      latest?.toggleAuthFileStatus('', 'idx-9', true)
+      latest?.toggleCredentialStatus('', 'idx-9', true)
     })
 
     expect(Array.from(latest!.credentialStatusPendingIdentityIds)).toEqual(['idx-9'])
-    expect(statusPatchCalls(fetchMock).at(-1)).toContain('/auth-files/idx-9/status')
+    expect(statusPatchCalls(fetchMock).at(-1)).toContain('/credentials/idx-9/status')
 
     await act(async () => {
       statusDeferred.resolve({ ok: true, status: 200, json: async () => ({ auth_index: 'idx-9', disabled: true }) } as unknown as Response)

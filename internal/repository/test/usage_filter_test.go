@@ -946,16 +946,16 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 	t.Cleanup(cache.Close)
 	appendRecentCacheEvents(cache, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, CacheReadTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, CacheReadTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, TTFTMS: &ttftZero},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900, TTFTMS: &ttftFailed},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, CacheReadTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, CacheReadTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, TTFTMS: &ttftZero},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900, TTFTMS: &ttftFailed},
 		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
-		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
+		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
 	}))
 	if err := db.Create([]entities.UsageIdentity{
-		{Name: "Claude Account", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-file-1", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
+		{Name: "Claude Account", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "credential-1", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
 		{Name: "OpenAI Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-1", Type: "openai", Provider: "OpenAI", CreatedAt: now, UpdatedAt: now},
 	}).Error; err != nil {
 		t.Fatalf("create usage identities returned error: %v", err)
@@ -1032,10 +1032,10 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 		realtime.CurrentUsage.APIKeys[0].Tokens != 270 {
 		t.Fatalf("unexpected realtime api key usage: %+v", realtime.CurrentUsage.APIKeys)
 	}
-	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
-		realtime.CurrentUsage.AuthFiles[0].Label != "Claude Account" ||
-		realtime.CurrentUsage.AuthFiles[0].Tokens != 220 {
-		t.Fatalf("unexpected realtime auth file usage: %+v", realtime.CurrentUsage.AuthFiles)
+	if len(realtime.CurrentUsage.Credentials) != 1 ||
+		realtime.CurrentUsage.Credentials[0].Label != "Claude Account" ||
+		realtime.CurrentUsage.Credentials[0].Tokens != 220 {
+		t.Fatalf("unexpected realtime credential usage: %+v", realtime.CurrentUsage.Credentials)
 	}
 	if len(realtime.CurrentUsage.AIProviders) != 1 ||
 		realtime.CurrentUsage.AIProviders[0].Label != "OpenAI Provider" ||
@@ -1125,11 +1125,11 @@ func TestBuildUsageOverviewRealtimeWithFilterUsesRecentCacheFallbackLabels(t *te
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
 
-	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
-		realtime.CurrentUsage.AuthFiles[0].Key != "auth-index" ||
-		realtime.CurrentUsage.AuthFiles[0].Label != "auth-source@example.com" ||
-		realtime.CurrentUsage.AuthFiles[0].Tokens != 100 {
-		t.Fatalf("expected auth file fallback to use source label, got %+v", realtime.CurrentUsage.AuthFiles)
+	if len(realtime.CurrentUsage.Credentials) != 1 ||
+		realtime.CurrentUsage.Credentials[0].Key != "auth-index" ||
+		realtime.CurrentUsage.Credentials[0].Label != "auth-source@example.com" ||
+		realtime.CurrentUsage.Credentials[0].Tokens != 100 {
+		t.Fatalf("expected credential fallback to use source label, got %+v", realtime.CurrentUsage.Credentials)
 	}
 	if len(realtime.CurrentUsage.AIProviders) != 1 ||
 		realtime.CurrentUsage.AIProviders[0].Key != "provider-index" ||

@@ -18,7 +18,7 @@ const item = (key: string, overrides: Partial<UsageComparisonItem> = {}): UsageC
 });
 const comparisons = (items = [item('model-a')]): UsageOverviewComparisons => ({
   buckets:['2026-09-18','2026-09-19','2026-09-20'],granularity:'daily',timezone:'Asia/Shanghai',
-  models:items,api_keys:[item('My Key')],auth_files:[item('auth.json')],ai_providers:[item('OpenAI')],
+  models:items,api_keys:[item('My Key')],credentials:[item('auth.json')],ai_providers:[item('OpenAI')],
 });
 beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,7 +37,7 @@ it('renders a single stacked area chart with all four dimensions and zero-filled
   expect(chart.data?.datasets[0].data).toEqual([40,0,60]);
   expect(chart.data?.datasets[0]).toMatchObject({fill:'origin',borderWidth:0,pointRadius:0,cubicInterpolationMode:'monotone'});
   expect(chart.options?.scales?.y?.stacked).toBe(true);
-  for(const [dimension,label] of [['api_keys','My Key'],['auth_files','auth.json'],['ai_providers','OpenAI'],['models','model-a']]){
+  for(const [dimension,label] of [['api_keys','My Key'],['credentials','auth.json'],['ai_providers','OpenAI'],['models','model-a']]){
     await click('[data-dimension="'+dimension+'"]');
     expect(chart.data?.datasets[0].label).toBe(label);
     expect(container.querySelector('[data-dimension="'+dimension+'"]')?.getAttribute('aria-pressed')).toBe('true');
@@ -113,7 +113,7 @@ it('keeps same-label identities separate when polling changes their ranking',asy
 it('limits Key Viewer to models and its own API Key even if restricted arrays are supplied',async()=>{
   await render(comparisons(),true);
   expect(container.querySelectorAll('[data-dimension]')).toHaveLength(2);
-  expect(container.querySelector('[data-dimension="auth_files"]')).toBeNull();
+  expect(container.querySelector('[data-dimension="credentials"]')).toBeNull();
   expect(container.querySelector('[data-dimension="ai_providers"]')).toBeNull();
   await click('[data-dimension="api_keys"]');
   expect(chart.data?.datasets[0].label).toBe('My Key');

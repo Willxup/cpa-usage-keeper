@@ -69,7 +69,7 @@ func (c *Client) FetchPriorityProviderConfig(ctx context.Context, providerType s
 // UpdateProviderConfig 写入本次 GET 修改后的完整供应商列表，仅在副本中移除运行时标识。
 // 调用方必须持有供应商路径锁覆盖读取与写入；此方法不单独加锁，避免只保护写请求。
 // PUT 成功即返回，由服务更新本地状态并请求刷新，不额外执行强制回读。
-func (c *Client) UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document) (int, error) {
+func (c *Client) UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document, etag string) (int, error) {
 	path, ok := ProviderConfigPath(providerType)
 	if !ok {
 		return 0, fmt.Errorf("unsupported provider type %q", providerType)
@@ -77,7 +77,12 @@ func (c *Client) UpdateProviderConfig(ctx context.Context, providerType string, 
 	if document == nil {
 		return 0, fmt.Errorf("provider configuration is unavailable")
 	}
-	statusCode, _, err := c.doManagementJSONRequestWithBody(ctx, http.MethodPut, path, document.Writable(), nil, "provider configuration")
+	// 只使用产生该 Document 的同次 GET token；旧 CPA 缺头时沿用无条件写入。
+	headers := http.Header{}
+	if etag != "" {
+		headers.Set("If-Match", etag)
+	}
+	statusCode, _, _, err := c.doManagementJSONRequestWithHeaders(ctx, http.MethodPut, path, document.Writable(), nil, "provider configuration", headers)
 	return statusCode, err
 }
 

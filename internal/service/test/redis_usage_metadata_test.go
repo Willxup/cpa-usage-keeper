@@ -60,6 +60,7 @@ func TestDecodeRedisUsageMessagePreservesOptionalMetadata(t *testing.T) {
 		requestModel  string
 		responseModel string
 		requestTier   string
+		effectiveTier string
 		responseTier  string
 	}
 	for _, tc := range []struct {
@@ -69,13 +70,23 @@ func TestDecodeRedisUsageMessagePreservesOptionalMetadata(t *testing.T) {
 	}{
 		{
 			name:    "populated",
-			message: `{"execution_id":"fixture-execution","request_id":"req-metadata","model":"gpt-6-astra","response_model":"gpt-5.6-luna","client_ip":"192.0.2.10","x_forwarded_for":"203.0.113.5, 198.51.100.8","user_agent":"test-client/1.0","service_tier":"auto","response_service_tier":"default","tokens":{}}`,
-			want:    metadata{client: [3]*string{new("192.0.2.10"), new("203.0.113.5, 198.51.100.8"), new("test-client/1.0")}, requestModel: "gpt-6-astra", responseModel: "gpt-5.6-luna", requestTier: "auto", responseTier: "default"},
+			message: `{"execution_id":"fixture-execution","request_id":"req-metadata","model":"gpt-6-astra","response_model":"gpt-5.6-luna","client_ip":"192.0.2.10","x_forwarded_for":"203.0.113.5, 198.51.100.8","user_agent":"test-client/1.0","service_tier":"auto","effective_service_tier":" CustomTier ","response_service_tier":"default","tokens":{}}`,
+			want:    metadata{client: [3]*string{new("192.0.2.10"), new("203.0.113.5, 198.51.100.8"), new("test-client/1.0")}, requestModel: "gpt-6-astra", responseModel: "gpt-5.6-luna", requestTier: "auto", effectiveTier: "CustomTier", responseTier: "default"},
 		},
 		{
 			name:    "missing",
 			message: `{"execution_id":"fixture-execution","request_id":"req-metadata-missing","model":"gpt-5.6-luna","service_tier":"auto","tokens":{}}`,
 			want:    metadata{requestModel: "gpt-5.6-luna", requestTier: "auto"},
+		},
+		{
+			name:    "null outbound tier does not fall back",
+			message: `{"execution_id":"fixture-execution","model":"gpt-5.6-luna","service_tier":"priority","effective_service_tier":null,"response_service_tier":"default"}`,
+			want:    metadata{requestModel: "gpt-5.6-luna", requestTier: "priority", responseTier: "default"},
+		},
+		{
+			name:    "blank outbound tier does not fall back",
+			message: `{"execution_id":"fixture-execution","model":"gpt-5.6-luna","service_tier":"priority","effective_service_tier":"  ","response_service_tier":"default"}`,
+			want:    metadata{requestModel: "gpt-5.6-luna", requestTier: "priority", responseTier: "default"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,6 +99,7 @@ func TestDecodeRedisUsageMessagePreservesOptionalMetadata(t *testing.T) {
 				requestModel:  event.Model,
 				responseModel: event.ResponseModel,
 				requestTier:   event.ServiceTier,
+				effectiveTier: event.EffectiveServiceTier,
 				responseTier:  event.ResponseServiceTier,
 			}
 			if !reflect.DeepEqual(got, tc.want) {

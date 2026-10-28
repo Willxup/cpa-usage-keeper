@@ -5,13 +5,13 @@ import { normalizeCredentialProviderFilterKey, type CredentialProviderFilterKey,
 export const CREDENTIAL_LIST_PREFERENCES_VERSION = 1
 
 export const CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS: Record<CredentialProviderFilterScope, string> = {
-  'auth-files': 'cpa-usage-keeper-auth-files-list-preferences-v1',
+  'credentials': 'cpa-usage-keeper-credentials-list-preferences-v1',
   'ai-provider': 'cpa-usage-keeper-ai-providers-list-preferences-v1',
 }
 
-// Auth 文件默认按优先级排，AI 供应商默认按请求数排；与持久化前的初始值保持一致。
+// 凭证默认按优先级排，AI 供应商默认按请求数排；与持久化前的初始值保持一致。
 const DEFAULT_SORT_BY_SCOPE: Record<CredentialProviderFilterScope, UsageIdentityPageSort> = {
-  'auth-files': 'priority',
+  'credentials': 'priority',
   'ai-provider': 'total_requests',
 }
 

@@ -3,6 +3,7 @@ package repository
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,9 +48,8 @@ const usageOverviewStoredStatAggregateColumns = `
 // loadUsageOverviewStatProjection 只读完整小时／日桶，保留 API Key 筛选和时间半开边界。
 func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string) ([]usageOverviewStatProjection, error) {
 	rows := make([]usageOverviewStatProjection, 0)
-	query = query.
-		Select(usageOverviewStoredStatAggregateColumns).
-		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end))
+	buckets := overviewBucketRead(start, end, grain)
+	query = buckets.query(query).Select(usageOverviewStoredStatAggregateColumns)
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
@@ -58,6 +58,10 @@ func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview %s projection: %w", grain, err)
 	}
+	for index := range rows {
+		rows[index].BucketStart = buckets.displayStart(rows[index].BucketStart)
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].BucketStart.Before(rows[j].BucketStart) })
 	return rows, nil
 }
 
@@ -99,9 +103,8 @@ func loadUsageOverviewComparisonProjection(query *gorm.DB, filter dto.UsageQuery
 	if grain == "daily" {
 		table = "usage_overview_daily_stats"
 	}
-	query = query.Table(table).
-		Select(usageOverviewComparisonAggregateColumns).
-		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end))
+	query = overviewBucketRead(start, end, grain).query(query.Table(table)).
+		Select(usageOverviewComparisonAggregateColumns)
 	if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
 		query = query.Where("api_group_key = ?", key)
 	}

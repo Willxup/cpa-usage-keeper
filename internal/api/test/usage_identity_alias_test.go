@@ -74,7 +74,7 @@ func TestUsageIdentityAliasPatchRejectsInvalidInputAndDeletedRows(t *testing.T) 
 		}
 	}
 
-	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeAuthFile, time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeCredential, time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("mark identity deleted: %v", err)
 	}
 	resp := serveCredentialMutation(router, http.MethodPatch, "/api/v1/usage/identities/1", `{"alias":"ok"}`)
@@ -90,7 +90,7 @@ func seedUsageIdentityAliasAPIIdentity(t *testing.T, db *gorm.DB) {
 		Identity: "auth-1",
 		Type:     "codex",
 		Provider: "Codex",
-	}}, entities.UsageIdentityAuthTypeAuthFile, time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)); err != nil {
+	}}, entities.UsageIdentityAuthTypeCredential, time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}
 }

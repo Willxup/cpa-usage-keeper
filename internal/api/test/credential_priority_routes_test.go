@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +19,7 @@ type priorityProviderStub struct {
 	err       error
 }
 
-func (s *priorityProviderStub) SetAuthFilePriority(_ context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
+func (s *priorityProviderStub) SetCredentialPriority(_ context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
 	s.authIndex, s.priority = authIndex, priority
 	if s.err != nil {
 		return service.CredentialPriorityResponse{}, s.err
@@ -27,7 +28,7 @@ func (s *priorityProviderStub) SetAuthFilePriority(_ context.Context, authIndex 
 }
 
 func (s *priorityProviderStub) SetAIProviderPriority(ctx context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
-	return s.SetAuthFilePriority(ctx, authIndex, priority)
+	return s.SetCredentialPriority(ctx, authIndex, priority)
 }
 
 func priorityRouteRequest(t *testing.T, provider service.CredentialPriorityProvider, path, body string) *httptest.ResponseRecorder {
@@ -46,7 +47,7 @@ func TestCredentialPriorityRoutesAcceptSignedAndZeroIntegers(t *testing.T) {
 		path, body string
 		want       int
 	}{
-		{"/api/v1/auth-files/auth-1/priority", `{"priority":0}`, 0},
+		{"/api/v1/credentials/auth-1/priority", `{"priority":0}`, 0},
 		{"/api/v1/ai-providers/ai-1/priority", `{"priority":-12}`, -12},
 		{"/api/v1/ai-providers/ai-1/priority", `{"priority":10}`, 10},
 	} {
@@ -61,7 +62,7 @@ func TestCredentialPriorityRoutesAcceptSignedAndZeroIntegers(t *testing.T) {
 func TestCredentialPriorityRoutesRejectInvalidNumbers(t *testing.T) {
 	for _, body := range []string{`{}`, `{"priority":null}`, `{"priority":1.2}`, `{"priority":1e1}`, `{"priority":"1"}`, `{"priority":9007199254740992}`, `{"priority":-9007199254740992}`} {
 		provider := &priorityProviderStub{}
-		response := priorityRouteRequest(t, provider, "/api/v1/auth-files/auth-1/priority", body)
+		response := priorityRouteRequest(t, provider, "/api/v1/credentials/auth-1/priority", body)
 		if response.Code != http.StatusBadRequest || provider.authIndex != "" {
 			t.Fatalf("body=%s status=%d provider=%+v", body, response.Code, provider)
 		}
@@ -75,12 +76,16 @@ func TestCredentialPriorityRoutesMapUpstreamRejectionWithoutLeakingDetails(t *te
 	}{
 		{service.ErrCredentialPriorityNotFound, http.StatusNotFound},
 		{service.ErrCredentialPriorityConflict, http.StatusConflict},
+		{fmt.Errorf("%w: upstream secret-xyz", service.ErrCredentialConfigChanged), http.StatusPreconditionFailed},
 		{service.ErrCredentialPriorityUnsupported, http.StatusConflict},
 		{errors.New("upstream secret-xyz"), http.StatusInternalServerError},
 	} {
 		response := priorityRouteRequest(t, &priorityProviderStub{err: tc.err}, "/api/v1/ai-providers/ai-1/priority", `{"priority":1}`)
 		if response.Code != tc.want || strings.Contains(response.Body.String(), "secret-xyz") {
 			t.Fatalf("err=%v status=%d body=%s", tc.err, response.Code, response.Body.String())
+		}
+		if tc.want == http.StatusPreconditionFailed && !strings.Contains(response.Body.String(), "credential configuration changed") {
+			t.Fatalf("unexpected configuration conflict response: %s", response.Body.String())
 		}
 	}
 }

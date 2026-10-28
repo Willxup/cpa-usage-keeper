@@ -1,10 +1,6 @@
 import type { AnalysisResponse } from '@/lib/types';
 
-const getIntlTimeZone = (timezone: string | undefined) => {
-  const trimmed = timezone?.trim();
-  if (!trimmed || trimmed === 'Local') return undefined;
-  return trimmed;
-};
+import { disambiguateTimeLabels, getIntlTimeZone } from '@/utils/usage/timeLabels';
 
 const formatBucketLabelFromLiteral = (bucket: string, granularity: AnalysisResponse['granularity']) => {
   const match = bucket.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}))?/);
@@ -40,3 +36,9 @@ export const formatBucketLabel = (bucket: string, granularity: AnalysisResponse[
   }
   return `${String(date.getHours()).padStart(2, '0')}:00`;
 };
+
+export const formatBucketLabels = (buckets: readonly string[], granularity: AnalysisResponse['granularity'], timezone?: string) => (
+  granularity === 'daily'
+    ? buckets.map((bucket) => formatBucketLabel(bucket, granularity, timezone))
+    : disambiguateTimeLabels(buckets, timezone, (bucket) => formatBucketLabel(bucket, granularity, timezone), 'hours')
+);

@@ -34,7 +34,7 @@ func TestPluginAPIKeySourceMigrationOnlyAddsNullableEventAndNativeKeyColumns(t *
 	var statsSchemaBefore, checkpointSchemaBefore string
 	db.Raw("SELECT sql FROM sqlite_master WHERE name = 'usage_overview_hourly_stats'").Scan(&statsSchemaBefore)
 	db.Raw("SELECT sql FROM sqlite_master WHERE name = 'usage_aggregation_checkpoints'").Scan(&checkpointSchemaBefore)
-	runOnlyMigration(t, db, "20261019_plugin_api_key_sources")
+	runOnlyMigration(t, db, "20261028_plugin_api_key_sources")
 	for _, table := range []string{"usage_events", "usage_events_archive"} {
 		var row entities.UsageEvent
 		if err := db.Table(table).Take(&row).Error; err != nil {
@@ -52,7 +52,7 @@ func TestPluginAPIKeySourceMigrationOnlyAddsNullableEventAndNativeKeyColumns(t *
 		t.Fatalf("legacy key changed: %+v", key)
 	}
 	// 删除版本记录后幂等重跑，已有来源字段和值也不能被重置。
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261019_plugin_api_key_sources").Error; err != nil {
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261028_plugin_api_key_sources").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := migration.Run(db); err != nil {

@@ -1,0 +1,82 @@
+{
+  "GeneratedAt": "2026-10-21T03:00:00-07:00",
+  "RangeStart": "2026-09-21T03:00:00-07:00",
+  "Windows": [
+    {
+      "WindowRole": "primary",
+      "WindowKind": "five_hour",
+      "WindowSeconds": 18000,
+      "HasCurrentCycle": true,
+      "LastObservedAt": "2026-10-21T02:00:00-07:00"
+    },
+    {
+      "WindowRole": "secondary",
+      "WindowKind": "five_hour",
+      "WindowSeconds": 18000,
+      "HasCurrentCycle": true,
+      "LastObservedAt": "2026-10-21T02:00:00-07:00"
+    }
+  ],
+  "SelectedWindow": {
+    "WindowRole": "secondary",
+    "WindowKind": "five_hour",
+    "WindowSeconds": 18000,
+    "HasCurrentCycle": true,
+    "LastObservedAt": "2026-10-21T02:00:00-07:00"
+  },
+  "Cycles": [
+    {
+      "ID": 2,
+      "Status": "current",
+      "WindowSeconds": 18000,
+      "WindowStartedAt": "2026-10-21T00:00:00-07:00",
+      "ResetAt": "2026-10-21T05:00:00-07:00",
+      "EffectiveStartedAt": "2026-10-21T00:00:00-07:00",
+      "EffectiveEndedAt": "2026-10-21T05:00:00-07:00",
+      "FirstObservedAt": "2026-10-21T01:00:00-07:00",
+      "LastObservedAt": "2026-10-21T02:00:00-07:00",
+      "FirstRemainingPercent": 100,
+      "LastRemainingPercent": 99,
+      "ObservationCount": 2,
+      "Usage": {
+        "Requests": 3,
+        "SuccessfulRequests": 2,
+        "FailedRequests": 1,
+        "InputTokens": 22,
+        "OutputTokens": 14,
+        "ReasoningTokens": 6,
+        "CacheReadTokens": 25,
+        "CacheCreationTokens": 10,
+        "TotalTokens": 303,
+        "TotalCostUSD": 0.1875,
+        "CostAvailable": false
+      },
+      "Transitions": [
+        {
+          "FromRemainingPercent": 100,
+          "ToRemainingPercent": 99,
+          "PercentagePoints": 1,
+          "IsDirect": true,
+          "IntervalStartedAt": "2026-10-21T01:00:00-07:00",
+          "IntervalEndedAt": "2026-10-21T02:00:00-07:00",
+          "Usage": {
+            "Requests": 1,
+            "SuccessfulRequests": 0,
+            "FailedRequests": 1,
+            "InputTokens": 22,
+            "OutputTokens": 14,
+            "ReasoningTokens": 6,
+            "CacheReadTokens": 10,
+            "CacheCreationTokens": 4,
+            "TotalTokens": 202,
+            "TotalCostUSD": 0.0625,
+            "CostAvailable": false
+          },
+          "TokensPerPoint": 202,
+          "CostPerPoint": 0.0625,
+          "CostPerPointAvailable": false
+        }
+      ]
+    }
+  ]
+}

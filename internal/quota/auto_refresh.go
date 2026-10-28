@@ -21,13 +21,13 @@ const (
 	autoRefreshWakeCanceled
 )
 
-type authFileRefreshRoundOptions struct {
+type credentialRefreshRoundOptions struct {
 	source              RefreshSource
 	skipCachedHTTPError bool
 	expectedGeneration  *uint64
 }
 
-type authFileRefreshRoundSummary struct {
+type credentialRefreshRoundSummary struct {
 	scanned            int
 	queued             int
 	skippedCachedError int
@@ -67,7 +67,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	}()
 	// 自动刷新每轮开始先清理过期任务，确保 401/402 过期后能重新进入队列，而不是被旧缓存一直拦住。
 	s.cleanupExpiredRefreshTasks(now)
-	summary, err := s.queueAuthFileRefreshRound(ctx, now, authFileRefreshRoundOptions{
+	summary, err := s.queueCredentialRefreshRound(ctx, now, credentialRefreshRoundOptions{
 		source:              RefreshSourceScheduled,
 		skipCachedHTTPError: true,
 		expectedGeneration:  &generation,
@@ -78,7 +78,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	if summary.invalidated || s.quotaCacheGeneration() != generation {
 		return nil
 	}
-	// Auth Files 扫描成功后才记录整轮启动时间；扫描失败只依赖 attempt 时间做轻量退避。
+	// Credentials 扫描成功后才记录整轮启动时间；扫描失败只依赖 attempt 时间做轻量退避。
 	s.markAutoRefreshRoundStartedAt(now)
 	if len(summary.queuedTasks) > 0 {
 		if s.startRefreshGoroutine(func() {
@@ -100,13 +100,13 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	return nil
 }
 
-// queueAuthFileRefreshRound 逐身份创建同代数任务；清理期间停止旧巡检或自动扫描。
-func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, options authFileRefreshRoundOptions) (authFileRefreshRoundSummary, error) {
-	identities, err := s.listAutoRefreshAuthFiles(ctx)
+// queueCredentialRefreshRound 逐身份创建同代数任务；清理期间停止旧巡检或自动扫描。
+func (s *Service) queueCredentialRefreshRound(ctx context.Context, now time.Time, options credentialRefreshRoundOptions) (credentialRefreshRoundSummary, error) {
+	identities, err := s.listAutoRefreshCredentials(ctx)
 	if err != nil {
-		return authFileRefreshRoundSummary{}, err
+		return credentialRefreshRoundSummary{}, err
 	}
-	summary := authFileRefreshRoundSummary{
+	summary := credentialRefreshRoundSummary{
 		scanned:          len(identities),
 		queuedTasks:      make([]*RefreshTaskRecord, 0, len(identities)),
 		roundAuthIndexes: make([]string, 0, len(identities)),
@@ -117,7 +117,7 @@ func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, 
 			continue
 		}
 		if _, _, ok := s.resolveQuotaHandlerForIdentity(identity); !ok {
-			// 自动刷新和手动巡检共用同一套 handler 解析逻辑，不支持的 Auth File 不占用 worker。
+			// 自动刷新和手动巡检共用同一套 handler 解析逻辑，不支持的 Credential 不占用 worker。
 			summary.skippedUnsupported++
 			continue
 		}
@@ -192,7 +192,7 @@ func (s *Service) finishAutoRefreshRound() {
 	s.autoRefreshMu.Lock()
 	// defer 解锁，保证状态写入后正常释放锁。
 	defer s.autoRefreshMu.Unlock()
-	// 标记本轮自动刷新结束，下一次 tick 才可以重新扫描 Auth Files。
+	// 标记本轮自动刷新结束，下一次 tick 才可以重新扫描 Credentials。
 	s.autoRefreshRunning = false
 }
 
@@ -465,12 +465,12 @@ func delayUntil(now time.Time, dueAt time.Time) time.Duration {
 	return dueAt.Sub(now)
 }
 
-func (s *Service) listAutoRefreshAuthFiles(ctx context.Context) ([]entities.UsageIdentity, error) {
+func (s *Service) listAutoRefreshCredentials(ctx context.Context) ([]entities.UsageIdentity, error) {
 	var identities []entities.UsageIdentity
-	// 自动刷新只扫描未删除且未禁用的 Auth Files；AI Provider 和用户停用的 Auth File 都不应产生后台请求。
+	// 自动刷新只扫描未删除且未禁用的 Credentials；AI Provider 和用户停用的 Credential 都不应产生后台请求。
 	err := s.db.WithContext(ctx).
 		Select("id, name, alias, identity, provider, type, file_name, auth_type, is_deleted, disabled").
-		Where("auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", entities.UsageIdentityAuthTypeAuthFile, false, false).
+		Where("auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", entities.UsageIdentityAuthTypeCredential, false, false).
 		Order("priority IS NULL ASC").
 		Order("priority DESC").
 		Order("id ASC").

@@ -21,7 +21,7 @@ type timestampReplaceCase struct {
 }
 
 var timestampReplaceCases = []timestampReplaceCase{
-	{name: "auth_file", authType: entities.UsageIdentityAuthTypeAuthFile, authTypeName: "oauth", identityType: "codex"},
+	{name: "credential", authType: entities.UsageIdentityAuthTypeCredential, authTypeName: "oauth", identityType: "codex"},
 	{name: "ai_provider", authType: entities.UsageIdentityAuthTypeAIProvider, authTypeName: "apikey", identityType: "codex", providerTypes: []string{"codex"}},
 }
 
@@ -134,7 +134,7 @@ func TestUsageIdentitySyncTimestampRejectsZeroNow(t *testing.T) {
 }
 
 func replaceUsageIdentityTimestampScope(ctx context.Context, db *gorm.DB, testCase timestampReplaceCase, identities []entities.UsageIdentity, now time.Time) error {
-	if testCase.authType == entities.UsageIdentityAuthTypeAuthFile {
+	if testCase.authType == entities.UsageIdentityAuthTypeCredential {
 		return repository.ReplaceUsageIdentitiesForAuthType(ctx, db, identities, testCase.authType, now)
 	}
 	return repository.ReplaceUsageIdentitiesForProviderTypes(ctx, db, identities, testCase.providerTypes, now)

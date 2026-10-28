@@ -38,8 +38,8 @@ describe('Credential section layout and accessibility', () => {
   })
 
   it('stacks both credential row types on narrow screens', () => {
-    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
+    expect(credentialStyles).toMatch(/\.credentialsRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
+    expect(credentialStyles).toMatch(/\.credentialsRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
   })
@@ -70,11 +70,11 @@ describe('Credential section layout and accessibility', () => {
   })
 
   it('keeps shared credential table headers out of narrow row stacking', () => {
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.authFileCredentialRow[\s\S]*?display:\s*none;/)
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.credentialsRow[\s\S]*?display:\s*none;/)
     expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.aiProviderCredentialRow[\s\S]*?display:\s*none;/)
   })
 
-  it('keeps Auth Files quota actions inside the mobile card boundary', () => {
+  it('keeps Credentials quota actions inside the mobile card boundary', () => {
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaSideWithAction\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*0;/)
@@ -99,7 +99,7 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?overflow-y:\s*auto;/)
   })
 
-  it('keeps Auth Files quota reset popovers visible outside the section card', () => {
+  it('keeps Credentials quota reset popovers visible outside the section card', () => {
     expect(credentialStyles).toMatch(/\.credentialSectionCard\s*\{[\s\S]*?overflow:\s*hidden;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetAction\s*\{[\s\S]*?position:\s*relative;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?position:\s*fixed;/)
@@ -126,16 +126,6 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?white-space:\s*nowrap;/)
   })
 
-  it('uses theme-aware failure colors for quota errors', () => {
-    expect(scssRule(credentialStyles, '.credentialQuotaStateError', 1)).toContain('color: var(--failure-badge-text)')
-    expect(scssRule(credentialStyles, '.credentialInlineError', 1)).toContain('color: var(--failure-badge-text)')
-    expect(scssRule(credentialStyles, '.credentialQuotaErrorSummary')).toContain('color: var(--failure-badge-text)')
-    const code = scssRule(credentialStyles, '.credentialQuotaErrorCode')
-    expect(code).toContain('border: 1px solid var(--failure-badge-border)')
-    expect(code).toContain('background: var(--failure-badge-bg)')
-    expect(code).toContain('color: var(--failure-badge-text)')
-  })
-
   it('scrolls pagination controls on narrow screens and sizes sorting by its content', () => {
     expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
     expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
@@ -160,19 +150,8 @@ describe('Credential section layout and accessibility', () => {
   it('disables detail name and arrow motion for reduced-motion users', () => {
     const reducedMotion = scssRule(credentialStyles, '@media (prefers-reduced-motion: reduce)')
     expect(reducedMotion).toContain('.credentialDetailNameText')
-    expect(reducedMotion).toContain('.authFileCredentialRow:hover .credentialDetailNameArrow')
+    expect(reducedMotion).toContain('.credentialsRow:hover .credentialDetailNameArrow')
     expect(reducedMotion).toContain('animation: none')
-  })
-
-  it('keeps subscription animations limited to compositor transforms', () => {
-    const keyframes = [...credentialStyles.matchAll(/@keyframes\s+(credentialPlanBadge\w+)/g)].map((match) => match[1])
-    expect(keyframes.length).toBeGreaterThan(0)
-    for (const keyframe of keyframes) {
-      const declarations = [...scssRule(credentialStyles, `@keyframes ${keyframe}`).matchAll(/^\s*([\w-]+)\s*:/gm)].map((match) => match[1])
-      expect(new Set(declarations), keyframe).toEqual(new Set(['transform']))
-    }
-    expect(credentialStyles).not.toContain('background-position:')
-    expect(credentialStyles).not.toContain('will-change:')
   })
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {

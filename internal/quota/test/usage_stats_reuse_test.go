@@ -18,7 +18,7 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 		t.Run(entry, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
 			seedUsageIdentity(t, db, entities.UsageIdentity{
-				Identity: "shared-usage-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile,
+				Identity: "shared-usage-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential,
 			})
 			resetAt := time.Now().Add(-time.Hour).Truncate(time.Second)
 			seedUsageEvent(t, db, entities.UsageEvent{

@@ -62,7 +62,7 @@ func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 			defer server.Close()
 			db := openQuotaTestDatabase(t)
 			disabled := true
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: &disabled})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, Disabled: &disabled})
 			service := quota.NewServiceWithOptions(db, cpa.NewClient(server.URL, "test-management-key", time.Second, false), quota.ServiceOptions{
 				QuotaUpstreamResponsesEnabled: tc.recordResponses,
 			})
@@ -121,7 +121,7 @@ func (c *blockingQuotaRecoveryCaller) ResetQuota(ctx context.Context, _ string) 
 
 func TestCodexResetBlocksDuplicateConsumptionDuringCPARecovery(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	caller := &blockingQuotaRecoveryCaller{
 		recordingManagementCaller: recordingManagementCaller{responses: []*apicall.Response{{StatusCode: 200, BodyText: `{"code":"reset","windows_reset":2}`}}},
 		entered:                   make(chan struct{}), release: make(chan struct{}),

@@ -170,7 +170,7 @@ func TestParseUsageFilterQueryAcceptsLatestIdentityCursorWithoutRange(t *testing
 		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
 	}
 	if !filter.CursorMode || filter.PageSize != 50 || filter.Source != "shared-auth" || filter.AuthType != "oauth" {
-		t.Fatalf("expected latest auth-file cursor filter, got %+v", filter)
+		t.Fatalf("expected latest credential cursor filter, got %+v", filter)
 	}
 	if filter.StartTime != nil || filter.EndTime != nil || filter.Range != "" {
 		t.Fatalf("expected latest cursor query without fixed time range, got %+v", filter)

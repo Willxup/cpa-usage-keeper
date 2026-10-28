@@ -186,7 +186,7 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 		t.Fatalf("realtime cache lost stored fee: current=%+v insights=%+v", realtime.CurrentUsage, realtime.Insights)
 	}
 	if len(realtime.CurrentUsage.APIKeys) != 1 || realtime.CurrentUsage.APIKeys[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.APIKeys[0].CostUSD, 8) ||
-		len(realtime.CurrentUsage.AuthFiles) != 1 || realtime.CurrentUsage.AuthFiles[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.AuthFiles[0].CostUSD, 5.75) ||
+		len(realtime.CurrentUsage.Credentials) != 1 || realtime.CurrentUsage.Credentials[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.Credentials[0].CostUSD, 5.75) ||
 		len(realtime.CurrentUsage.AIProviders) != 1 || realtime.CurrentUsage.AIProviders[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.AIProviders[0].CostUSD, 2.25) {
 		t.Fatalf("realtime four dimensions lost stored fees: %+v", realtime.CurrentUsage)
 	}

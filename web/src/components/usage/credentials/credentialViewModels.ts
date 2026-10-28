@@ -44,7 +44,7 @@ export interface DisplayQuota {
   status: QuotaStatus
 }
 
-export interface AuthFileCredentialRow {
+export interface CredentialRow {
   identity: UsageIdentity
   displayName: string
   maskedIdentity: string
@@ -96,7 +96,7 @@ export interface AiProviderCredentialRow {
 }
 
 export type CredentialDetailSelection =
-  | { kind: 'auth-file'; row: AuthFileCredentialRow }
+  | { kind: 'credential'; row: CredentialRow }
   | { kind: 'ai-provider'; row: AiProviderCredentialRow }
 
 export type CredentialEditChange =
@@ -105,7 +105,7 @@ export type CredentialEditChange =
   | { field: 'disabled'; value: boolean }
 
 export interface CredentialIdentityGroups {
-  authFiles: UsageIdentity[]
+  credentials: UsageIdentity[]
   aiProviders: UsageIdentity[]
 }
 
@@ -120,12 +120,12 @@ export interface CredentialsPage<T> {
 export function splitCredentialIdentities(identities: UsageIdentity[]): CredentialIdentityGroups {
   return identities.reduce<CredentialIdentityGroups>((groups, identity) => {
     if (identity.auth_type === 1) {
-      groups.authFiles.push(identity)
+      groups.credentials.push(identity)
     } else if (identity.auth_type === 2) {
       groups.aiProviders.push(identity)
     }
     return groups
-  }, { authFiles: [], aiProviders: [] })
+  }, { credentials: [], aiProviders: [] })
 }
 
 export function selectQuotaEligibleAuthIndexes(identities: UsageIdentity[]): string[] {
@@ -149,12 +149,12 @@ export function paginateCredentials<T>(items: T[], page: number, pageSize = CRED
   }
 }
 
-export function buildAuthFileCredentialRows(
-  // Auth Files 行合并 usage identity、缓存 quota 和刷新任务状态，组件不再重复拼装字段。
+export function buildCredentialRows(
+  // Credentials 行合并 usage identity、缓存 quota 和刷新任务状态，组件不再重复拼装字段。
   identities: UsageIdentity[],
   quotas: Map<string, UsageQuotaCheckResponse> = new Map(),
-  quotaStates: Map<string, Pick<AuthFileCredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>> = new Map(),
-): AuthFileCredentialRow[] {
+  quotaStates: Map<string, Pick<CredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>> = new Map(),
+): CredentialRow[] {
   return identities.map((identity) => {
     const quotaResponse = quotas.get(identity.identity)
     const quota = quotaResponse?.quota ?? []
@@ -461,7 +461,7 @@ function credentialTypeLabel(identity: UsageIdentity): string {
 }
 
 function credentialAuthTypeLabel(identity: UsageIdentity): string {
-  return firstNonEmpty(identity.auth_type_name) ?? (identity.auth_type === 1 ? 'Auth file' : 'AI provider')
+  return firstNonEmpty(identity.auth_type_name) ?? (identity.auth_type === 1 ? 'Credential' : 'AI provider')
 }
 
 function credentialPriorityLabel(priority: number | undefined): string | undefined {
@@ -539,8 +539,8 @@ export function updateCredentialDetailStats(selection: CredentialDetailSelection
     credentialHealth: identity.credential_health,
     windowCacheReadRate: windowCacheReadRate(identity.credential_health),
   }
-  if (selection.kind === 'auth-file') {
-    return { kind: 'auth-file', row: { ...selection.row, identity, priorityLabel: credentialPriorityLabel(identity.priority), ...stats } }
+  if (selection.kind === 'credential') {
+    return { kind: 'credential', row: { ...selection.row, identity, priorityLabel: credentialPriorityLabel(identity.priority), ...stats } }
   }
   return { kind: 'ai-provider', row: { ...selection.row, identity, priorityLabel: credentialPriorityLabel(identity.priority), ...stats, lastUsedText: identity.last_used_at, statsUpdatedText: identity.stats_updated_at } }
 }

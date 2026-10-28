@@ -262,30 +262,37 @@ func TestFetchManagementAPIKeysRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
+func TestFetchCredentialsParsesSyncMetadataFields(t *testing.T) {
+	const responseBody = `{"files":[{"auth_index":"codex-auth","name":"codex-user.json","path":"/data/auths/codex-user.json","type":"codex","prefix":"team","priority":7,"disabled":false,"note":"primary auth"},{"auth_index":"gemini-auth","type":"gemini"}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v8/management/credentials" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"files":[{"auth_index":"codex-auth","name":"codex-user.json","path":"/data/auths/codex-user.json","type":"codex","prefix":"team","priority":7,"disabled":false,"note":"primary auth"},{"auth_index":"gemini-auth","type":"gemini"}]}`))
+		_, _ = w.Write([]byte(responseBody))
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	result, err := client.FetchAuthFiles(context.Background())
+	result, err := client.FetchCredentials(context.Background())
 	if err != nil {
-		t.Fatalf("FetchAuthFiles returned error: %v", err)
+		t.Fatalf("FetchCredentials returned error: %v", err)
 	}
 	if len(result.Payload.Files) != 2 {
-		t.Fatalf("expected two auth files, got %#v", result.Payload.Files)
+		t.Fatalf("expected two credentials, got %#v", result.Payload.Files)
+	}
+	if result.StatusCode != http.StatusOK || string(result.Body) != responseBody {
+		t.Fatalf("expected upstream status and response body to remain unchanged, got %+v", result)
 	}
 	file := result.Payload.Files[0]
+	if file.AuthIndex != "codex-auth" || file.Type != "codex" {
+		t.Fatalf("expected upstream identity fields to decode unchanged, got %+v", file)
+	}
 	if file.Prefix != "team" || file.Priority == nil || *file.Priority != 7 || file.Disabled == nil || *file.Disabled || file.Note == nil || *file.Note != "primary auth" {
 		t.Fatalf("expected sync metadata fields to decode, got %+v", file)
 	}
 	if file.Name != "codex-user.json" || file.Path != "/data/auths/codex-user.json" {
-		t.Fatalf("expected auth file name and path to decode, got %+v", file)
+		t.Fatalf("expected credential name and path to decode, got %+v", file)
 	}
 	missing := result.Payload.Files[1]
 	if missing.Priority != nil || missing.Disabled != nil || missing.Note != nil || missing.Prefix != "" {
@@ -293,7 +300,7 @@ func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 	}
 }
 
-func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
+func TestFetchCredentialsParsesCodexIDTokenFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v8/management/credentials" {
 			t.Errorf("unexpected path %q", r.URL.Path)
@@ -307,12 +314,12 @@ func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	result, err := client.FetchAuthFiles(context.Background())
+	result, err := client.FetchCredentials(context.Background())
 	if err != nil {
-		t.Fatalf("FetchAuthFiles returned error: %v", err)
+		t.Fatalf("FetchCredentials returned error: %v", err)
 	}
 	if len(result.Payload.Files) != 1 {
-		t.Fatalf("expected one auth file, got %#v", result.Payload.Files)
+		t.Fatalf("expected one credential, got %#v", result.Payload.Files)
 	}
 	file := result.Payload.Files[0]
 	if file.IDToken == nil {
@@ -332,7 +339,7 @@ func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	}
 }
 
-func TestDeleteAuthFilesSendsNamesToManagementEndpoint(t *testing.T) {
+func TestDeleteCredentialsSendsNamesToManagementEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE method, got %s", r.Method)
@@ -361,8 +368,8 @@ func TestDeleteAuthFilesSendsNamesToManagementEndpoint(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	if err := client.DeleteAuthFiles(context.Background(), []string{"codex-a.json", "codex-b.json"}); err != nil {
-		t.Fatalf("DeleteAuthFiles returned error: %v", err)
+	if err := client.DeleteCredentials(context.Background(), []string{"codex-a.json", "codex-b.json"}); err != nil {
+		t.Fatalf("DeleteCredentials returned error: %v", err)
 	}
 }
 

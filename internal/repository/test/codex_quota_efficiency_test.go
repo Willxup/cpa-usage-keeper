@@ -288,7 +288,7 @@ type codexQuotaEfficiencyQueryLogger struct {
 func (l codexQuotaEfficiencyQueryLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	sql, _ := fc()
 	if strings.Contains(sql, "FROM usage_events INDEXED BY idx_usage_events_auth_index_timestamp_id") &&
-		strings.Contains(sql, "ORDER BY timestamp ASC, id ASC") &&
+		strings.Contains(sql, "ORDER BY usage_events.timestamp ASC, usage_events.id ASC") &&
 		!strings.Contains(sql, "CASE WHEN") {
 		(*l.streamQueries)++
 	}

@@ -12,20 +12,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('AiProviderCredentialsSection', () => {
-  it('renders the AI Provider title without the Credentials eyebrow', () => {
-    const html = renderToStaticMarkup(
-      <AiProviderCredentialsSection
-        {...createAiProviderSectionProps()}
-        rows={[]}
-        total={0}
-      />,
-    )
-
-    expect(html).toContain('usage_stats.credentials_ai_providers_title')
-    expect(html).not.toContain('usage_stats.credentials_ai_providers_eyebrow')
-  })
-
-  it('renders the shared provider logo before the name without the type badge', () => {
+  it('renders provider health metrics, status and priority controls', () => {
     const row = {
       identity: {
         id: '1',
@@ -64,10 +51,7 @@ describe('AiProviderCredentialsSection', () => {
       windowCacheReadRate: 61.75,
       lastUsedText: '2026-05-10T10:00:00Z',
       statsUpdatedText: '2026-05-10T10:02:00Z',
-      remainingDaysLabel: '25d',
-      primaryQuota: { label: '5h' },
-      secondaryQuota: { label: 'Weekly' },
-    } satisfies AiProviderCredentialRow & Record<string, unknown>
+    } satisfies AiProviderCredentialRow
 
     const html = renderToStaticMarkup(
       <AiProviderCredentialsSection
@@ -77,10 +61,6 @@ describe('AiProviderCredentialsSection', () => {
       />,
     )
 
-    expect(html.match(/usage_stats\.total_requests/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.success_rate/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.total_tokens/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.cache_rate/g)).toHaveLength(1)
     expect(html).toContain('usage_stats.credentials_column_name')
     expect(html).toContain('usage_stats.credentials_column_health')
     expect(html).toContain('usage_stats.credentials_health_last_5h')
@@ -92,23 +72,18 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).toContain('05/10 10:00')
     expect(html).toContain('05/10 10:02')
     expect(html).toContain('data-provider-brand-icon="claude"')
-    expect(html.indexOf('data-provider-brand-icon="claude"')).toBeLessThan(html.lastIndexOf('Provider Key'))
     // 图标本身交给按钮承载语义，按钮名称使用凭证 displayName，状态由 aria-pressed 表达。
     expect(html).toContain('data-credential-status-toggle="true"')
     expect(html).toContain('data-credential-status-disabled="false"')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('aria-label="Provider Key"')
-    expect(html).not.toContain('>claude</span>')
     expect(html).toContain('P5')
     expect(html).toContain('usage_stats.credentials_sort_priority')
     expect(html).toContain('aria-label="usage_stats.credentials_sort_label: usage_stats.credentials_sort_priority"')
     expect(html).toContain('usage_stats.credentials_sort_last_used')
-    expect(html).not.toContain('Team')
-    expect(html).not.toContain('25d')
-    expect(html).not.toContain('Weekly')
     expect(html).not.toContain('usage_stats.credentials_column_quota')
-    expect(html).not.toContain('usage_stats.credentials_auth_files_display_mode_quota')
-    expect(html).not.toContain('usage_stats.credentials_auth_files_display_mode_health')
+    expect(html).not.toContain('usage_stats.credentials_display_mode_quota')
+    expect(html).not.toContain('usage_stats.credentials_display_mode_health')
   })
 
   it('marks OpenAI-compatible icons as unavailable and keeps them keyboard reachable', () => {

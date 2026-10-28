@@ -581,13 +581,13 @@ func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 		Identity:    "auth-1",
 		ActiveStart: &activeStart,
 		ActiveUntil: &activeUntil,
-	}}, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
+	}}, entities.UsageIdentityAuthTypeCredential, storageTime); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
 	if err := repository.AggregateUsageIdentityStats(context.Background(), db, storageTime); err != nil {
 		t.Fatalf("AggregateUsageIdentityStats returned error: %v", err)
 	}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeCredential, storageTime); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType delete returned error: %v", err)
 	}
 
@@ -878,7 +878,7 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 	}
 	if err := db.Create(&entities.UsageIdentity{
 		Name:                       "Auth 1",
-		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:                   entities.UsageIdentityAuthTypeCredential,
 		Identity:                   "auth-1",
 		LastAggregatedUsageEventID: events[0].ID,
 		CreatedAt:                  now,

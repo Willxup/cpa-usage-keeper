@@ -8,7 +8,6 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
-	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -18,22 +17,22 @@ func loadUsageOverviewComparisonTokenSeries(db *gorm.DB, filter dto.UsageQueryFi
 	if grain == "daily" {
 		table = "usage_overview_daily_stats"
 	}
+	buckets := overviewBucketRead(start, end, grain)
 	for _, dimension := range []string{"model", "api_group_key", "auth_index"} {
-		query := db.Table(table).
-			Select("bucket_start, "+dimension+", COALESCE(SUM(total_tokens), 0)").
-			Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
+		query := buckets.query(db.Table(table)).
+			Select("bucket_start, " + dimension + ", COALESCE(SUM(total_tokens), 0)").
 			Group("bucket_start, " + dimension)
 		if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
 			query = query.Where("api_group_key = ?", key)
 		}
-		if err := scanUsageOverviewComparisonTokenSeries(query, dimension, byDay, comparisons, identities); err != nil {
+		if err := scanUsageOverviewComparisonTokenSeries(query, dimension, byDay, comparisons, identities, buckets); err != nil {
 			return fmt.Errorf("load usage overview %s %s token series: %w", grain, dimension, err)
 		}
 	}
 	return nil
 }
 
-func scanUsageOverviewComparisonTokenSeries(query *gorm.DB, dimension string, byDay bool, comparisons *dto.UsageOverviewComparisonsRecord, identities analysisIdentityLookup) error {
+func scanUsageOverviewComparisonTokenSeries(query *gorm.DB, dimension string, byDay bool, comparisons *dto.UsageOverviewComparisonsRecord, identities analysisIdentityLookup, buckets usageBucketRead) error {
 	rows, err := query.Rows()
 	if err != nil {
 		return err
@@ -50,7 +49,7 @@ func scanUsageOverviewComparisonTokenSeries(query *gorm.DB, dimension string, by
 			return err
 		}
 		if bucket == "" || !timestamp.Equal(previous) {
-			bucket = usageOverviewBucket(timeutil.NormalizeStorageTime(timestamp), byDay)
+			bucket = usageOverviewBucket(buckets.displayStart(timestamp), byDay)
 			previous = timestamp
 		}
 		switch dimension {
@@ -63,7 +62,7 @@ func scanUsageOverviewComparisonTokenSeries(query *gorm.DB, dimension string, by
 				kind  entities.UsageIdentityAuthType
 				items map[string]*dto.UsageComparisonItemRecord
 			}{
-				{entities.UsageIdentityAuthTypeAuthFile, comparisons.AuthFiles},
+				{entities.UsageIdentityAuthTypeCredential, comparisons.Credentials},
 				{entities.UsageIdentityAuthTypeAIProvider, comparisons.AIProviders},
 			} {
 				if identity, ok := identities.find(target.kind, strings.TrimSpace(key.String)); ok {

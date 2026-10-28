@@ -152,7 +152,7 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 		if snapshot == nil {
 			continue
 		}
-		// 优先按 auth_index 合并，同一 provider 的同一 Auth File 只保留最新进度。
+		// 优先按 auth_index 合并，同一 provider 的同一 Credential 只保留最新进度。
 		authIndex := strings.TrimSpace(snapshot.AuthIndex)
 		// auth_index 缺失的异常快照用 provider/auth_type 分组，避免全部挤到空 key。
 		if authIndex == "" {
@@ -254,6 +254,28 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 	default:
 		mergedUsage.RateLimit = nil
 		mergedSnapshot.pendingMainObservedAt = time.Time{}
+	}
+
+	// 窗口仍整体选最新，限流标记则保留最近一次明确值，避免后续缺字段或乱序 Header 将其丢失/回滚。
+	if mergedUsage.RateLimit != nil {
+		rateLimit := *mergedUsage.RateLimit
+		rateLimit.LimitReached = nil
+		mergedSnapshot.pendingMainLimitReachedObservedAt = time.Time{}
+		for _, snapshot := range []*UsageHeaderSnapshot{existing, candidate} {
+			usage := codexUsagePayloadFromProviderOutput(snapshot.CacheOutput)
+			if usage.RateLimit == nil || usage.RateLimit.LimitReached == nil {
+				continue
+			}
+			observedAt := snapshot.pendingMainLimitReachedObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			if rateLimit.LimitReached == nil || !usageHeaderObservedAtBefore(observedAt, mergedSnapshot.pendingMainLimitReachedObservedAt) {
+				rateLimit.LimitReached = usage.RateLimit.LimitReached
+				mergedSnapshot.pendingMainLimitReachedObservedAt = observedAt
+			}
+		}
+		mergedUsage.RateLimit = &rateLimit
 	}
 
 	// Additional 按 LimitName 独立比较观察时间；同一 group 的 Primary/Secondary 同样保持整体更新。
@@ -539,7 +561,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 	}
 	// 直接调用的快照在本次工作启动时捕获；生产 pending 快照沿用入队时固定的代数。
 	workGeneration := s.quotaCacheGeneration()
-	// 批量查询活跃 Auth File 身份，避免每个 snapshot 单独查一次 usage_identities。
+	// 批量查询活跃 Credential 身份，避免每个 snapshot 单独查一次 usage_identities。
 	identityByAuthIndex, err := s.usageHeaderIdentityLookup(ctx, snapshots)
 	// 身份查询失败时整批跳过，避免在身份状态不确定时写入错误账号的 quota cache。
 	if err != nil {
@@ -556,7 +578,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 	type usageHeaderSnapshotJob struct {
 		// snapshot 是 Build 阶段冻结的只读对象，两个临时 worker 都不能修改其内部投影。
 		snapshot *UsageHeaderSnapshot
-		// identity 是当前 auth_index 对应的活跃 Auth File 数据库事实。
+		// identity 是当前 auth_index 对应的活跃 Credential 数据库事实。
 		identity   entities.UsageIdentity
 		generation uint64
 	}
@@ -625,14 +647,14 @@ func (s *Service) usageHeaderIdentityLookup(ctx context.Context, snapshots []*Us
 	if len(authIndexes) == 0 {
 		return map[string]entities.UsageIdentity{}, nil
 	}
-	// 只查询活跃 Auth File 身份，删除/禁用账号不接受 header cache 更新。
-	identities, err := repository.ListActiveAuthFileUsageIdentitiesByAuthIndexes(ctx, s.db, authIndexes)
+	// 只查询活跃 Credential 身份，删除/禁用账号不接受 header cache 更新。
+	identities, err := repository.ListActiveCredentialUsageIdentitiesByAuthIndexes(ctx, s.db, authIndexes)
 	if err != nil {
 		return nil, err
 	}
 	// 结果 map 按 auth_index 建索引，供批量 apply O(1) 匹配。
 	identityByAuthIndex := make(map[string]entities.UsageIdentity, len(identities))
-	// 遍历仓储返回结果，只保留真实 type 属于 Codex/Claude 的 Auth File。
+	// 遍历仓储返回结果，只保留真实 type 属于 Codex/Claude 的 Credential。
 	for _, identity := range identities {
 		// identity 字段就是 auth_index，入 map 前统一 trim。
 		authIndex := strings.TrimSpace(identity.Identity)
@@ -643,7 +665,7 @@ func (s *Service) usageHeaderIdentityLookup(ctx context.Context, snapshots []*Us
 		// 同一 auth_index 只需要一条活跃身份记录。
 		identityByAuthIndex[authIndex] = identity
 	}
-	// 返回可用于逐快照匹配的 Auth File 身份集合。
+	// 返回可用于逐快照匹配的 Credential 身份集合。
 	return identityByAuthIndex, nil
 }
 
@@ -652,7 +674,7 @@ func usageHeaderSnapshotAuthIndexes(snapshots []*UsageHeaderSnapshot) []string {
 	authIndexes := make([]string, 0, len(snapshots))
 	// seen 用来避免同一 auth_index 在批量查询中重复出现。
 	seen := make(map[string]struct{}, len(snapshots))
-	// 遍历 snapshot，只提取 Auth File OAuth 来源的账号标识。
+	// 遍历 snapshot，只提取 Credential OAuth 来源的账号标识。
 	for _, snapshot := range snapshots {
 		// nil 快照不具备任何身份字段，直接跳过。
 		if snapshot == nil {
@@ -662,7 +684,7 @@ func usageHeaderSnapshotAuthIndexes(snapshots []*UsageHeaderSnapshot) []string {
 		authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 		// auth_index 也统一 trim，保证查询参数干净。
 		authIndex := strings.TrimSpace(snapshot.AuthIndex)
-		// 非 OAuth 或空 auth_index 的 snapshot 不能匹配 Auth File，后续会被跳过。
+		// 非 OAuth 或空 auth_index 的 snapshot 不能匹配 Credential，后续会被跳过。
 		if authType != "oauth" || authIndex == "" {
 			continue
 		}
@@ -696,7 +718,7 @@ func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHe
 		return false
 	}
 	generation := s.quotaCacheGeneration()
-	// 单条 apply 入口同样只接受 OAuth Auth File 快照。
+	// 单条 apply 入口同样只接受 OAuth Credential 快照。
 	authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 	// auth_index 是后续查身份和写 refreshTasks 的唯一键。
 	authIndex := strings.TrimSpace(snapshot.AuthIndex)
@@ -704,14 +726,14 @@ func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHe
 	if authType != "oauth" || authIndex == "" {
 		return false
 	}
-	// 单条路径按 auth_index 查询当前活跃 Auth File 身份。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	// 单条路径按 auth_index 查询当前活跃 Credential 身份。
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	// 身份不存在或查询异常时跳过；非 not-found 错误由 helper 记录 warning。
 	if err != nil {
 		logUsageHeaderIdentityLookupError(authIndex, err)
 		return false
 	}
-	// 只有真实 type 与已选 parser 一致的 Auth File 才能消费快照。
+	// 只有真实 type 与已选 parser 一致的 Credential 才能消费快照。
 	if !usageHeaderIdentityMatchesSnapshot(identity, &snapshot) {
 		return false
 	}
@@ -782,12 +804,17 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		// 单条路径没有共享 provider 时走现有 helper 自行构造窗口统计。
 		response = s.attachWindowUsageStats(ctx, authIndex, response, observedAt)
 	}
+	// 明确标记可能来自批次中的旧 Header，必须保留它自己的时间供最终锁内判定。
+	limitReachedObservedAt := timeutil.NormalizeStorageTime(snapshot.pendingMainLimitReachedObservedAt)
+	if limitReachedObservedAt.IsZero() {
+		limitReachedObservedAt = observedAt
+	}
 	// 最后把 header quota 与已有 cache 合并，并写回 refreshTasks。
-	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, identity, generation)
+	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, limitReachedObservedAt, identity, generation)
 }
 
 func usageHeaderIdentityIsCodex(identity entities.UsageIdentity) bool {
-	// identity.Type 是 Auth File 的真实 provider 类型，使用统一 normalization 判断 codex。
+	// identity.Type 是 Credential 的真实 provider 类型，使用统一 normalization 判断 codex。
 	return normalizeIdentityType(identity.Type) == "codex"
 }
 
@@ -844,7 +871,7 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identi
 }
 
 // mergeUsageHeaderQuotaCache 将代数复验和缓存发布合并在 refreshMu 下，阻止查询中的旧结果晚到回写。
-func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
+func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, limitReachedObservedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
 	// 写 refreshTasks 前加锁，和主动刷新任务状态切换保持同一同步边界。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁。
@@ -865,9 +892,17 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 		if usageHeaderCompletedCacheIsCurrentOrNewer(existing, identity.Type, observedAt) {
 			return false
 		}
-		// Auth File 的真实 type 变化后，旧 provider 的 row、套餐和 credits 不能混进新 cache。
+		// Credential 的真实 type 变化后，旧 provider 的 row、套餐和 credits 不能混进新 cache。
 		if normalizeIdentityType(existing.Type) == normalizeIdentityType(identity.Type) {
 			if existing.Quota != nil {
+				// 旧标记不能借较新窗口的时间覆盖缓存；只跳过主额度标记，进度仍正常合并。
+				if usageHeaderIdentityIsCodex(identity) && usageHeaderCompletedCacheIsCurrentOrNewer(existing, identity.Type, limitReachedObservedAt) {
+					for index := range response.Quota {
+						if strings.HasPrefix(response.Quota[index].Key, "rate_limit.") {
+							response.Quota[index].LimitReached = nil
+						}
+					}
+				}
 				response = mergeUsageHeaderQuotaResponse(*existing.Quota, response)
 			}
 			// Header 无 management api-call，同一 provider 才保留最近主动刷新响应，包括失败任务。
@@ -930,6 +965,7 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 	headerByKey := make(map[string]QuotaRow, len(header))
 	// headerOrder 保留 header 新行的顺序，方便最后追加旧 cache 没有的行。
 	headerOrder := make([]string, 0, len(header))
+	var mainLimitReached *bool
 	// 先遍历 header rows 建索引。
 	for _, row := range header {
 		// 空 key 无法稳定合并，直接丢弃。
@@ -942,6 +978,9 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 		}
 		// 同 key 多次出现时以后出现的 header row 为准。
 		headerByKey[row.Key] = row
+		if strings.HasPrefix(row.Key, "rate_limit.") && row.LimitReached != nil {
+			mainLimitReached = row.LimitReached
+		}
 	}
 	// merged 预分配旧行和 header 行容量，减少 append 扩容。
 	merged := make([]QuotaRow, 0, len(existing)+len(header))
@@ -970,6 +1009,14 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 		}
 		// 追加 header 新增的 quota row。
 		merged = append(merged, headerByKey[key])
+	}
+	// 主额度标记属于整组；缺失窗口只同步明确标记，保留用量，且不影响 Additional。
+	if mainLimitReached != nil {
+		for index := range merged {
+			if strings.HasPrefix(merged[index].Key, "rate_limit.") {
+				merged[index].LimitReached = mainLimitReached
+			}
+		}
 	}
 	// 返回稳定顺序的合并结果。
 	return merged

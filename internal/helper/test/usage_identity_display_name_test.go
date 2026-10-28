@@ -18,9 +18,9 @@ func TestUsageIdentityDisplayName(t *testing.T) {
 			Name: "Provider Name", Prefix: "Team Prefix",
 			AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-auth-index",
 		}, "Team Prefix"},
-		{"auth file alias", entities.UsageIdentity{
+		{"credential alias", entities.UsageIdentity{
 			Alias: &alias, Name: "Upstream Auth Name",
-			AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-1",
+			AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-1",
 		}, "Friendly Account"},
 		{"provider alias", entities.UsageIdentity{
 			Alias: &alias, Name: "Provider Name", Prefix: "Team Prefix", BaseURL: "https://api.openai.com/v1",
@@ -51,8 +51,8 @@ func TestUsageIdentityDisplayName(t *testing.T) {
 			Prefix: "openrouter", BaseURL: "https://openrouter.ai/api/v1",
 			AuthType: entities.UsageIdentityAuthTypeAIProvider, Type: "openai", Provider: "openai", Identity: "openrouter-auth-index",
 		}, "openrouter @ openrouter.ai/api"},
-		{"unnamed auth file", entities.UsageIdentity{
-			AuthType: entities.UsageIdentityAuthTypeAuthFile, Provider: "Claude",
+		{"unnamed credential", entities.UsageIdentity{
+			AuthType: entities.UsageIdentityAuthTypeCredential, Provider: "Claude",
 		}, "Claude"},
 		{"prefix only", entities.UsageIdentity{
 			Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-auth-index",

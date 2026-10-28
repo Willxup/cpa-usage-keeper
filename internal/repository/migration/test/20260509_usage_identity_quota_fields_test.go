@@ -49,7 +49,7 @@ func TestUpdateUsageIdentityQuotaFieldsMigrationAddsNullableProjectIDColumn(t *t
 		t.Fatalf("create legacy usage_identities table: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO usage_identities (name, auth_type, auth_type_name, identity, type, provider, lookup_key, account_id, plan_type, is_deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "Legacy", entities.UsageIdentityAuthTypeAuthFile, "oauth", "legacy-auth", "codex", "codex", "", "acct-1", "pro", false).Error; err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "Legacy", entities.UsageIdentityAuthTypeCredential, "oauth", "legacy-auth", "codex", "codex", "", "acct-1", "pro", false).Error; err != nil {
 		t.Fatalf("seed legacy usage identity: %v", err)
 	}
 

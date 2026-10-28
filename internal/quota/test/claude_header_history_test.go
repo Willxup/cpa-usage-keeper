@@ -109,10 +109,10 @@ func TestClaudeHeaderMainWindowValidationAndCacheHistoryProjection(t *testing.T)
 	}
 }
 
-func TestClaudeHeaderFanoutUsesRealAuthFileTypeForCacheAndHistory(t *testing.T) {
+func TestClaudeHeaderFanoutUsesRealCredentialTypeForCacheAndHistory(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	now := time.Now().Truncate(time.Second)
 	build := func(authIndex, provider string) *quota.UsageHeaderSnapshot {
 		t.Helper()
@@ -165,7 +165,7 @@ func TestClaudeHeaderFanoutUsesRealAuthFileTypeForCacheAndHistory(t *testing.T) 
 
 func TestClaudeDeleteClearsOnlyMatchingQueuedWindow(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	now := time.Now().Truncate(time.Second)
 	build := func(at time.Time, five, seven string) *quota.UsageHeaderSnapshot {
 		t.Helper()
@@ -216,7 +216,7 @@ func TestClaudeHeaderDoesNotMergeOldCodexCacheAfterIdentityTypeChanges(t *testin
 	for _, status := range []quota.RefreshTaskStatus{quota.RefreshTaskStatusCompleted, quota.RefreshTaskStatusQueued, quota.RefreshTaskStatusRunning} {
 		t.Run(string(status), func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "shared-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "shared-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 			service := quota.NewServiceWithRegistry(db, quota.NewProviderRegistry(nil))
 			defer service.StopRefreshTasks()
 			now := time.Now().Truncate(time.Second)
@@ -252,7 +252,7 @@ func TestClaudeActiveCheckSourcesWriteTrustedHistory(t *testing.T) {
 	for _, source := range []quota.RefreshSource{quota.RefreshSourceManual, quota.RefreshSourceScheduled, quota.RefreshSourceInspection} {
 		t.Run(string(source), func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 			reset := time.Now().Add(5 * time.Hour).Truncate(time.Second)
 			handler := &recordingProviderHandler{output: quota.ProviderOutput{Provider: "claude", Result: quota.ClaudeResult{Usage: &quota.ClaudeUsagePayload{
 				FiveHour: &quota.ClaudeUsageWindow{Utilization: 0, HasUtilization: true, ResetsAt: reset.Format(time.RFC3339)},
@@ -284,7 +284,7 @@ func TestClaudeActiveCheckSourcesWriteTrustedHistory(t *testing.T) {
 
 func TestClaudePendingMainGroupDoesNotOverwriteNewerActiveSevenDayCache(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := quota.NewServiceWithRegistryAndOptions(db, quota.NewProviderRegistry(nil), quota.ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
 	})
@@ -347,7 +347,7 @@ func TestClaudePendingPartialWindowsMergeIntoCacheAndHistory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
-			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 			service := quota.NewServiceWithRegistryAndOptions(db, quota.NewProviderRegistry(nil), quota.ServiceOptions{
 				UsageHeaderSnapshotFlushInterval: time.Hour,
 				CodexQuotaHistoryFlushInterval:   time.Hour,
@@ -378,7 +378,7 @@ func TestClaudePendingPartialWindowsMergeIntoCacheAndHistory(t *testing.T) {
 
 func TestClaudePendingPartialWindowKeepsNewerSameWindow(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := quota.NewServiceWithRegistryAndOptions(db, quota.NewProviderRegistry(nil), quota.ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour,
 		CodexQuotaHistoryFlushInterval:   time.Hour,

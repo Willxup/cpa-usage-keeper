@@ -39,8 +39,8 @@ func registerCredentialPriorityRoutes(router gin.IRoutes, provider service.Crede
 			c.JSON(http.StatusOK, response)
 		})
 	}
-	register("/auth-files/:auth_index/priority", func(c *gin.Context, priority int) (service.CredentialPriorityResponse, error) {
-		return provider.SetAuthFilePriority(c.Request.Context(), c.Param("auth_index"), priority)
+	register("/credentials/:auth_index/priority", func(c *gin.Context, priority int) (service.CredentialPriorityResponse, error) {
+		return provider.SetCredentialPriority(c.Request.Context(), c.Param("auth_index"), priority)
 	})
 	register("/ai-providers/:auth_index/priority", func(c *gin.Context, priority int) (service.CredentialPriorityResponse, error) {
 		return provider.SetAIProviderPriority(c.Request.Context(), c.Param("auth_index"), priority)
@@ -68,6 +68,8 @@ func bindCredentialPriorityRequest(c *gin.Context) (int, bool) {
 
 func writeCredentialPriorityError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrCredentialConfigChanged):
+		c.JSON(http.StatusPreconditionFailed, gin.H{"error": "credential configuration changed"})
 	case errors.Is(err, service.ErrCredentialPriorityValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid credential priority request"})
 	case errors.Is(err, service.ErrCredentialPriorityNotFound):

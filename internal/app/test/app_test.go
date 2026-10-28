@@ -44,7 +44,7 @@ func TestAppCloseStopsRealQuotaRefreshTasksBeforeDatabaseClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
-	if err := db.Create(&entities.UsageIdentity{Identity: "auth-1", Name: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile}).Error; err != nil {
+	if err := db.Create(&entities.UsageIdentity{Identity: "auth-1", Name: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential}).Error; err != nil {
 		t.Fatalf("seed usage identity returned error: %v", err)
 	}
 	block := make(chan struct{})

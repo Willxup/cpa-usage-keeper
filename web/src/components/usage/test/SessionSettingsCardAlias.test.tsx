@@ -14,8 +14,8 @@ const translations: Record<string, string> = {
   'usage_stats.session_settings_admin_label': 'Admin Session',
   'usage_stats.session_settings_type_admin': 'Admin',
   'usage_stats.session_settings_type_api_key': 'API Key',
-  'usage_stats.session_settings_source_standard': 'Standalone',
-  'usage_stats.session_settings_source_embed': 'CPAMC Embed',
+  'usage_stats.session_settings_source_standard': 'Keeper login',
+  'usage_stats.session_settings_source_embed': 'CPAMC login',
   'usage_stats.session_settings_alias_edit': 'Edit session alias',
   'usage_stats.session_settings_alias_placeholder': 'Session alias',
   'usage_stats.session_settings_alias_save': 'Save session alias',
@@ -102,8 +102,8 @@ describe('SessionSettingsCard admin alias editor', () => {
     expect(currentIndicator!.textContent).toBe('In use')
     expect(currentDot!.getAttribute('aria-hidden')).toBe('true')
     expect(currentIndicator!.parentElement!.querySelector('button[aria-label="Sign out this session"]')).toBeNull()
-    expect(standardSource!.textContent).toBe('Standalone')
-    expect(embedSource!.textContent).toBe('CPAMC Embed')
+    expect(standardSource!.textContent).toBe('Keeper login')
+    expect(embedSource!.textContent).toBe('CPAMC login')
     expect(container.textContent).toContain('Office Mac')
 
     await act(async () => editButton!.click())

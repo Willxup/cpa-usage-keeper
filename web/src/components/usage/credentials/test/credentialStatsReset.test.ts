@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageIdentity } from '@/lib/types'
-import { buildAiProviderCredentialRows, buildAuthFileCredentialRows } from '../credentialViewModels'
+import { buildAiProviderCredentialRows, buildCredentialRows } from '../credentialViewModels'
 
 describe('credential period statistics', () => {
   const identity = {
@@ -10,7 +10,7 @@ describe('credential period statistics', () => {
   } as UsageIdentity
 
   it('uses period counts and recalculates both ratios for both credential pages', () => {
-    for (const row of [buildAuthFileCredentialRows([identity])[0], buildAiProviderCredentialRows([identity])[0]]) {
+    for (const row of [buildCredentialRows([identity])[0], buildAiProviderCredentialRows([identity])[0]]) {
       expect(row).toMatchObject({ totalRequests: 4, successCount: 3, failureCount: 1, totalTokens: 120, successRate: 75, cacheReadRate: 25 })
       expect(row.identity.total_requests).toBe(100)
     }

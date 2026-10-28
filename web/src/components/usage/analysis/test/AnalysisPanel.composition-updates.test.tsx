@@ -61,7 +61,7 @@ const item = (key: string, label: string, percent: number): AnalysisCompositionI
 const analysisWith = (items: AnalysisCompositionItem[]): AnalysisResponse => ({
   granularity: 'hourly', timezone: 'UTC', token_usage: [],
   api_key_composition: items, model_composition: items,
-  auth_files_composition: [], ai_provider_composition: [], model_efficiency: [],
+  credentials_composition: [], ai_provider_composition: [], model_efficiency: [],
   cost_summary: {
     total_cost_usd: 0, cost_available: true,
   },
@@ -190,15 +190,15 @@ describe('composition labels after mounted chart updates', () => {
     expect(drawn()).toContainEqual({ text: 'Alpha', color: '#111827' });
   });
 
-  it('updates the total label when changing language while keeping all entries', async () => {
+  it('updates the composition title when changing language while keeping all entries', async () => {
     const analysis = analysisWith([50, 20, 10, 8, 5, 4, 3].map((share, index) => item(String(index), `Model ${index}`, share)));
     await render(analysis);
     expect(container.querySelector('ol')?.querySelectorAll('button')).toHaveLength(7);
-    expect(container.textContent).toContain('Total Tokens');
+    expect(container.textContent).toContain('Usage Distribution');
 
     await act(async () => { await i18n.changeLanguage('zh'); });
-    expect(container.textContent).toContain('总 Token');
-    expect(container.textContent).not.toContain('Total Tokens');
+    expect(container.textContent).toContain('用量分布');
+    expect(container.textContent).not.toContain('Usage Distribution');
     expect(container.querySelector('ol')?.querySelectorAll('button')).toHaveLength(7);
   });
 });

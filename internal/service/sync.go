@@ -69,6 +69,7 @@ type SyncService struct {
 	db                    *gorm.DB
 	client                CPAClientFetcher
 	metadataFetcher       MetadataFetcher
+	credentialMetadata    *CredentialMetadataCoordinator
 	baseURL               string
 	now                   func() time.Time
 	recentUsage           RecentUsageEventAppender
@@ -93,11 +94,13 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 
 // SyncServiceOptions 提供测试和局部调用需要替换的依赖。
 type SyncServiceOptions struct {
-	BaseURL           string
-	Client            CPAClientFetcher
-	MetadataFetcher   MetadataFetcher
-	Now               func() time.Time
-	RecentUsageEvents RecentUsageEventAppender
+	BaseURL         string
+	Client          CPAClientFetcher
+	MetadataFetcher MetadataFetcher
+	// CredentialMetadata 与凭据修改服务共享；未注入时兼容独立同步调用。
+	CredentialMetadata *CredentialMetadataCoordinator
+	Now                func() time.Time
+	RecentUsageEvents  RecentUsageEventAppender
 	// PricingCatalog 与价格保存服务共享，消费批次只从中固定一次只读快照。
 	PricingCatalog        *pricing.Catalog
 	UsageRawRetentionDays int
@@ -123,6 +126,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		db:                    db,
 		client:                opts.Client,
 		metadataFetcher:       metadataFetcher,
+		credentialMetadata:    opts.CredentialMetadata,
 		baseURL:               strings.TrimSpace(opts.BaseURL),
 		now:                   now,
 		recentUsage:           opts.RecentUsageEvents,
@@ -531,8 +535,8 @@ func normalizeRedisUsageEventsDetailed(ctx context.Context, db *gorm.DB, events 
 	unresolvedIndexes := make([]int, 0)
 	unresolvedEvents := make([]entities.UsageEvent, 0)
 	for index, event := range events {
-		// executor 先描述本次真实 CPA parser；已知类型无需读取凭证 identity。
-		resolution, err := tokenprocessor.ResolveExecutor(event.ExecutorType)
+		// 已知 executor 保持原合同；未匹配时先尝试完整 accounting，再查询凭证 identity。
+		resolution, err := tokenprocessor.ResolveExecutorWithBreakdown(event.ExecutorType, tokenValuesFromUsageEvent(event), event.AccountingVersion, event.TokenBreakdown)
 		if err != nil {
 			// registry 错误影响全部事件，返回所有索引让调用方按 process_failed 保守处理。
 			allIndexes := make([]int, len(events))
@@ -544,17 +548,17 @@ func normalizeRedisUsageEventsDetailed(ctx context.Context, db *gorm.DB, events 
 		// unresolved 槽位也保存初始 resolution，identity 查询失败时仍能统计和记录 unknown executor。
 		items[index] = normalizedUsageEvent{event: event, resolution: resolution}
 		if resolution.NeedsIdentity() {
-			// 只有空、unknown 或未注册 executor 才进入现有联合键 identity 批量查询。
+			// 只有 executor 未匹配且 accounting 不可用时才进入原有联合键 identity 批量查询。
 			unresolvedIndexes = append(unresolvedIndexes, index)
 			unresolvedEvents = append(unresolvedEvents, event)
 			continue
 		}
-		// 已知 executor 立即完成纯 Token 处理，identity 查询失败也不能回滚这条 ready 结果。
+		// executor 或完整 accounting 已解决的事件立即处理，不受其它事件的 identity 查询失败影响。
 		items[index] = processResolvedUsageEvent(event, resolution)
 	}
 
 	if len(unresolvedEvents) == 0 {
-		// 全部事件都由 executor 证明时完全跳过 usage_identities 查询。
+		// 全部事件已解决时完全跳过 usage_identities 查询。
 		return items, nil, nil
 	}
 	// unresolved 仍按 auth_type+auth_index、active→deleted、每组 500 条执行现有批量查询。
@@ -628,6 +632,9 @@ func applyTokenProcessResult(event entities.UsageEvent, result tokenprocessor.Pr
 	event.CacheReadTokens = result.Tokens.CacheReadTokens
 	event.CacheCreationTokens = result.Tokens.CacheCreationTokens
 	event.TotalTokens = result.Tokens.TotalTokens
+	// 下游通知只接收最终统一字段，避免携带已消费的原始 accounting 或再次应用它。
+	event.AccountingVersion = nil
+	event.TokenBreakdown = nil
 	return event
 }
 
@@ -827,7 +834,7 @@ func redisUsageIdentityKeys(events []entities.UsageEvent) []usageEventIdentityKe
 func redisUsageIdentityAuthType(authType string) (entities.UsageIdentityAuthType, bool) {
 	switch normalizeRedisAuthType(authType) {
 	case "oauth":
-		return entities.UsageIdentityAuthTypeAuthFile, true
+		return entities.UsageIdentityAuthTypeCredential, true
 	case "apikey":
 		return entities.UsageIdentityAuthTypeAIProvider, true
 	default:
@@ -854,12 +861,12 @@ func missingRedisUsageIdentityKeys(keys []usageEventIdentityKey, byIdentity map[
 	return missing
 }
 
-// OAuth 优先信任已同步的 auth file type；查不到时再沿用历史 provider 兜底。
+// OAuth 优先信任已同步的 credential type；查不到时再沿用历史 provider 兜底。
 func resolveUsageEventType(event entities.UsageEvent, resolver usageEventTypeResolver) string {
 	switch normalizeRedisAuthType(event.AuthType) {
 	case "oauth":
 		if authIndex := strings.TrimSpace(event.AuthIndex); authIndex != "" {
-			key := usageEventIdentityKey{authType: entities.UsageIdentityAuthTypeAuthFile, identity: authIndex}
+			key := usageEventIdentityKey{authType: entities.UsageIdentityAuthTypeCredential, identity: authIndex}
 			if usageType := strings.TrimSpace(resolver.byIdentity[key]); usageType != "" {
 				return usageType
 			}

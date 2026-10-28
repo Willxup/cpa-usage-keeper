@@ -35,9 +35,9 @@ func NormalizeSubscription(output ProviderOutput) *SubscriptionInfo {
 	return subscription
 }
 
-// ResolveIdentitySubscription 只发布明确属于 Codex Auth File 的内部套餐 metadata。
+// ResolveIdentitySubscription 只发布明确属于 Codex Credential 的内部套餐 metadata。
 func ResolveIdentitySubscription(identity entities.UsageIdentity) *SubscriptionInfo {
-	if identity.AuthType != entities.UsageIdentityAuthTypeAuthFile {
+	if identity.AuthType != entities.UsageIdentityAuthTypeCredential {
 		return nil
 	}
 	if normalizeIdentityType(identity.Type) != "codex" && normalizeIdentityType(identity.Provider) != "codex" {

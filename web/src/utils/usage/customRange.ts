@@ -1,3 +1,4 @@
+import { createZonedPartsReader, disambiguateTimeLabels, type ZonedParts } from './timeLabels';
 import type { UsageCustomRange, UsageCustomRangeUnit, UsageTimeRange } from '@/lib/types';
 import { isSelectableUsageRange } from './rangeQuery';
 
@@ -37,41 +38,6 @@ export interface UsageCustomRangeSlot {
   current: boolean;
 }
 
-interface ZonedParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-const getZonedParts = (timestampMs: number, timeZone: string): ZonedParts => {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const parts = Object.fromEntries(
-    formatter.formatToParts(new Date(timestampMs))
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, Number(part.value)]),
-  );
-  return {
-    year: parts.year,
-    month: parts.month,
-    day: parts.day,
-    hour: parts.hour,
-    minute: parts.minute,
-    second: parts.second,
-  };
-};
-
 const pad2 = (value: number): string => String(value).padStart(2, '0');
 
 const formatDateKey = ({ year, month, day }: Pick<ZonedParts, 'year' | 'month' | 'day'>): string => (
@@ -89,8 +55,7 @@ const isValidDateKey = (value: unknown): value is string => {
     && date.getUTCDate() === day;
 };
 
-const formatZonedRFC3339Hour = (timestampMs: number, timeZone: string): string => {
-  const parts = getZonedParts(timestampMs, timeZone);
+const formatZonedRFC3339Hour = (timestampMs: number, parts: ZonedParts): string => {
   const representedUTC = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, 0, 0, 0);
   const offsetMinutes = Math.round((representedUTC - timestampMs) / 60_000);
   const sign = offsetMinutes >= 0 ? '+' : '-';
@@ -118,7 +83,7 @@ const resolveCustomDayRangeMaxDays = (value?: number): number => (
 
 const getCustomDayBounds = ({ nowMs, timeZone, maxDayRangeDays }: CustomRangeClockOptions): CustomDayBounds => {
   const slotCount = resolveCustomDayRangeMaxDays(maxDayRangeDays);
-  const todayParts = getZonedParts(nowMs, timeZone);
+  const todayParts = createZonedPartsReader(timeZone)(nowMs);
   const todayCalendarMs = Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day);
   const firstCalendarMs = todayCalendarMs - (slotCount - 1) * DAY_MS;
   const firstDate = new Date(firstCalendarMs);
@@ -153,21 +118,24 @@ export const buildCustomDaySlots = (options: CustomRangeClockOptions): UsageCust
 };
 
 export const buildCustomHourSlots = ({ nowMs, timeZone, locale }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
-  const current = getZonedParts(nowMs, timeZone);
+  const readParts = createZonedPartsReader(timeZone);
+  const current = readParts(nowMs);
   const currentHourStartMs = nowMs
     - current.minute * 60_000
     - current.second * 1_000
     - ((nowMs % 1_000) + 1_000) % 1_000;
-  return Array.from({ length: 24 }, (_, index) => {
+  const slots = Array.from({ length: 24 }, (_, index) => {
     const timestampMs = currentHourStartMs - (23 - index) * HOUR_MS;
-    const parts = getZonedParts(timestampMs, timeZone);
+    const parts = readParts(timestampMs);
     return {
-      value: formatZonedRFC3339Hour(timestampMs, timeZone),
+      value: formatZonedRFC3339Hour(timestampMs, parts),
       label: `${pad2(parts.hour)}:00`,
       dateLabel: formatDayLabel(formatDateKey(parts), locale),
       current: index === 23,
     };
   });
+  const labels = disambiguateTimeLabels(slots.map((slot) => slot.value), timeZone, (_, index) => slots[index].label);
+  return slots.map((slot, index) => ({ ...slot, label: labels[index] }));
 };
 
 export const buildDefaultCustomRange = ({ unit, nowMs, timeZone, maxDayRangeDays }: BuildDefaultCustomRangeOptions): UsageCustomRange => {
@@ -301,7 +269,8 @@ export const formatCustomRangeLabel = (
     minute: '2-digit',
     hourCycle: 'h23',
   });
-  return `${formatter.format(start)} – ${formatter.format(end)}`;
+  const labels = disambiguateTimeLabels([range.start, range.end], timeZone, (_, index) => formatter.format(index === 0 ? start : end));
+  return `${labels[0]} – ${labels[1]}`;
 };
 
 const isCustomRange = (value: unknown): value is UsageCustomRange => {

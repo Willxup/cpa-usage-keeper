@@ -46,8 +46,8 @@ func TestClientReusesConnectionsAcrossConcurrentMetadataRequests(t *testing.T) {
 		var wg sync.WaitGroup
 		for range concurrency {
 			wg.Go(func() {
-				if _, err := client.FetchAuthFiles(context.Background()); err != nil {
-					t.Errorf("fetch auth files: %v", err)
+				if _, err := client.FetchCredentials(context.Background()); err != nil {
+					t.Errorf("fetch credentials: %v", err)
 				}
 			})
 		}

@@ -104,9 +104,9 @@ func TestOpenDatabaseMigratesAIProviderRawIdentitiesIdempotently(t *testing.T) {
 				t.Fatalf("unexpected last_used_at after migration: %+v", migrated.LastUsedAt)
 			}
 
-			authFile := loadUsageIdentity(t, db, entities.UsageIdentityAuthTypeAuthFile, "auth-file-index")
-			if authFile.Identity != "auth-file-index" || authFile.AuthTypeName != "oauth" {
-				t.Fatalf("expected auth file identity to remain untouched, got %+v", authFile)
+			credential := loadUsageIdentity(t, db, entities.UsageIdentityAuthTypeCredential, "credential-index")
+			if credential.Identity != "credential-index" || credential.AuthTypeName != "oauth" {
+				t.Fatalf("expected credential identity to remain untouched, got %+v", credential)
 			}
 			nonAPIKey := loadUsageIdentity(t, db, entities.UsageIdentityAuthTypeAIProvider, "non-apikey-identity")
 			if nonAPIKey.AuthTypeName != "oauth" {

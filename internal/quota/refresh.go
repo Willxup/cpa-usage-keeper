@@ -166,7 +166,7 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 	seen := make(map[string]struct{}, len(request.AuthIndexes))
 	// queuedTasks 收集本次真正入队的任务实例，循环结束后交给单个 dispatcher 派发。
 	queuedTasks := make([]*RefreshTaskRecord, 0, len(request.AuthIndexes))
-	// unsupported 只代表这个 Auth File 类型暂不支持限额查询，不需要写任务缓存或前端错误。
+	// unsupported 只代表这个 Credential 类型暂不支持限额查询，不需要写任务缓存或前端错误。
 	skippedUnsupported := 0
 	// 创建新任务前先清理过期缓存，避免旧失败/瞬时任务占住同一个 auth_index。
 	s.cleanupExpiredRefreshTasks(time.Now())
@@ -204,17 +204,17 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 			response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: "duplicate"})
 			continue
 		}
-		// 入队前先确认 auth_index 对应有效 auth file，并且 provider 支持 quota 查询。
+		// 入队前先确认 auth_index 对应有效 credential，并且 provider 支持 quota 查询。
 		if identity, rejection, err := s.validateRefreshAuthIndex(ctx, authIndex); err != nil {
 			// 数据库错误等非业务拒绝直接返回，避免继续创建不可靠任务。
 			return RefreshResponse{}, err
 		} else if rejection != "" {
 			if rejection == "unsupported" {
-				// 不支持查询的 Auth File 静默跳过，不进入轮询队列，也不制造可缓存错误。
+				// 不支持查询的 Credential 静默跳过，不进入轮询队列，也不制造可缓存错误。
 				skippedUnsupported++
 				continue
 			}
-			// 业务拒绝写入 rejected，常见原因是 not_found/not_auth_file。
+			// 业务拒绝写入 rejected，常见原因是 not_found/not_credential。
 			response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: rejection})
 			// 当前项处理完毕，继续看下一项。
 			continue
@@ -277,8 +277,8 @@ func (s *Service) GetRefreshTaskByAuthIndex(ctx context.Context, authIndex strin
 }
 
 func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string) (entities.UsageIdentity, string, error) {
-	// 先按 auth-file 身份查找；查不到时再区分“非 auth file”和“不存在”。
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	// 先按 credential 身份查找；查不到时再区分“非 credential”和“不存在”。
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err == nil {
 		if _, _, ok := s.resolveQuotaHandlerForIdentity(identity); !ok {
 			return identity, "unsupported", nil
@@ -291,7 +291,7 @@ func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string
 
 	var active entities.UsageIdentity
 	if err := s.db.WithContext(ctx).Select("id, auth_type").Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
-		return entities.UsageIdentity{}, "not_auth_file", nil
+		return entities.UsageIdentity{}, "not_credential", nil
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return entities.UsageIdentity{}, "not_found", nil
 	} else {
@@ -347,7 +347,7 @@ func (s *Service) ensureRefreshTaskWithIdentityAtGeneration(authIndex string, so
 		// 展示字段来自入队时的身份快照，巡检弹框读取缓存时无需逐条回查 identity。
 		Name: helper.UsageIdentityDisplayName(identity),
 		Type: identity.Type,
-		// FileName 是 CPA auth-files 的原始 name，后续删除功能不能复用展示名。
+		// FileName 是 CPA credentials 的原始 name，后续删除功能不能复用展示名。
 		FileName: identity.FileName,
 		// Status 初始为 queued，表示已经入队但尚未占用 worker。
 		Status: RefreshTaskStatusQueued,

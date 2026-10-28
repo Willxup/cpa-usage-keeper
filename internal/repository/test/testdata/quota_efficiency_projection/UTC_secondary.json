@@ -1,0 +1,135 @@
+{
+  "GeneratedAt": "2026-08-21T12:00:00Z",
+  "RangeStart": "2026-07-22T12:00:00Z",
+  "Windows": [
+    {
+      "WindowRole": "primary",
+      "WindowKind": "weekly",
+      "WindowSeconds": 604800,
+      "HasCurrentCycle": true,
+      "LastObservedAt": "2026-08-21T11:00:00.345678912Z"
+    },
+    {
+      "WindowRole": "secondary",
+      "WindowKind": null,
+      "WindowSeconds": 36000,
+      "HasCurrentCycle": true,
+      "LastObservedAt": "2026-08-21T11:00:00.345678912Z"
+    }
+  ],
+  "SelectedWindow": {
+    "WindowRole": "secondary",
+    "WindowKind": null,
+    "WindowSeconds": 36000,
+    "HasCurrentCycle": true,
+    "LastObservedAt": "2026-08-21T11:00:00.345678912Z"
+  },
+  "Cycles": [
+    {
+      "ID": 6,
+      "Status": "current",
+      "WindowSeconds": 36000,
+      "WindowStartedAt": "2026-08-21T03:00:00.000000019Z",
+      "ResetAt": "2026-08-21T13:00:00.000000019Z",
+      "EffectiveStartedAt": "2026-08-21T03:00:00.000000019Z",
+      "EffectiveEndedAt": "2026-08-21T13:00:00.000000019Z",
+      "FirstObservedAt": "2026-08-21T10:00:00.234567891Z",
+      "LastObservedAt": "2026-08-21T11:00:00.345678912Z",
+      "FirstRemainingPercent": 100,
+      "LastRemainingPercent": 99,
+      "ObservationCount": 6,
+      "Usage": {
+        "Requests": 4,
+        "SuccessfulRequests": 2,
+        "FailedRequests": 2,
+        "InputTokens": 209,
+        "OutputTokens": 133,
+        "ReasoningTokens": 57,
+        "CacheReadTokens": 95,
+        "CacheCreationTokens": 38,
+        "TotalTokens": 2626,
+        "TotalCostUSD": 0.8125,
+        "CostAvailable": false
+      },
+      "Transitions": [
+        {
+          "FromRemainingPercent": 100,
+          "ToRemainingPercent": 99,
+          "PercentagePoints": 1,
+          "IsDirect": true,
+          "IntervalStartedAt": "2026-08-21T10:00:00.234567891Z",
+          "IntervalEndedAt": "2026-08-21T11:00:00.345678912Z",
+          "Usage": {
+            "Requests": 2,
+            "SuccessfulRequests": 1,
+            "FailedRequests": 1,
+            "InputTokens": 88,
+            "OutputTokens": 56,
+            "ReasoningTokens": 24,
+            "CacheReadTokens": 40,
+            "CacheCreationTokens": 16,
+            "TotalTokens": 1515,
+            "TotalCostUSD": 0.46875,
+            "CostAvailable": false
+          },
+          "TokensPerPoint": 1515,
+          "CostPerPoint": 0.46875,
+          "CostPerPointAvailable": false
+        }
+      ]
+    },
+    {
+      "ID": 4,
+      "Status": "completed",
+      "WindowSeconds": 36000,
+      "WindowStartedAt": "2026-08-20T16:00:00.000000017Z",
+      "ResetAt": "2026-08-21T02:00:00.000000017Z",
+      "EffectiveStartedAt": "2026-08-20T16:00:00.000000017Z",
+      "EffectiveEndedAt": "2026-08-21T02:00:00.000000017Z",
+      "FirstObservedAt": "2026-08-20T16:01:00.123456789Z",
+      "LastObservedAt": "2026-08-20T18:00:00.123456789Z",
+      "FirstRemainingPercent": 100,
+      "LastRemainingPercent": 99,
+      "ObservationCount": 6,
+      "Usage": {
+        "Requests": 3,
+        "SuccessfulRequests": 2,
+        "FailedRequests": 1,
+        "InputTokens": 55,
+        "OutputTokens": 35,
+        "ReasoningTokens": 15,
+        "CacheReadTokens": 25,
+        "CacheCreationTokens": 10,
+        "TotalTokens": 606,
+        "TotalCostUSD": 0.1875,
+        "CostAvailable": false
+      },
+      "Transitions": [
+        {
+          "FromRemainingPercent": 100,
+          "ToRemainingPercent": 99,
+          "PercentagePoints": 1,
+          "IsDirect": true,
+          "IntervalStartedAt": "2026-08-20T16:01:00.123456789Z",
+          "IntervalEndedAt": "2026-08-20T18:00:00.123456789Z",
+          "Usage": {
+            "Requests": 1,
+            "SuccessfulRequests": 0,
+            "FailedRequests": 1,
+            "InputTokens": 22,
+            "OutputTokens": 14,
+            "ReasoningTokens": 6,
+            "CacheReadTokens": 10,
+            "CacheCreationTokens": 4,
+            "TotalTokens": 202,
+            "TotalCostUSD": 0.0625,
+            "CostAvailable": false
+          },
+          "TokensPerPoint": 202,
+          "CostPerPoint": 0.0625,
+          "CostPerPointAvailable": false
+        }
+      ]
+    }
+  ]
+}

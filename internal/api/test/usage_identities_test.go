@@ -49,10 +49,10 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	activeIdentity := entities.UsageIdentity{
 		ID:                         1,
 		Name:                       "Claude Desktop",
-		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:                   entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName:               "oauth",
 		Identity:                   "2",
-		Type:                       "auth-file",
+		Type:                       "unknown-type",
 		Provider:                   "anthropic",
 		Prefix:                     "claude-team",
 		Priority:                   new(4),
@@ -98,7 +98,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
 	if !strings.Contains(body, `"identities":[`) || !strings.Contains(body, `"id":"1"`) || !strings.Contains(body, `"identity":"2"`) {
-		t.Fatalf("expected auth file identity row in response, got %s", body)
+		t.Fatalf("expected credential identity row in response, got %s", body)
 	}
 	if strings.Contains(body, "Deleted Provider") || strings.Contains(body, "sk-deleted-provider-secret") || strings.Contains(body, `"deleted_at"`) {
 		t.Fatalf("expected deleted identities to be filtered from response, got %s", body)
@@ -107,7 +107,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		`"name":"Claude Desktop"`,
 		`"auth_type":1`,
 		`"auth_type_name":"oauth"`,
-		`"type":"auth-file"`,
+		`"type":"unknown-type"`,
 		`"provider":"anthropic"`,
 		`"prefix":"claude-team"`,
 		`"priority":4`,
@@ -145,7 +145,7 @@ func TestUsageIdentitiesRouteReturnsPublishedMetadataFields(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: identityMetadataStub{items: []entities.UsageIdentity{{
 		ID:           1,
 		Name:         "Codex Account",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "codex-auth",
 		Type:         "codex",
@@ -198,7 +198,7 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 		pagedActiveItems: []entities.UsageIdentity{{
 			ID:           11,
 			Name:         "Codex Account",
-			AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+			AuthType:     entities.UsageIdentityAuthTypeCredential,
 			AuthTypeName: "oauth",
 			Identity:     "codex-auth",
 			Type:         "codex",
@@ -213,7 +213,7 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeAuthFile || captured.Page != 2 || captured.PageSize != 10 || captured.ActiveOnly == nil || !*captured.ActiveOnly || captured.Sort != "priority" {
+	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeCredential || captured.Page != 2 || captured.PageSize != 10 || captured.ActiveOnly == nil || !*captured.ActiveOnly || captured.Sort != "priority" {
 		t.Fatalf("expected auth_type/page/page_size/active_only/sort request, got %+v", captured)
 	}
 	for _, expected := range []string{`"identities":[`, `"id":"11"`, `"file_name":"codex-user.json"`, `"file_path":"/data/auths/codex-user.json"`, `"total_count":25`, `"page":2`, `"page_size":10`, `"total_pages":3`} {
@@ -348,7 +348,7 @@ func TestUsageIdentitiesRoutePublishesAIProviderAuthIndexWithoutLookupKey(t *tes
 
 func TestUsageIdentityReplacesLegacyMetadataRoutes(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: identityMetadataStub{}})
-	for _, path := range []string{"/api/v1/auth-files", "/api/v1/provider-metadata"} {
+	for _, path := range []string{"/api/v1/credentials", "/api/v1/provider-metadata"} {
 		resp := serveAPIGet(router, path)
 
 		if resp.Code != http.StatusNotFound {

@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import type { AiProviderCredentialsSection } from '../AiProviderCredentialsSection'
-import type { AuthFileCredentialsSection } from '../AuthFileCredentialsSection'
+import type { CredentialsSection } from '../CredentialsSection'
 
 const paginationDefaults = {
   total: 0, page: 1, totalPages: 1, pageSize: 10,
@@ -15,9 +15,9 @@ export const createAiProviderSectionProps = (
   overrides: Partial<ComponentProps<typeof AiProviderCredentialsSection>> = {},
 ): ComponentProps<typeof AiProviderCredentialsSection> => ({ rows: [], ...paginationDefaults, ...overrides })
 
-export const createAuthFileSectionProps = (
-  overrides: Partial<ComponentProps<typeof AuthFileCredentialsSection>> = {},
-): ComponentProps<typeof AuthFileCredentialsSection> => ({
+export const createCredentialSectionProps = (
+  overrides: Partial<ComponentProps<typeof CredentialsSection>> = {},
+): ComponentProps<typeof CredentialsSection> => ({
   rows: [],
   timeZone: 'Asia/Shanghai',
   ...paginationDefaults,

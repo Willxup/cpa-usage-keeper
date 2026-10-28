@@ -261,7 +261,7 @@ func parseUsageEventsAuthType(rawValue string) (string, error) {
 		return "", fmt.Errorf("auth_type must be 1 or 2")
 	}
 	switch entities.UsageIdentityAuthType(authType) {
-	case entities.UsageIdentityAuthTypeAuthFile:
+	case entities.UsageIdentityAuthTypeCredential:
 		return "oauth", nil
 	case entities.UsageIdentityAuthTypeAIProvider:
 		return "apikey", nil

@@ -26,7 +26,7 @@ func migrateUsageIdentitiesMetadataMigration(tx *gorm.DB) error {
 				provider = excluded.provider,
 				is_deleted = excluded.is_deleted,
 				deleted_at = excluded.deleted_at,
-				updated_at = excluded.updated_at`, entities.UsageIdentityAuthTypeAuthFile, "oauth", now, now).Error; err != nil {
+				updated_at = excluded.updated_at`, entities.UsageIdentityAuthTypeCredential, "oauth", now, now).Error; err != nil {
 			return fmt.Errorf("migrate auth_files to usage_identities: %w", err)
 		}
 	}

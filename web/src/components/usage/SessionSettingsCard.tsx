@@ -202,7 +202,7 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
               const clientLabel = getSessionClientLabel(session, t);
               const sourceLabel = session.source === 'embed'
                 ? t('usage_stats.session_settings_source_embed')
-                : t('usage_stats.session_settings_source_standard');
+                : session.source === 'oidc' ? t('usage_stats.session_settings_source_oidc') : t('usage_stats.session_settings_source_standard');
               const disabled = revokingId === session.id;
               const aliasSaving = aliasSavingId === session.id;
               const aliasDisabled = Boolean(aliasSavingId && !aliasSaving);
@@ -241,7 +241,7 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
                       </span>
                       <span
                         className={`${styles.sessionSettingsSource} ${session.source === 'embed' ? styles.sessionSettingsSourceEmbed : styles.sessionSettingsSourceStandard}`}
-                        data-session-source={session.source === 'embed' ? 'embed' : 'standard'}
+                        data-session-source={session.source ?? 'standard'}
                       >
                         {sourceLabel}
                       </span>

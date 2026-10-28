@@ -12,8 +12,8 @@ type CredentialMutationLocks struct {
 }
 
 // 单条入口先解析文件名，批量入口直接使用文件名，以同一上游文件作为锁粒度。
-func (l *CredentialMutationLocks) lockAuthFile(name string) func() {
-	return l.lock("auth-file:" + strings.TrimSpace(name))
+func (l *CredentialMutationLocks) lockCredential(name string) func() {
+	return l.lock("credential:" + strings.TrimSpace(name))
 }
 
 // 同供应商所有组和 Key 共写一份列表，锁覆盖 GET、定位、PUT 和必要本地更新。

@@ -4,9 +4,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiProviderCredentialsSection } from '../AiProviderCredentialsSection'
-import { AuthFileCredentialsSection } from '../AuthFileCredentialsSection'
-import { createAiProviderSectionProps, createAuthFileSectionProps } from './credentialSectionFixtures'
-import type { AiProviderCredentialRow, AuthFileCredentialRow } from '../credentialViewModels'
+import { CredentialsSection } from '../CredentialsSection'
+import { createAiProviderSectionProps, createCredentialSectionProps } from './credentialSectionFixtures'
+import type { AiProviderCredentialRow, CredentialRow } from '../credentialViewModels'
 
 vi.mock('react-i18next', () => {
   const t = (key: string, params?: { count?: number }) => key === 'usage_stats.credentials_count' ? String(params?.count ?? 0) : key
@@ -54,7 +54,7 @@ const commonRow = {
   windowCacheReadRate: null,
 }
 
-const authFileRow: AuthFileCredentialRow = {
+const credentialRow: CredentialRow = {
   ...commonRow,
   identity,
   quota: [],
@@ -84,24 +84,24 @@ describe('credential detail name triggers', () => {
     container.remove()
   })
 
-  it('opens details from an auth-file name while keeping alias editing separate', async () => {
+  it('opens details from an credential name while keeping alias editing separate', async () => {
     const onOpenDetails = vi.fn()
     await act(async () => root.render(
-      <AuthFileCredentialsSection
-        {...createAuthFileSectionProps()}
-        rows={[authFileRow]}
+      <CredentialsSection
+        {...createCredentialSectionProps()}
+        rows={[credentialRow]}
         total={1}
         onEdit={async () => undefined}
         onOpenDetails={onOpenDetails}
       />,
     ))
 
-    const authFileTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-trigger="true"]')
-    const authFileRowElement = authFileTrigger!.closest('article')
-    await act(async () => authFileRowElement!.click())
+    const credentialTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-trigger="true"]')
+    const credentialRowElement = credentialTrigger!.closest('article')
+    await act(async () => credentialRowElement!.click())
     expect(onOpenDetails).not.toHaveBeenCalled()
-    await act(async () => authFileTrigger!.click())
-    expect(onOpenDetails).toHaveBeenCalledWith(authFileRow)
+    await act(async () => credentialTrigger!.click())
+    expect(onOpenDetails).toHaveBeenCalledWith(credentialRow)
     expect(container.querySelector('[aria-label="usage_stats.credentials_edit_title"]')).not.toBeNull()
   })
 

@@ -7,7 +7,7 @@ import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
 import { ApiError, fetchErrorEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
 import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
-import { AuthFileQuotaPanel } from './AuthFileCredentialsSection'
+import { CredentialQuotaPanel } from './CredentialsSection'
 import { CredentialErrorEventsList } from './CredentialErrorEventsList'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialPriorityBadge, cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent, successRateTone } from './CredentialSectionShell'
@@ -143,7 +143,7 @@ export function CredentialDetailDrawer({
       setResettingStats(false)
     }
   }
-  const quotaHistoryProvider = selection?.kind === 'auth-file' ? identity?.type?.trim().toLowerCase() : undefined
+  const quotaHistoryProvider = selection?.kind === 'credential' ? identity?.type?.trim().toLowerCase() : undefined
   const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
   const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
     ? ['overview', 'quota-history', 'requests', 'errors']
@@ -419,14 +419,14 @@ export function CredentialDetailDrawer({
       <div className={styles.drawerTitleText}>
         <strong>{row.displayName}</strong>
         <span data-credential-detail-subtitle>
-          {selection.kind === 'auth-file'
+          {selection.kind === 'credential'
             ? identity.file_name?.trim() || '-'
             : `${row.providerLabel} · ${row.typeLabel} · ${row.authTypeLabel}`}
         </span>
       </div>
       <div className={styles.drawerTitleBadges}>
-        {selection.kind === 'auth-file' && <CredentialKimiSiteBadge identityType={identity.type} />}
-        {selection.kind === 'auth-file' && selection.row.subscriptionBadge
+        {selection.kind === 'credential' && <CredentialKimiSiteBadge identityType={identity.type} />}
+        {selection.kind === 'credential' && selection.row.subscriptionBadge
           ? <CredentialSubscriptionBadge model={selection.row.subscriptionBadge} />
           : null}
         <CredentialPriorityBadge>{row.priorityLabel || 'P0'}</CredentialPriorityBadge>
@@ -565,10 +565,10 @@ export function CredentialDetailDrawer({
                 <dt>{t('usage_stats.credentials_detail_priority')}</dt><dd>{row.priorityLabel || 'P0'}</dd>
               </dl>
             </section>
-            {selection.kind === 'auth-file' ? (
+            {selection.kind === 'credential' ? (
               <section className={styles.overviewSection}>
                 <h3>{t('usage_stats.credentials_detail_quota')}</h3>
-                <AuthFileQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} />
+                <CredentialQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} />
               </section>
             ) : null}
           </div>

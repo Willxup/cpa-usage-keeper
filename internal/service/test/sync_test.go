@@ -644,7 +644,7 @@ func TestProcessRedisUsageInboxNormalizesGeminiFamilyToCodexTokenFormat(t *testi
 	db := openSyncTestDatabase(t)
 	if err := db.Create(&entities.UsageIdentity{
 		Name:         "Gemini CLI",
-		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthType:     entities.UsageIdentityAuthTypeCredential,
 		AuthTypeName: "oauth",
 		Identity:     "gemini-auth-index",
 		Type:         "gemini-cli",

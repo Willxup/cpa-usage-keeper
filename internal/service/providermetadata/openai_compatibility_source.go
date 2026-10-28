@@ -38,12 +38,8 @@ func openAICompatibilitySource() source {
 				lookupKey := strings.TrimSpace(entry.APIKey)
 				// authIndex 只来自当前 entry 的 auth_index。
 				authIndex := strings.TrimSpace(entry.AuthIndex)
-				// 任一组的非空 Key 缺标识时丢弃整个 OpenAI 来源，不保留已生成的部分凭证。
-				if lookupKey != "" && authIndex == "" {
-					return sourceResult{warning: fmt.Errorf("%s contains an API key without auth_index", item.warningName)}
-				}
-				// 空 Key 条目沿用过滤规则，不让无凭证条目阻止来源正常同步。
-				if lookupKey == "" || displayName == "" {
+				// OpenAI entry 缺 API Key 或 auth_index 时只过滤该 entry。
+				if lookupKey == "" || authIndex == "" || displayName == "" {
 					continue
 				}
 				// provider 层字段传播给当前有效 entry。

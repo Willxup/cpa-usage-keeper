@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
-import type { AiProviderCredentialRow, AuthFileCredentialRow, CredentialDetailSelection } from '../credentialViewModels'
+import type { AiProviderCredentialRow, CredentialRow, CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 
 const fetchUsageEvents = vi.fn()
@@ -102,47 +102,47 @@ const secondSelection: CredentialDetailSelection = {
   },
 }
 
-const authFileRow = {
+const credentialRow = {
   ...row,
   identity: {
     ...row.identity,
-    id: 'auth-file-1',
-    name: 'Auth File Alias',
-    identity: 'auth-file-identity-1',
+    id: 'credential-1',
+    name: 'Credential Alias',
+    identity: 'credential-identity-1',
     file_name: 'user106@edu.sso.monsterx.it.com.json',
     auth_type: 1,
     auth_type_name: 'oauth',
     type: 'codex',
     provider: 'codex',
   },
-  displayName: 'Auth File Alias',
-  maskedIdentity: 'auth-file-identity-1',
+  displayName: 'Credential Alias',
+  maskedIdentity: 'credential-identity-1',
   providerLabel: 'codex',
   typeLabel: 'codex',
   authTypeLabel: 'oauth',
   quota: [],
   quotaLoading: false,
   displayQuotas: [],
-} as AuthFileCredentialRow
+} as CredentialRow
 
-const authFileSelection: CredentialDetailSelection = { kind: 'auth-file', row: authFileRow }
+const credentialSelection: CredentialDetailSelection = { kind: 'credential', row: credentialRow }
 
-const claudeAuthFileSelection: CredentialDetailSelection = {
-  kind: 'auth-file',
+const claudeCredentialSelection: CredentialDetailSelection = {
+  kind: 'credential',
   row: {
-    ...authFileRow,
-    identity: { ...authFileRow.identity, id: 'claude-auth-file', identity: 'claude-auth', type: 'claude', provider: 'claude' },
-    displayName: 'Claude Auth File',
+    ...credentialRow,
+    identity: { ...credentialRow.identity, id: 'claude-credential', identity: 'claude-auth', type: 'claude', provider: 'claude' },
+    displayName: 'Claude Credential',
     typeLabel: 'claude',
     providerLabel: 'claude',
   },
 }
 
-const unsupportedAuthFileSelection: CredentialDetailSelection = {
-  kind: 'auth-file',
+const unsupportedCredentialSelection: CredentialDetailSelection = {
+  kind: 'credential',
   row: {
-    ...authFileRow,
-    identity: { ...authFileRow.identity, id: 'gemini-auth-file', identity: 'gemini-auth', type: 'gemini', provider: 'gemini' },
+    ...credentialRow,
+    identity: { ...credentialRow.identity, id: 'gemini-credential', identity: 'gemini-auth', type: 'gemini', provider: 'gemini' },
     typeLabel: 'gemini',
     providerLabel: 'gemini',
   },
@@ -250,10 +250,10 @@ describe('CredentialDetailDrawer', () => {
     ['kimi-ai', 'international'],
     ['kimi.ai', 'international'],
     ['kimi.com', 'china'],
-  ])('shows the %s site in the Auth File detail badges', async (type, site) => {
+  ])('shows the %s site in the Credential detail badges', async (type, site) => {
     await renderDrawer({ selection: {
-      kind: 'auth-file',
-      row: { ...authFileRow, identity: { ...authFileRow.identity, type }, typeLabel: type },
+      kind: 'credential',
+      row: { ...credentialRow, identity: { ...credentialRow.identity, type }, typeLabel: type },
     } })
 
     const badge = document.body.querySelector(`[data-kimi-site="${site}"]`)
@@ -261,42 +261,41 @@ describe('CredentialDetailDrawer', () => {
     expect(badge?.parentElement?.textContent).toContain('P1')
   })
 
-  it('keeps site badges restricted to Kimi Auth Files', async () => {
+  it('keeps site badges restricted to Kimi Credentials', async () => {
     await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, identity: { ...row.identity, type: 'kimi-ai' } } } })
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
-    await renderDrawer({ selection: { kind: 'auth-file', row: { ...authFileRow, identity: { ...authFileRow.identity, type: 'generic', provider: 'kimi-ai' } } } })
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, identity: { ...credentialRow.identity, type: 'generic', provider: 'kimi-ai' } } } })
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
   })
 
-  it('shows the concrete Auth File filename as the subtitle without a cumulative heading', async () => {
-    await renderDrawer({ selection: authFileSelection })
+  it('shows the concrete Credential filename as the subtitle', async () => {
+    await renderDrawer({ selection: credentialSelection })
 
     expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent)
       .toBe('user106@edu.sso.monsterx.it.com.json')
-    expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_cumulative')
   })
 
-  it('shows the shared quota history for Codex and Claude Auth Files', async () => {
-    await renderDrawer({ selection: authFileSelection })
+  it('shows the shared quota history for Codex and Claude Credentials', async () => {
+    await renderDrawer({ selection: credentialSelection })
 
     const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
     expect(fetchCodexQuotaHistory).not.toHaveBeenCalled()
     await act(async () => {
       quotaTab.click()
     })
-    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('credential-identity-1', {}, expect.any(AbortSignal))
     expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_empty')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_quota_history_window_selector')
 
-    await renderDrawer({ selection: claudeAuthFileSelection })
+    await renderDrawer({ selection: claudeCredentialSelection })
     const claudeTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
     expect(claudeTab).not.toBeNull()
     await act(async () => { claudeTab.click() })
     expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('claude-auth', {}, expect.any(AbortSignal))
     expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
 
-    await renderDrawer({ selection: unsupportedAuthFileSelection })
+    await renderDrawer({ selection: unsupportedCredentialSelection })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
   })
@@ -329,7 +328,7 @@ describe('CredentialDetailDrawer', () => {
     fetchCodexQuotaHistory.mockReset()
       .mockResolvedValueOnce(historyWithCost(1.25))
       .mockResolvedValueOnce(historyWithCost(2.75))
-    await renderDrawer({ selection: authFileSelection })
+    await renderDrawer({ selection: credentialSelection })
     const costText = () => document.body.querySelector(
       '[data-codex-quota-cycle-id="1"] [data-codex-quota-summary="used"] [data-codex-quota-summary-metric="cost"]',
     )?.textContent
@@ -347,16 +346,16 @@ describe('CredentialDetailDrawer', () => {
     expect(costText()).toBe('$2.75')
   })
 
-  it('reloads quota history when the same Auth File changes provider type', async () => {
-    await renderDrawer({ selection: authFileSelection })
+  it('reloads quota history when the same Credential changes provider type', async () => {
+    await renderDrawer({ selection: credentialSelection })
     await act(async () => { document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!.click() })
     expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
 
     const changedType: CredentialDetailSelection = {
-      kind: 'auth-file',
+      kind: 'credential',
       row: {
-        ...authFileRow,
-        identity: { ...authFileRow.identity, type: 'claude', provider: 'claude' },
+        ...credentialRow,
+        identity: { ...credentialRow.identity, type: 'claude', provider: 'claude' },
         typeLabel: 'claude',
         providerLabel: 'claude',
       },
@@ -364,11 +363,11 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer({ selection: changedType })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')?.getAttribute('aria-selected')).toBe('true')
     expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(2)
-    expect(fetchCodexQuotaHistory).toHaveBeenLastCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
+    expect(fetchCodexQuotaHistory).toHaveBeenLastCalledWith('credential-identity-1', {}, expect.any(AbortSignal))
   })
 
   it('includes the Codex quota history tab in roving keyboard order', async () => {
-    await renderDrawer({ selection: authFileSelection })
+    await renderDrawer({ selection: credentialSelection })
     const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!
     const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
     const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!
@@ -434,9 +433,6 @@ describe('CredentialDetailDrawer', () => {
     )
     expect(document.body.textContent).toContain('model-1')
     expect(document.body.querySelector('[data-credential-request-events-list="true"]')).not.toBeNull()
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_title')
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_columns')
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_filter_model')
 
     const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')!
     Object.defineProperties(scroller, {

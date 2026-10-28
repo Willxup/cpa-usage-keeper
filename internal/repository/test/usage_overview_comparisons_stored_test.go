@@ -19,7 +19,7 @@ func TestOverviewComparisonBoundaryStoredFeesMatchCacheAndDatabase(t *testing.T)
 	start := end.Add(-30 * time.Minute)
 	aliasA, aliasB := "old-alias-a", "old-alias-b"
 	events := []entities.UsageEvent{
-		{EventKey: "auth-file", Timestamp: start.Add(5 * time.Minute), APIGroupKey: "deleted-key", Model: "model-a", ModelAlias: &aliasA, AuthType: "oauth", Source: "file-source", AuthIndex: "auth-1", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(2.5), CostAvailable: overviewAvailabilityPtr(true)},
+		{EventKey: "credential", Timestamp: start.Add(5 * time.Minute), APIGroupKey: "deleted-key", Model: "model-a", ModelAlias: &aliasA, AuthType: "oauth", Source: "file-source", AuthIndex: "auth-1", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(2.5), CostAvailable: overviewAvailabilityPtr(true)},
 		{EventKey: "provider", Timestamp: start.Add(10 * time.Minute), APIGroupKey: "deleted-key", Model: "model-a", ModelAlias: &aliasB, AuthType: "apikey", Source: "provider-source", AuthIndex: "provider-1", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(3.75), CostAvailable: overviewAvailabilityPtr(true)},
 		{EventKey: "unknown", Timestamp: start.Add(15 * time.Minute), APIGroupKey: "other-key", Model: "model-b", AuthIndex: "unknown-identity", InputTokens: 10, TotalTokens: 10, CostUSD: overviewCostPtr(0), CostAvailable: overviewAvailabilityPtr(false)},
 		{EventKey: "outside-end", Timestamp: end.Add(time.Minute), APIGroupKey: "deleted-key", Model: "model-a", InputTokens: 10, TotalTokens: 10, CostUSD: overviewCostPtr(99), CostAvailable: overviewAvailabilityPtr(true)},
@@ -28,7 +28,7 @@ func TestOverviewComparisonBoundaryStoredFeesMatchCacheAndDatabase(t *testing.T)
 		t.Fatalf("seed comparison events: %v", err)
 	}
 	if err := db.Create(&[]entities.UsageIdentity{
-		{Name: "Shared label", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-1", CreatedAt: end, UpdatedAt: end},
+		{Name: "Shared label", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "auth-1", CreatedAt: end, UpdatedAt: end},
 		{Name: "Shared label", AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-1", CreatedAt: end, UpdatedAt: end},
 	}).Error; err != nil {
 		t.Fatalf("seed comparison identities: %v", err)
@@ -59,8 +59,8 @@ func TestOverviewComparisonBoundaryStoredFeesMatchCacheAndDatabase(t *testing.T)
 			if !finiteStoredOverviewTestCost(comparison.APIKeys["deleted-key"].CostUSD, 6.25) || comparison.APIKeys["deleted-key"].Requests != 2 || comparison.APIKeys["deleted-key"].Key != "deleted-key" {
 				t.Fatalf("deleted Key historical identity lost: %+v", comparison.APIKeys)
 			}
-			if !finiteStoredOverviewTestCost(comparison.AuthFiles["auth-1"].CostUSD, 2.5) || comparison.AuthFiles["auth-1"].Label != "Shared label" || len(comparison.AuthFiles) != 1 {
-				t.Fatalf("auth-file cost or identity changed: %+v", comparison.AuthFiles)
+			if !finiteStoredOverviewTestCost(comparison.Credentials["auth-1"].CostUSD, 2.5) || comparison.Credentials["auth-1"].Label != "Shared label" || len(comparison.Credentials) != 1 {
+				t.Fatalf("credential cost or identity changed: %+v", comparison.Credentials)
 			}
 			if !finiteStoredOverviewTestCost(comparison.AIProviders["provider-1"].CostUSD, 3.75) || comparison.AIProviders["provider-1"].Label != "Shared label" || len(comparison.AIProviders) != 1 {
 				t.Fatalf("provider cost or identity changed: %+v", comparison.AIProviders)

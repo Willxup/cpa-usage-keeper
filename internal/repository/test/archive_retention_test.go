@@ -66,6 +66,75 @@ func TestArchiveRetentionCleanup(t *testing.T) {
 	}
 }
 
+func TestArchiveRetentionKeepsCutoffDayInHotTable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		now    time.Time
+		cutoff time.Time
+	}{
+		{
+			name:   "spring-dst",
+			now:    time.Date(2026, 5, 15, 4, 30, 0, 0, time.Local),
+			cutoff: time.Date(2026, 2, 14, 0, 0, 0, 0, time.Local),
+		},
+		{
+			name:   "fall-dst",
+			now:    time.Date(2026, 11, 15, 4, 30, 0, 0, time.Local),
+			cutoff: time.Date(2026, 8, 17, 0, 0, 0, 0, time.Local),
+		},
+	} {
+		for _, retentionDays := range []int{0, 90, 180} {
+			t.Run(fmt.Sprintf("%s/retention_%d", tc.name, retentionDays), func(t *testing.T) {
+				db := openTestDatabase(t)
+				// 真实序列化覆盖 UTC 零点后的小数秒，确认归档与删除使用同一自然日边界。
+				events := []entities.UsageEvent{
+					{EventKey: "before", Timestamp: tc.cutoff.Add(-time.Nanosecond)},
+					{EventKey: "exact", Timestamp: tc.cutoff},
+					{EventKey: "plus-1ns", Timestamp: tc.cutoff.Add(time.Nanosecond)},
+					{EventKey: "plus-500ms", Timestamp: tc.cutoff.Add(500 * time.Millisecond)},
+					{EventKey: "plus-1s", Timestamp: tc.cutoff.Add(time.Second)},
+				}
+				if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Create(&entities.UsageEventArchive{
+					ID: 1000, EventKey: "previous-archive", Timestamp: tc.cutoff.AddDate(0, 0, -1),
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+				seedArchiveCaughtUpCheckpoints(t, db, eventsMaxID(t, db), tc.now)
+
+				result, err := repository.CleanupStorage(db, tc.now, retentionDays)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.UsageEventsArchived != 1 {
+					t.Errorf("archived %d, want only the event before cutoff", result.UsageEventsArchived)
+				}
+				var hotKeys, archiveKeys []string
+				if err := db.Model(&entities.UsageEvent{}).Order("id").Pluck("event_key", &hotKeys).Error; err != nil {
+					t.Fatal(err)
+				}
+				if want := []string{"exact", "plus-1ns", "plus-500ms", "plus-1s"}; !slices.Equal(hotKeys, want) {
+					t.Errorf("hot events %v, want %v", hotKeys, want)
+				}
+				if err := db.Model(&entities.UsageEventArchive{}).Order("id").Pluck("event_key", &archiveKeys).Error; err != nil {
+					t.Fatal(err)
+				}
+				wantArchive := []string{"before", "previous-archive"}
+				var wantDeleted int64
+				if retentionDays == 90 {
+					wantArchive = nil
+					wantDeleted = 2
+				}
+				if !slices.Equal(archiveKeys, wantArchive) || result.UsageEventsArchiveDeleted != wantDeleted {
+					t.Errorf("archive events %v, deleted %d; want %v, deleted %d", archiveKeys, result.UsageEventsArchiveDeleted, wantArchive, wantDeleted)
+				}
+			})
+		}
+	}
+}
+
 // 用真实存储序列化覆盖 UTC 小数秒及夏令时切换后的自然日边界。
 func TestArchiveRetentionPreservesCutoffDaySubseconds(t *testing.T) {
 	for _, zone := range []string{"UTC", "Asia/Shanghai", "America/New_York"} {

@@ -57,7 +57,7 @@ const analysisResponse = (timezone: string, cost = 0): AnalysisResponse => ({
   token_usage: [],
   api_key_composition: [],
   model_composition: [],
-  auth_files_composition: [],
+  credentials_composition: [],
   ai_provider_composition: [],
   cost_summary: {
     total_cost_usd: cost,

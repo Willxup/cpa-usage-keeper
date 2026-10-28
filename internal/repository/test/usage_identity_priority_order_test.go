@@ -10,7 +10,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 )
 
-func TestAuthFilePrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
+func TestCredentialPrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	priority := 5
@@ -22,7 +22,7 @@ func TestAuthFilePrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
 			Identity:  "later-file-name",
 			Name:      "user@example.com",
 			FileName:  &laterFileName,
-			AuthType:  entities.UsageIdentityAuthTypeAuthFile,
+			AuthType:  entities.UsageIdentityAuthTypeCredential,
 			Priority:  &priority,
 			Disabled:  &enabled,
 			CreatedAt: now,
@@ -32,7 +32,7 @@ func TestAuthFilePrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
 			Identity:  "earlier-file-name",
 			Name:      "user@example.com",
 			FileName:  &earlierFileName,
-			AuthType:  entities.UsageIdentityAuthTypeAuthFile,
+			AuthType:  entities.UsageIdentityAuthTypeCredential,
 			Priority:  &priority,
 			Disabled:  &enabled,
 			CreatedAt: now,
@@ -43,7 +43,7 @@ func TestAuthFilePrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
 		t.Fatalf("seed usage identities: %v", err)
 	}
 
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 	activeOnly := true
 	items, total, _, err := repository.ListActiveUsageIdentitiesPage(context.Background(), db, repository.ListUsageIdentitiesPageRequest{
 		AuthType:   &authType,
@@ -53,12 +53,12 @@ func TestAuthFilePrioritySortUsesCPAFileNameAsTieBreak(t *testing.T) {
 		PageSize:   10,
 	})
 	if err != nil {
-		t.Fatalf("list auth files by priority: %v", err)
+		t.Fatalf("list credentials by priority: %v", err)
 	}
 	if total != 2 {
-		t.Fatalf("expected 2 auth files, got %d", total)
+		t.Fatalf("expected 2 credentials, got %d", total)
 	}
 	if got := []string{items[0].Identity, items[1].Identity}; !reflect.DeepEqual(got, []string{"earlier-file-name", "later-file-name"}) {
-		t.Fatalf("expected equal-priority auth files sorted by CPA file name, got %v", got)
+		t.Fatalf("expected equal-priority credentials sorted by CPA file name, got %v", got)
 	}
 }

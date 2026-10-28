@@ -1,3 +1,4 @@
+import { disambiguateTimeLabels } from '@/utils/usage/timeLabels';
 import type { AnalysisModelSpeedPayload, AnalysisModelSpeedSample } from '@/lib/types';
 
 export function modelSpeedMean(sample?: Pick<AnalysisModelSpeedSample, 'speed_tps_sum' | 'speed_sample_count'>): number | null {
@@ -58,7 +59,7 @@ export function modelSpeedBucketIndex(value: number, count: number) {
   return Math.max(0, Math.min(count - 1, Math.round(value)));
 }
 
-export function formatModelSpeedTimeRange(start: string | undefined, end: string | undefined, timezone: string, locale: string, precision: 'seconds' | 'minutes' | 'date' = 'seconds') {
+export function formatModelSpeedTimeRange(start: string | undefined, end: string | undefined, timezone: string, locale: string, precision: 'seconds' | 'minutes' | 'date' = 'seconds', context: readonly string[] = []) {
   if (!start || !end) return '';
   try {
     const startDate = new Date(start);
@@ -74,6 +75,8 @@ export function formatModelSpeedTimeRange(start: string | undefined, end: string
           ...(precision === 'seconds' ? { second: '2-digit' as const } : {}),
           ...(crossesDay ? { month: '2-digit' as const, day: '2-digit' as const } : {}) }),
     });
-    return `${format.format(startDate)} – ${format.format(endDate)}`;
+    if (precision === 'date') return `${format.format(startDate)} – ${format.format(endDate)}`;
+    const labels = disambiguateTimeLabels([start, end, ...context], timezone, (value) => format.format(new Date(value)), precision);
+    return `${labels[0]} – ${labels[1]}`;
   } catch { return `${start} – ${end}`; }
 }

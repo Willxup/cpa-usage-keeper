@@ -4,7 +4,7 @@ import { RealtimeTokenShareRibbons } from '../RealtimeTokenShareRibbons';
 
 describe('RealtimeTokenShareRibbons', () => {
   it('keeps complete labels, the exact small share, unknown cost, and synthetic Other separate', () => {
-    const label = 'very-long-authentication-file-name-without-any-spaces.json';
+    const label = 'very-long-credential-name-without-any-spaces.json';
     const html = renderToStaticMarkup(
       <RealtimeTokenShareRibbons loading={false} items={[
         { key: '__realtime_others__', label, tokens: 997, requests: 7, share: 99.7, cost: 1 },

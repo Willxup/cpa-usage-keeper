@@ -54,9 +54,9 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			CostUSD:       1.23,
 			CostAvailable: true,
 		}},
-		AuthFilesComposition: []servicedto.AnalysisCompositionItem{{
-			Key:           "auth-file-1",
-			Label:         "Auth File One",
+		CredentialsComposition: []servicedto.AnalysisCompositionItem{{
+			Key:           "credential-1",
+			Label:         "Credential One",
 			TotalTokens:   30,
 			Requests:      1,
 			CostUSD:       0.8,
@@ -116,14 +116,14 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !strings.Contains(body, `"cost_usd":1.23`) || !strings.Contains(body, `"cost_available":true`) {
 		t.Fatalf("expected token/composition cost fields in response body: %s", body)
 	}
-	if !strings.Contains(body, `"api_key_composition":[`) || !strings.Contains(body, `"model_composition":[`) || !strings.Contains(body, `"auth_files_composition":[`) || !strings.Contains(body, `"ai_provider_composition":[`) {
+	if !strings.Contains(body, `"api_key_composition":[`) || !strings.Contains(body, `"model_composition":[`) || !strings.Contains(body, `"credentials_composition":[`) || !strings.Contains(body, `"ai_provider_composition":[`) {
 		t.Fatalf("expected composition payloads in response body: %s", body)
 	}
 	if !strings.Contains(body, `"key":"sk-*********123456"`) || !strings.Contains(body, `"label":"sk-*********123456"`) {
 		t.Fatalf("expected redacted api key composition in response body: %s", body)
 	}
-	if !strings.Contains(body, `"key":"aut*********file-1"`) || !strings.Contains(body, `"label":"Auth File One"`) || !strings.Contains(body, `"percent":100`) {
-		t.Fatalf("expected auth file composition in response body: %s", body)
+	if !strings.Contains(body, `"key":"cre*********tial-1"`) || !strings.Contains(body, `"label":"Credential One"`) || !strings.Contains(body, `"percent":100`) {
+		t.Fatalf("expected credential composition in response body: %s", body)
 	}
 	if !strings.Contains(body, `"key":"pro*********ider-1"`) || !strings.Contains(body, `"label":"Provider One"`) {
 		t.Fatalf("expected ai provider composition in response body: %s", body)

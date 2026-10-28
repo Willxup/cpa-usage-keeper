@@ -58,7 +58,7 @@ func seedGeminiCodexTokenBackfillRows(t *testing.T, db *gorm.DB) {
 	alias := ""
 	if err := db.Create([]entities.UsageIdentity{
 		{ID: 1, AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "gemini-auth", Type: "gemini", Provider: "Gemini", OutputTokens: 17, ReasoningTokens: 6, TotalTokens: 42, LastAggregatedUsageEventID: 2, CreatedAt: now, UpdatedAt: now},
-		{ID: 2, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "gemini-cli-auth", Type: "gemini-cli", Provider: "Gemini", OutputTokens: 2, ReasoningTokens: 1, TotalTokens: 8, LastAggregatedUsageEventID: 3, CreatedAt: now, UpdatedAt: now},
+		{ID: 2, AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "gemini-cli-auth", Type: "gemini-cli", Provider: "Gemini", OutputTokens: 2, ReasoningTokens: 1, TotalTokens: 8, LastAggregatedUsageEventID: 3, CreatedAt: now, UpdatedAt: now},
 		{ID: 3, AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai-auth", Type: "openai", Provider: "OpenAI", OutputTokens: 7, ReasoningTokens: 3, TotalTokens: 21, LastAggregatedUsageEventID: 4, CreatedAt: now, UpdatedAt: now},
 		{ID: 4, AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai-gemini-display", Type: "openai", Provider: "Gemini", OutputTokens: 4, ReasoningTokens: 2, TotalTokens: 16, LastAggregatedUsageEventID: 6, CreatedAt: now, UpdatedAt: now},
 		{ID: 5, AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: " dirty-gemini-auth ", Type: "gemini", Provider: "OpenAI Display", OutputTokens: 5, ReasoningTokens: 4, TotalTokens: 21, LastAggregatedUsageEventID: 10, CreatedAt: now, UpdatedAt: now},

@@ -34,11 +34,11 @@ const (
 	CodexQuotaResetAtSourceRelative CodexQuotaResetAtSource = "relative"
 )
 
-// CodexQuotaCycle 保存一个 Codex Auth File 主额度窗口的稳定周期边界，不包含 Token 或 cost。
+// CodexQuotaCycle 保存一个 Codex Credential 主额度窗口的稳定周期边界，不包含 Token 或 cost。
 type CodexQuotaCycle struct {
 	// ID 是周期父行的 SQLite 自增主键，也是百分比状态段的外键目标。
 	ID int64 `gorm:"primaryKey"`
-	// AuthIndex 是 CPA Auth File 的稳定账号键，并作为未来 UsageEvent 回溯的 OAuth identity。
+	// AuthIndex 是 CPA Credential 的稳定账号键，并作为未来 UsageEvent 回溯的 OAuth identity。
 	AuthIndex string `gorm:"type:text;not null;uniqueIndex:uniq_codex_quota_cycles_identity,priority:1"`
 	// WindowRole 区分 Primary/Secondary；它参与周期唯一身份，且只允许两个已确认值。
 	WindowRole CodexQuotaWindowRole `gorm:"type:text;not null;check:chk_codex_quota_cycles_window_role,window_role IN ('primary','secondary');uniqueIndex:uniq_codex_quota_cycles_identity,priority:2"`

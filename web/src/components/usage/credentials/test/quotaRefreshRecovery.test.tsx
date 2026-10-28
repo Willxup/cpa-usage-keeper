@@ -8,8 +8,8 @@ import type { UsageIdentity, UsageQuotaCacheResponse, UsageQuotaCheckResponse, U
 import { useQuotaCache } from '../useQuotaCache'
 import { useQuotaRefreshTasks } from '../useQuotaRefreshTasks'
 import { buildCredentialQuotaStateMap } from '../useCredentialsTabData'
-import { AuthFileQuotaPanel } from '../AuthFileCredentialsSection'
-import { buildAuthFileCredentialRows } from '../credentialViewModels'
+import { CredentialQuotaPanel } from '../CredentialsSection'
+import { buildCredentialRows } from '../credentialViewModels'
 
 vi.mock('@/lib/api', async (original) => ({
   ...await original<typeof import('@/lib/api')>(),
@@ -41,9 +41,9 @@ function Harness({ authIndexes = [id], enabled = true }: { authIndexes?: string[
     output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, total_tokens: 0,
     last_aggregated_usage_event_id: '', created_at: '', updated_at: '',
   }))
-  const rows = buildAuthFileCredentialRows(identities, new Map(Object.entries(cache.quotaResponseByAuthIndex)), states)
+  const rows = buildCredentialRows(identities, new Map(Object.entries(cache.quotaResponseByAuthIndex)), states)
   useEffect(() => { latest = { cache, tasks } }, [cache, tasks])
-  return <>{rows.map((row) => <AuthFileQuotaPanel key={row.identity.id} row={row} quotaUsageMode="remaining" />)}</>
+  return <>{rows.map((row) => <CredentialQuotaPanel key={row.identity.id} row={row} quotaUsageMode="remaining" />)}</>
 }
 
 let root: Root
@@ -159,7 +159,7 @@ it('ignores a cache response begun during a task but returned after its failure'
 it('shows a rejected batch refresh over old quota', async () => {
   await act(async () => root.render(<Harness />))
   vi.mocked(refreshUsageQuotas).mockResolvedValue({ tasks: [], rejected: [{ authIndex: id, error: 'not_found' }], accepted: 0, skipped: 1, limit: 1 })
-  await act(async () => latest.tasks.refreshQuotaForCurrentAuthFilePage())
+  await act(async () => latest.tasks.refreshQuotaForCurrentCredentialPage())
   expect(latest.cache.quotaStateByAuthIndex[id].refreshStatus).toBe('failed')
   expect(latest.cache.quotaResponseByAuthIndex[id]).toBeUndefined()
   expect(container.textContent).not.toContain('75%')

@@ -1,3 +1,4 @@
+import { disambiguateTimeLabels } from '@/utils/usage/timeLabels';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { UsageActivityBlock } from '@/lib/types';
@@ -84,6 +85,10 @@ export function ActivityHeatmapGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Array<HTMLDivElement | null>>([]);
   const dateTimeFormatter = useMemo(() => createActivityDateTimeFormatter(timeZone), [timeZone]);
+  const timeLabels = useMemo(() => {
+    const values = blocks.flatMap((block) => [block.start_time, block.end_time].map((value) => new Date(parseActivityTime(value)).toISOString()));
+    return disambiguateTimeLabels(values, timeZone, (value) => formatActivityDateTime(parseActivityTime(value), dateTimeFormatter));
+  }, [blocks, timeZone, dateTimeFormatter]);
   // render 阶段只对 identity 不一致的旧 tooltip 做一次幂等清理，避免 A→B→A 恢复陈旧状态。
   if (activeTooltip && activeTooltip.requestIdentity !== requestIdentity) {
     setActiveTooltip(null);
@@ -218,9 +223,7 @@ export function ActivityHeatmapGrid({
   const rovingIndex = Math.min(focusedIndex, Math.max(0, blocks.length - 1));
 
   const renderTooltip = (block: UsageActivityBlock, tooltipState: ActiveTooltipState) => {
-    const startTime = parseActivityTime(block.start_time);
-    const endTime = parseActivityTime(block.end_time);
-    const timeRange = `${formatActivityDateTime(startTime, dateTimeFormatter)} – ${formatActivityDateTime(endTime, dateTimeFormatter)}`;
+    const timeRange = `${timeLabels[tooltipState.index * 2]} – ${timeLabels[tooltipState.index * 2 + 1]}`;
     const horizontalClass = tooltipState.horizontal === 'left'
       ? styles.activityTooltipLeft
       : tooltipState.horizontal === 'right'
@@ -260,9 +263,7 @@ export function ActivityHeatmapGrid({
         {blocks.map((block, index) => {
           const idle = isIdle(block, index);
           const active = visibleTooltip?.index === index;
-          const startTime = parseActivityTime(block.start_time);
-          const endTime = parseActivityTime(block.end_time);
-          const timeRange = `${formatActivityDateTime(startTime, dateTimeFormatter)} – ${formatActivityDateTime(endTime, dateTimeFormatter)}`;
+          const timeRange = `${timeLabels[index * 2]} – ${timeLabels[index * 2 + 1]}`;
           return (
             <div
               // 网格固定为 364 个位置槽，窗口变化只更新槽内数据，不替换全部 DOM 节点。

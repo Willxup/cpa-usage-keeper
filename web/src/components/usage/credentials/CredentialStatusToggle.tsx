@@ -65,7 +65,7 @@ export interface CredentialStatusToggleProps {
 
 /**
  * 列表左侧的凭证图标开关：彩色表示启用，灰度表示停用，悬停提示下一步动作。
- * 认证文件与 AI 供应商共用该组件，保证两个页面的交互与文案一致。
+ * 凭证与 AI 供应商共用该组件，保证两个页面的交互与文案一致。
  */
 export function CredentialStatusToggle({ providerType, displayName, disabled, pending = false, readOnly = false, onToggle }: CredentialStatusToggleProps) {
   const { t } = useTranslation()

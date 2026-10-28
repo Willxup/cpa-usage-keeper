@@ -15,7 +15,7 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 	db := openTestDatabase(t)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, location)
 	start := end.Add(-24 * time.Hour)
-	currentHour := time.Date(2026, 5, 21, 9, 0, 0, 0, location)
+	currentHour := end.Truncate(time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 	location := time.Local
 
 	dayStart := time.Date(2026, 5, 20, 0, 0, 0, 0, location)
-	hourStart := time.Date(2026, 5, 20, 8, 0, 0, 0, location)
+	hourStart := time.Date(2026, 5, 20, 8, 0, 0, 0, location).Truncate(time.Hour)
 	for _, testCase := range []struct {
 		name            string
 		unit            string

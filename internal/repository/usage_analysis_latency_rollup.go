@@ -50,8 +50,8 @@ func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 	}
 
 	var rows []entities.UsageLatencyStat
-	query := db.Clauses(dbresolver.Read).
-		Where("bucket_type = ? AND bucket_start >= ? AND bucket_start < ?", bucketType, timeutil.FormatStorageTime(alignedStart), timeutil.FormatStorageTime(alignedEnd))
+	query := latencyBucketRead(alignedStart, alignedEnd, bucketType).query(db.Clauses(dbresolver.Read)).
+		Where("bucket_type = ?", bucketType)
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
@@ -86,26 +86,24 @@ func analysisLatencyBucketType(filter dto.UsageQueryFilter, start, end time.Time
 		// Custom 天已经是完整自然日区间，始终读取长期保留的 day 桶。
 		return entities.UsageLatencyBucketDay, nil
 	}
-	if end.Sub(start) <= analysisLatencyHourRangeMax {
+	if filter.Range == "today" || filter.Range == "yesterday" || end.Sub(start) <= analysisLatencyHourRangeMax {
 		return entities.UsageLatencyBucketHour, nil
 	}
 	return entities.UsageLatencyBucketDay, nil
 }
 
 func analysisLatencyCalendarDays(start, end time.Time) (int, error) {
-	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
-	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
-	if !start.Equal(startDay) || !end.Equal(endDay) {
+	startDate, endDate := timeutil.DateOf(start), timeutil.DateOf(end)
+	startDay, startExists := timeutil.DayBounds(startDate, start.Location())
+	endDay, endExists := timeutil.DayBounds(endDate, end.Location())
+	if !startExists || !endExists || !start.Equal(startDay.Start) || !end.Equal(endDay.Start) {
 		return 0, fmt.Errorf("custom analysis latency day range must align to local day boundaries")
 	}
-	calendarDays := 0
-	for day := startDay; day.Before(endDay); day = day.AddDate(0, 0, 1) {
-		calendarDays++
-		if calendarDays > timeutil.LongCustomDayRangeMaxDays {
-			return 0, fmt.Errorf("custom analysis latency day range cannot exceed %d calendar days", timeutil.LongCustomDayRangeMaxDays)
-		}
+	calendarDays := startDate.DaysUntil(endDate)
+	if calendarDays > timeutil.LongCustomDayRangeMaxDays {
+		return 0, fmt.Errorf("custom analysis latency day range cannot exceed %d calendar days", timeutil.LongCustomDayRangeMaxDays)
 	}
-	if calendarDays == 0 {
+	if calendarDays <= 0 {
 		return 0, fmt.Errorf("custom analysis latency day range is empty")
 	}
 	return calendarDays, nil
@@ -115,11 +113,11 @@ func alignAnalysisLatencyBucketEnd(value time.Time, bucketType entities.UsageLat
 	localValue := timeutil.NormalizeStorageTime(value)
 	switch bucketType {
 	case entities.UsageLatencyBucketDay:
-		boundary := time.Date(localValue.Year(), localValue.Month(), localValue.Day(), 0, 0, 0, 0, localValue.Location())
-		if localValue.Equal(boundary) {
-			return boundary
+		bounds, _ := timeutil.DayBounds(timeutil.DateOf(localValue), localValue.Location())
+		if localValue.Equal(bounds.Start) {
+			return bounds.Start
 		}
-		return boundary.AddDate(0, 0, 1)
+		return bounds.End
 	default:
 		boundary := localValue.Add(-time.Duration(localValue.Minute())*time.Minute - time.Duration(localValue.Second())*time.Second - time.Duration(localValue.Nanosecond()))
 		if localValue.Equal(boundary) {

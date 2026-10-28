@@ -43,7 +43,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
       subtitle={t('usage_stats.credentials_ai_providers_subtitle')}
       countLabel={t('usage_stats.credentials_count', { count: total })}
       titleExtra={(
-        <div className={styles.credentialAuthFileTitleControls}>
+        <div className={styles.credentialsTitleControls}>
           <label className={styles.credentialActiveOnlySwitch}>
             <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_ai_providers_active_only')}</span>
             <input ref={editFallbackRef} type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />

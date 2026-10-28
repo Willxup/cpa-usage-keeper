@@ -2,8 +2,8 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthFileQuotaPanel } from '../AuthFileCredentialsSection'
-import { buildAuthFileCredentialRows } from '../credentialViewModels'
+import { CredentialQuotaPanel } from '../CredentialsSection'
+import { buildCredentialRows } from '../credentialViewModels'
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
@@ -16,13 +16,13 @@ describe('xAI shared quota tooltip', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
-    const row = buildAuthFileCredentialRows([{ id: '1', identity: 'xai-auth', type: 'xai', is_deleted: false }], new Map([
+    const row = buildCredentialRows([{ id: '1', identity: 'xai-auth', type: 'xai', is_deleted: false }], new Map([
       ['xai-auth', { id: 'xai-auth', quota: [{ key: 'billing.weekly', label: 'Weekly', scope: 'billing', usedPercent,
         usageBreakdown: [{ product: 'GrokBuild', usedPercent: 14 }, { product: 'GrokChat', usedPercent: 2 }, { product: 'Unknown' }],
       }] }],
     ]))[0]
     try {
-      await act(async () => root.render(<AuthFileQuotaPanel row={row} quotaUsageMode="current" />))
+      await act(async () => root.render(<CredentialQuotaPanel row={row} quotaUsageMode="current" />))
       const button = container.querySelector('button')!
       expect(button).not.toBeNull()
       expect(button.hasAttribute('title')).toBe(false)
@@ -42,7 +42,7 @@ describe('xAI shared quota tooltip', () => {
         ...quota, percent: 42, barPercent: 58,
         usageBreakdown: [{ product: 'GrokBuild', usedPercent: 40 }, { product: 'GrokChat', usedPercent: 2 }],
       })) }
-      await act(async () => root.render(<AuthFileQuotaPanel row={updatedRow} quotaUsageMode="current" />))
+      await act(async () => root.render(<CredentialQuotaPanel row={updatedRow} quotaUsageMode="current" />))
       expect(container.querySelector('button')).toBe(button)
       expect(container.innerHTML).toContain('width: 58%')
       tooltip = document.body.querySelector('[role="tooltip"]')!

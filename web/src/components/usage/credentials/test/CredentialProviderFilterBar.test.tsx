@@ -28,24 +28,24 @@ describe('CredentialProviderFilterBar', () => {
     expect(html).toContain('>2</span>')
   })
 
-  it('keeps the xAI Auth Files filter available', () => {
+  it('keeps the xAI Credentials filter available', () => {
     const html = renderToStaticMarkup(
-      <CredentialProviderFilterBar scope="auth-files" typeCounts={[{ type: 'xai', count: 1 }]} value="all" onChange={() => undefined} />,
+      <CredentialProviderFilterBar scope="credentials" typeCounts={[{ type: 'xai', count: 1 }]} value="all" onChange={() => undefined} />,
     )
     expect(html).toContain('usage_stats.credentials_filter_xai')
     expect(html).toContain('data-provider-brand-icon="xai"')
   })
 
-  it('renders Devin for Auth Files and Meta for AI Providers', () => {
-    const authFilesHtml = renderToStaticMarkup(
-      <CredentialProviderFilterBar scope="auth-files" typeCounts={[{ type: 'devin', count: 2 }]} value="all" onChange={() => undefined} />,
+  it('renders Devin for Credentials and Meta for AI Providers', () => {
+    const credentialsHtml = renderToStaticMarkup(
+      <CredentialProviderFilterBar scope="credentials" typeCounts={[{ type: 'devin', count: 2 }]} value="all" onChange={() => undefined} />,
     )
     const providersHtml = renderToStaticMarkup(
       <CredentialProviderFilterBar scope="ai-provider" typeCounts={[{ type: 'meta', count: 3 }]} value="all" onChange={() => undefined} />,
     )
 
-    expect(authFilesHtml).toContain('usage_stats.credentials_filter_devin')
-    expect(authFilesHtml).toContain('data-provider-brand-icon="devin"')
+    expect(credentialsHtml).toContain('usage_stats.credentials_filter_devin')
+    expect(credentialsHtml).toContain('data-provider-brand-icon="devin"')
     expect(providersHtml).toContain('usage_stats.credentials_filter_meta')
     expect(providersHtml).toContain('data-provider-brand-icon="meta"')
   })
@@ -53,7 +53,7 @@ describe('CredentialProviderFilterBar', () => {
   it('renders Kimi, Vertex, and Gemini CLI branding without iFlow', () => {
     const html = renderToStaticMarkup(
       <CredentialProviderFilterBar
-        scope="auth-files"
+        scope="credentials"
         typeCounts={[
           { type: 'kimi', count: 2 },
           { type: 'vertex', count: 3 },

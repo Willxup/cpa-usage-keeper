@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 	"cpa-usage-keeper/internal/repository"
 )
 
@@ -39,23 +39,23 @@ func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
 		{authIndex: "numeric-sub", claims: `{"sub":12345,"subject":"lower"}`, want: "12345"},
 	}
 
-	files := make([]authfiles.AuthFile, 0, len(tests)+1)
+	files := make([]credentials.Credential, 0, len(tests)+1)
 	for _, tt := range tests {
-		file := decodeXAIAuthFile(t, tt.authIndex, "xai", tt.claims)
+		file := decodeXAICredential(t, tt.authIndex, "xai", tt.claims)
 		files = append(files, file)
 	}
-	files = append(files, decodeXAIAuthFile(t, "non-xai", "claude", `{"sub":"must-not-sync"}`))
+	files = append(files, decodeXAICredential(t, "non-xai", "claude", `{"sub":"must-not-sync"}`))
 
 	db := openMetadataTestDatabase(t, "xai-user-id-candidates.db")
 	fetcher := newMetadataTestFetcher()
-	fetcher.setAuthFiles(files)
+	fetcher.setCredentials(files)
 	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
 
 	for _, tt := range tests {
-		row, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, tt.authIndex)
+		row, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, tt.authIndex)
 		if err != nil {
 			t.Fatalf("read %s usage identity: %v", tt.authIndex, err)
 		}
@@ -63,12 +63,12 @@ func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
 			t.Fatalf("expected %s xAI user id %q, got %+v", tt.authIndex, tt.want, row.XAIUserID)
 		}
 	}
-	nonXAI, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, "non-xai")
+	nonXAI, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, "non-xai")
 	if err != nil {
 		t.Fatalf("read non-xAI usage identity: %v", err)
 	}
 	if nonXAI.XAIUserID != nil {
-		t.Fatalf("expected non-xAI auth file to ignore xAI user id candidates, got %q", *nonXAI.XAIUserID)
+		t.Fatalf("expected non-xAI credential to ignore xAI user id candidates, got %q", *nonXAI.XAIUserID)
 	}
 }
 
@@ -85,20 +85,20 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 		{authIndex: "invalid-user-blocks", claims: `{"user":123,"metadata":{"user":{"id":"must-not-fallback"}}}`},
 	}
 
-	files := make([]authfiles.AuthFile, 0, len(tests))
+	files := make([]credentials.Credential, 0, len(tests))
 	for _, tt := range tests {
-		files = append(files, decodeXAIAuthFile(t, tt.authIndex, "xai", tt.claims))
+		files = append(files, decodeXAICredential(t, tt.authIndex, "xai", tt.claims))
 	}
 	db := openMetadataTestDatabase(t, "xai-nullish-fallback.db")
 	fetcher := newMetadataTestFetcher()
-	fetcher.setAuthFiles(files)
+	fetcher.setCredentials(files)
 	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
 
 	for _, tt := range tests {
-		row, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, tt.authIndex)
+		row, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, tt.authIndex)
 		if err != nil {
 			t.Fatalf("read %s usage identity: %v", tt.authIndex, err)
 		}
@@ -117,14 +117,14 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T) {
 	db := openMetadataTestDatabase(t, "xai-clear-user-id.db")
 	fetcher := newMetadataTestFetcher()
-	fetcher.setAuthFiles([]authfiles.AuthFile{
-		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-old"}`),
+	fetcher.setCredentials([]credentials.Credential{
+		decodeXAICredential(t, "xai-auth", "xai", `{"sub":"xai-user-old"}`),
 	})
 	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
-	initial, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
+	initial, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
 	if err != nil {
 		t.Fatalf("read initial xAI usage identity: %v", err)
 	}
@@ -133,11 +133,11 @@ func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T)
 	}
 
 	// 第二轮成功响应省略候选字段，必须清空旧 XAIUserID。
-	fetcher.setAuthFiles([]authfiles.AuthFile{{AuthIndex: "xai-auth", Type: "xai"}})
+	fetcher.setCredentials([]credentials.Credential{{AuthIndex: "xai-auth", Type: "xai"}})
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("clearing SyncMetadata returned error: %v", err)
 	}
-	row, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
+	row, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
 	if err != nil {
 		t.Fatalf("read cleared xAI usage identity: %v", err)
 	}
@@ -146,23 +146,23 @@ func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T)
 	}
 }
 
-func TestSyncMetadataPreservesXAIUserIDWhenAuthFilesFetchFails(t *testing.T) {
+func TestSyncMetadataPreservesXAIUserIDWhenCredentialsFetchFails(t *testing.T) {
 	db := openMetadataTestDatabase(t, "xai-preserve-on-error.db")
 	fetcher := newMetadataTestFetcher()
-	fetcher.setAuthFiles([]authfiles.AuthFile{
-		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-stable"}`),
+	fetcher.setCredentials([]credentials.Credential{
+		decodeXAICredential(t, "xai-auth", "xai", `{"sub":"xai-user-stable"}`),
 	})
 	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
 
-	fetcher.authFilesResult = nil
-	fetcher.authFilesErr = errors.New("auth files unavailable")
+	fetcher.credentialsResult = nil
+	fetcher.credentialsErr = errors.New("credentials unavailable")
 	if err := syncer.SyncMetadata(context.Background()); err == nil {
-		t.Fatal("expected failed auth files fetch to return an error")
+		t.Fatal("expected failed credentials fetch to return an error")
 	}
-	row, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
+	row, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(context.Background(), db, "xai-auth")
 	if err != nil {
 		t.Fatalf("read preserved xAI usage identity: %v", err)
 	}
@@ -171,9 +171,9 @@ func TestSyncMetadataPreservesXAIUserIDWhenAuthFilesFetchFails(t *testing.T) {
 	}
 }
 
-func decodeXAIAuthFile(t *testing.T, authIndex, authType, claims string) authfiles.AuthFile {
+func decodeXAICredential(t *testing.T, authIndex, authType, claims string) credentials.Credential {
 	t.Helper()
-	var file authfiles.AuthFile
+	var file credentials.Credential
 	if err := json.Unmarshal([]byte(claims), &file); err != nil {
 		t.Fatalf("decode %s claims: %v", authIndex, err)
 	}

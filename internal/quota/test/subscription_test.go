@@ -219,7 +219,7 @@ func TestNormalizeSubscriptionRejectsMissingOrUnregisteredValues(t *testing.T) {
 func TestResolveIdentitySubscriptionOnlyPublishesCodexMetadata(t *testing.T) {
 	pro := " pro "
 	got := quota.ResolveIdentitySubscription(entities.UsageIdentity{
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 		Type:     "codex",
 		Provider: "Codex",
 		PlanType: &pro,
@@ -229,9 +229,9 @@ func TestResolveIdentitySubscriptionOnlyPublishesCodexMetadata(t *testing.T) {
 	}
 
 	for _, identity := range []entities.UsageIdentity{
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, Type: "claude", Provider: "Claude", PlanType: &pro},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, Type: "claude", Provider: "Claude", PlanType: &pro},
 		{AuthType: entities.UsageIdentityAuthTypeAIProvider, Type: "codex", Provider: "Codex", PlanType: &pro},
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, Type: "codex", Provider: "Codex"},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, Type: "codex", Provider: "Codex"},
 	} {
 		if got := quota.ResolveIdentitySubscription(identity); got != nil {
 			t.Fatalf("ResolveIdentitySubscription(%#v) = %#v, want nil", identity, got)

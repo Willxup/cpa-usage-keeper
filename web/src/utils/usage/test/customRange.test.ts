@@ -212,4 +212,14 @@ describe('custom usage range slots', () => {
 
     expect(slots[0].dateLabel).toBe('7月16日');
   });
+  it('labels repeated hours while preserving RFC3339 selection values and defaults', () => {
+    const options = { nowMs: Date.parse('2026-11-01T05:30:00-08:00'), timeZone: 'America/Los_Angeles', locale: 'en' };
+    const slots = buildCustomHourSlots(options);
+    const repeated = slots.filter(slot => slot.value.startsWith('2026-11-01T01:00:00'));
+    expect(repeated.map(slot => slot.value)).toEqual(['2026-11-01T01:00:00-07:00', '2026-11-01T01:00:00-08:00']);
+    expect(repeated.map(slot => slot.label)).toEqual(['01:00 UTC-07:00', '01:00 UTC-08:00']);
+    expect(buildDefaultCustomRange({ unit: 'hour', ...options })).toEqual({ unit: 'hour', start: slots[16].value, end: slots[23].value });
+    expect(buildCustomHourSlots({ nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' }).every(slot => /^\d{2}:00$/.test(slot.label))).toBe(true);
+  });
+
 });

@@ -89,7 +89,7 @@ func TestInvalidateStoredCostCacheClearsAllQuotaResultsAndTasks(t *testing.T) {
 
 func TestInvalidateStoredCostCacheRejectsOldRefreshAndAllowsSameAuthIndexAgain(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &stagedQuotaHandler{entered: make(chan int, 2), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 2})
 	setRefreshCooldown(service, func(time.Duration) {})
@@ -140,7 +140,7 @@ func TestInvalidateStoredCostCacheRejectsOldRefreshAndAllowsSameAuthIndexAgain(t
 func TestInvalidateStoredCostCacheDoesNotLetOldDispatcherRunNewQueuedTask(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	for _, authIndex := range []string{"auth-a", "auth-b"} {
-		seedUsageIdentity(t, db, entities.UsageIdentity{Identity: authIndex, Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+		seedUsageIdentity(t, db, entities.UsageIdentity{Identity: authIndex, Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	}
 	releaseOld := make(chan struct{})
 	release := sync.OnceFunc(func() { close(releaseOld) })
@@ -174,7 +174,7 @@ func TestInvalidateStoredCostCacheDoesNotLetOldDispatcherRunNewQueuedTask(t *tes
 
 func TestInvalidateStoredCostCacheSkipsCooldownForInvalidatedQueuedTask(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &keyedQuotaHandler{calls: map[string]int{}, entered: make(chan string, 1)}
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 1})
 	var cooldownCalls atomic.Int64
@@ -198,7 +198,7 @@ func TestInvalidateStoredCostCacheSkipsCooldownForInvalidatedQueuedTask(t *testi
 
 func TestInvalidateStoredCostCacheDropsPendingHeaderButAcceptsNewHeader(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(nil), ServiceOptions{UsageHeaderSnapshotFlushInterval: time.Hour})
 	timers := newUsageHeaderManualTimers(service)
 	old := codexUsageHeaderSnapshot("codex-auth", time.Now(), "4")
@@ -230,7 +230,7 @@ func TestInvalidateStoredCostCacheDropsPendingHeaderButAcceptsNewHeader(t *testi
 
 func TestInvalidateStoredCostCacheRejectsHeaderAlreadyInsideIdentityLookup(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -274,7 +274,7 @@ func TestInvalidateStoredCostCacheRejectsHeaderDuringWindowQuery(t *testing.T) {
 	db, closePools := openQuotaReaderPoolTestDatabase(t)
 	defer closePools()
 	observedAt := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential})
 	seedUsageEvent(t, db, entities.UsageEvent{AuthType: "oauth", AuthIndex: "codex-auth", Model: "gpt-5.5", Timestamp: observedAt.Add(-time.Hour), TotalTokens: 12, CostUSD: floatPtr(1), CostAvailable: boolPtr(true)})
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
 	entered := make(chan struct{})
@@ -318,7 +318,7 @@ func TestInvalidateStoredCostCacheRejectsHeaderDuringWindowQuery(t *testing.T) {
 
 func TestInvalidateStoredCostCacheStopsInspectionWithoutFalseCompletion(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	handler := &stagedQuotaHandler{entered: make(chan int, 2), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 2})
 	setRefreshCooldown(service, func(time.Duration) {})
@@ -357,7 +357,7 @@ func TestInvalidateStoredCostCacheStopsInspectionWithoutFalseCompletion(t *testi
 
 func TestInvalidateStoredCostCacheDuringInspectionScanDoesNotRestartOldRound(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": &refreshHandlerStub{}}))
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -404,7 +404,7 @@ func TestInvalidateStoredCostCacheDuringInspectionScanDoesNotRestartOldRound(t *
 
 func TestInvalidateStoredCostCacheDuringAutoRefreshScanDoesNotQueueOldRound(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": &refreshHandlerStub{}}))
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -445,7 +445,7 @@ func TestInvalidateStoredCostCacheDuringAutoRefreshScanDoesNotQueueOldRound(t *t
 // Claude 部分窗口在 flush 已开始后失效，两个窗口都必须沿用原批次代数。
 func TestInvalidateStoredCostCacheRejectsMergedClaudePartialWindows(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(nil), ServiceOptions{UsageHeaderSnapshotFlushInterval: time.Hour})
 	entered := make(chan struct{})
 	release := make(chan struct{})

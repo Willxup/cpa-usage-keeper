@@ -2,10 +2,10 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthFileCredentialsSection, QuotaResetAction } from '../AuthFileCredentialsSection'
+import { CredentialsSection, QuotaResetAction } from '../CredentialsSection'
 import type { ClaudeResetGrantsResponse, UsageQuotaResetResponse } from '@/lib/types'
-import type { AuthFileCredentialRow } from '../credentialViewModels'
-import { createAuthFileSectionProps } from './credentialSectionFixtures'
+import type { CredentialRow } from '../credentialViewModels'
+import { createCredentialSectionProps } from './credentialSectionFixtures'
 import * as api from '@/lib/api'
 import styles from '../CredentialSections.module.scss'
 
@@ -148,8 +148,8 @@ describe('Claude reset grants in the shared Keeper action', () => {
     expect(confirm).toHaveBeenCalledExactlyOnceWith('spring', '11111111-1111-1111-1111-111111111111')
   })
   async function renderSection(count: number, identity = { provider: 'claude', type: 'claude' }, onConfirm = async () => undefined) {
-    const row = { identity: { id: 'identity-1', identity: 'claude', ...identity, disabled: false, is_deleted: false }, displayName: 'Claude', typeLabel: 'Claude', quotaLoading: false, displayQuotas: [], quota: [], totalRequests: 1, successCount: 1, failureCount: 0, successRate: 100, totalTokens: 1, cacheReadRate: 0, windowCacheReadRate: 0, quotaResetCreditsAvailableCount: 7, claudeResetGrants: { ...status().status!, availableCount: count } } as unknown as AuthFileCredentialRow
-    await act(async () => { root.render(<AuthFileCredentialsSection {...createAuthFileSectionProps({ rows: [row], total: 1, onResetQuotaForAuthIndex: onConfirm })} />) })
+    const row = { identity: { id: 'identity-1', identity: 'claude', ...identity, disabled: false, is_deleted: false }, displayName: 'Claude', typeLabel: 'Claude', quotaLoading: false, displayQuotas: [], quota: [], totalRequests: 1, successCount: 1, failureCount: 0, successRate: 100, totalTokens: 1, cacheReadRate: 0, windowCacheReadRate: 0, quotaResetCreditsAvailableCount: 7, claudeResetGrants: { ...status().status!, availableCount: count } } as unknown as CredentialRow
+    await act(async () => { root.render(<CredentialsSection {...createCredentialSectionProps({ rows: [row], total: 1, onResetQuotaForAuthIndex: onConfirm })} />) })
   }
   it('only shows the shared reset icon in the real section with a positive known count', async () => {
     await renderSection(0)

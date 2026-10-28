@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 )
 
 type kimiCredentialReader interface {
-	FetchKimiCredentialMetadata(context.Context, string) (*authfiles.KimiCredentialMetadata, error)
+	FetchKimiCredentialMetadata(context.Context, string) (*credentials.KimiCredentialMetadata, error)
 }
 
 type kimiProvider struct {
@@ -58,7 +58,7 @@ func (p kimiProvider) Check(ctx context.Context, input ProviderInput) (ProviderO
 	return ProviderOutput{Provider: firstNonEmpty(identity.Provider, identity.Type), Result: KimiResult{Usage: usage}}, nil
 }
 
-func kimiCredentialDomain(metadata authfiles.KimiCredentialMetadata, input ProviderInput) string {
+func kimiCredentialDomain(metadata credentials.KimiCredentialMetadata, input ProviderInput) string {
 	// 对齐 CPA/CPAMC：显式 domain > base_url > 文件 type > provider；URL 只用于识别两个固定站点。
 	if metadata.Domain != "" {
 		if kimiDomain(metadata.Domain) == "ai" {

@@ -580,7 +580,7 @@ func TestCodexQuotaHistoryRunnerDoesNotUseHeaderResetWhenPercentIsRejected(t *te
 }
 
 func TestCodexQuotaHistoryRunnerRecordsActiveCheckMainWindowsOnly(t *testing.T) {
-	// 主动 Check 已确认活跃 Codex Auth File；完整 Review/Additional 也不能生成第三个父周期。
+	// 主动 Check 已确认活跃 Codex Credential；完整 Review/Additional 也不能生成第三个父周期。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("check-auth"))
 	now := time.Now().Truncate(time.Second)
@@ -705,7 +705,7 @@ func TestCodexQuotaHistoryRunnerRejectsNonCodexHeaderIdentity(t *testing.T) {
 	// provider 文本看似 Codex 也不能替代 usage_identities.type=codex 的真实身份判断。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{
-		Identity: "claude-auth", Provider: "codex", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		Identity: "claude-auth", Provider: "codex", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential,
 	})
 	service := newCodexHistoryService(db, nil)
 	snapshot := codexHistoryPrimarySnapshot("claude-auth", time.Now(), 90, time.Now().Add(5*time.Hour))
@@ -715,7 +715,7 @@ func TestCodexQuotaHistoryRunnerRejectsNonCodexHeaderIdentity(t *testing.T) {
 	service.StopRefreshTasks()
 
 	if cycles := loadCodexQuotaCycles(t, db, "claude-auth"); len(cycles) != 0 {
-		t.Fatalf("expected non-Codex Auth File to have no history, got %+v", cycles)
+		t.Fatalf("expected non-Codex Credential to have no history, got %+v", cycles)
 	}
 }
 
@@ -1340,12 +1340,12 @@ func TestCodexQuotaHistoryRunnerRecoversAfterPartialRepositoryCommit(t *testing.
 }
 
 func codexHistoryUsageIdentity(authIndex string) entities.UsageIdentity {
-	// 历史只接受活跃 OAuth Auth File；Type=codex 是 Header identity 验证的真实依据。
+	// 历史只接受活跃 OAuth Credential；Type=codex 是 Header identity 验证的真实依据。
 	return entities.UsageIdentity{
 		Identity: authIndex,
 		Provider: "codex",
 		Type:     "codex",
-		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		AuthType: entities.UsageIdentityAuthTypeCredential,
 	}
 }
 

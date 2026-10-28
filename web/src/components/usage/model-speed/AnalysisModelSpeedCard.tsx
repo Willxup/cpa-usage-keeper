@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { Chart, ChartData, ChartOptions, Plugin, PointElement } from 'chart.js';
+import { color } from 'chart.js/helpers';
 import { Scatter } from 'react-chartjs-2';
 import type { AnalysisModelSpeedPayload, AnalysisResponse } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
@@ -12,7 +13,8 @@ import { ModelSpeedLegend } from './ModelSpeedLegend';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
 import { MODEL_SPEED_ANIMATION_MS, useModelSpeedAnimation, type ModelSpeedRefreshSignal } from './modelSpeedAnimation';
-import { formatBucketLabel } from '../analysis/analysisTimeLabels';
+import { formatBucketLabels } from '../analysis/analysisTimeLabels';
+import { useAnalysisHighlight } from '../analysis/analysisRanking';
 import panelStyles from '../analysis/AnalysisPanel.module.scss';
 import styles from './ModelSpeedChart.module.scss';
 
@@ -45,12 +47,15 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<Chart<'scatter'> | null>(null);
   const highlighted = useRef<Highlight | null>(null);
+  const suppressCanvasReplay = useRef(false);
   const touchInput = useRef(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const legendHighlight = useAnalysisHighlight(JSON.stringify([queryKey, selected]), { resetOnScopeChange: true });
+  const activeModel = !initialLoading && !pickerOpen && selected.includes(legendHighlight.active ?? '') ? legendHighlight.active : null;
   const locale = i18n?.language ?? 'en';
   const models = useMemo(() => new Map(speed.series.map((series) => [series.model, series])), [speed]);
-  const labels = useMemo(() => speed.buckets.map((bucket) => formatBucketLabel(bucket.start, granularity, timezone)), [speed, granularity, timezone]);
+  const labels = useMemo(() => formatBucketLabels(speed.buckets.map((bucket) => bucket.start), granularity, timezone), [speed, granularity, timezone]);
   const chartData = useMemo<ChartData<'scatter', SpeedPoint[]>>(() => ({
     datasets: selected.map((model, modelIndex) => ({
       label: model,
@@ -58,22 +63,26 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
         x: bucket + (selected.length > 1 ? (modelIndex / (selected.length - 1) - 0.5) * 0.6 : 0),
         y: modelSpeedMean(models.get(model)?.samples[bucket]),
       })),
-      backgroundColor: colorAt(colors[model], isDark),
-      borderColor: colorAt(colors[model], isDark),
-      pointRadius: isMobile ? 2.5 : 4,
+      backgroundColor: activeModel && activeModel !== model ? color(colorAt(colors[model], isDark)).alpha(0.25).rgbString() : colorAt(colors[model], isDark),
+      borderColor: activeModel && activeModel !== model ? color(colorAt(colors[model], isDark)).alpha(0.25).rgbString() : colorAt(colors[model], isDark),
+      pointRadius: (isMobile ? 2.5 : 4) + (activeModel === model ? 2 : 0),
       pointHoverRadius: isMobile ? 4.5 : 6,
       pointHoverBackgroundColor: colorAt(colors[model], isDark),
       pointHoverBorderColor: theme.tooltipBg,
       pointHoverBorderWidth: 2,
-      borderWidth: 1,
+      borderWidth: activeModel === model ? 2.5 : 1,
     })),
-  }), [selected, speed, models, colors, isDark, isMobile, theme.tooltipBg]);
+  }), [selected, speed, models, colors, isDark, isMobile, theme.tooltipBg, activeModel]);
   const dismiss = useCallback(() => {
     highlighted.current = null;
     const chart = chartRef.current;
-    if (chart?.canvas) { chart.setActiveElements([]); chart.draw(); }
+    if (chart?.canvas) { chart.setActiveElements([]); chart.render(); }
     setHover(null);
   }, []);
+  const interactWithLegend = useCallback(() => {
+    suppressCanvasReplay.current = true;
+    dismiss();
+  }, [dismiss]);
   const closeOnLeave = useCallback(() => { if (!touchInput.current) dismiss(); }, [dismiss]);
   const changePickerOpen = useCallback((open: boolean) => { setPickerOpen(open); if (open) dismiss(); }, [dismiss]);
 
@@ -97,7 +106,10 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
         chart.ctx.strokeStyle = String(dataset.borderColor);
         metadata.data.forEach((point, index) => {
           if (modelSpeedMean(models.get(selected[datasetIndex])?.samples[index]) === null) return;
-          chart.ctx.lineWidth = hit?.datasetIndex === datasetIndex && hit.index === index ? 3 : 1.5;
+          // Read animated point styles so stems fade and thicken together with their nodes.
+          const options = (point as PointElement).options;
+          chart.ctx.strokeStyle = options?.backgroundColor ?? String(dataset.borderColor);
+          chart.ctx.lineWidth = hit?.datasetIndex === datasetIndex && hit.index === index ? 3 : (options?.borderWidth ?? 1) + 0.5;
           chart.ctx.beginPath(); chart.ctx.moveTo(point.x, zero); chart.ctx.lineTo(point.x, point.y); chart.ctx.stroke();
         });
       });
@@ -106,6 +118,12 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
     afterEvent(chart, args) {
       const { event } = args;
       chartRef.current = chart;
+      // Updating legend styles can replay a stale canvas event even when no point was active.
+      if (args.replay && suppressCanvasReplay.current) {
+        chart.setActiveElements([]);
+        args.changed = true;
+        return;
+      }
       const syncActive = () => {
         const hit = highlighted.current;
         chart.setActiveElements(hit ? [{ datasetIndex: hit.datasetIndex, index: hit.index }] : []);
@@ -115,6 +133,7 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
       if (event.type === 'mouseout') { closeOnLeave(); syncActive(); return; }
       if (event.type !== 'mousemove' && event.type !== 'click') return;
       if (touchInput.current && event.type !== 'click') { syncActive(); return; }
+      if (!args.replay) suppressCanvasReplay.current = false;
       const { x, y } = event;
       const area = chart.chartArea;
       if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); syncActive(); return; }
@@ -158,6 +177,11 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
     responsive: true,
     maintainAspectRatio: false,
     animation: reducedMotion ? false : { duration: MODEL_SPEED_ANIMATION_MS },
+    animations: {
+      colors: { duration: reducedMotion ? 0 : 180 },
+      radius: { duration: reducedMotion ? 0 : 180 },
+      borderWidth: { duration: reducedMotion ? 0 : 180 },
+    },
     // 初次容器 resize 也保持动画时长，避免默认 resize 的 0ms 覆盖刚开始的入场。
     transitions: { resize: { animation: { duration: reducedMotion ? 0 : MODEL_SPEED_ANIMATION_MS } } },
     layout: { padding: { top: 8, right: 8, bottom: 4 } },
@@ -200,10 +224,10 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>
           <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />
         </div>}
-      <ModelSpeedLegend items={legendItems} />
+      <ModelSpeedLegend items={legendItems} highlight={{ ...legendHighlight, active: activeModel }} onInteract={interactWithLegend} />
     </div>
     {visibleHover && hoveredBucket && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
-      title={formatModelSpeedTimeRange(hoveredBucket.start, hoveredBucket.end, timezone, locale, granularity === 'daily' ? 'date' : 'minutes')}
+      title={formatModelSpeedTimeRange(hoveredBucket.start, hoveredBucket.end, timezone, locale, granularity === 'daily' ? 'date' : 'minutes', speed.buckets.flatMap((bucket) => [bucket.start, bucket.end]))}
       rows={tooltipRows} dismiss={dismiss} />}
   </section>;
 }

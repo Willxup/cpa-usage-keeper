@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       backend: ${{ (github.event_name == 'workflow_dispatch' || inputs.full) && 'true' || steps.filter.outputs.backend }}
@@ -37,7 +37,7 @@ jobs:
         id: filter
         # PR 按路径筛选；手动检查和 tag 发布验证不允许跳过任何检查。
         if: ${{ github.event_name == 'pull_request' && !inputs.full }}
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        uses: dorny/paths-filter@v4
         with:
           predicate-quantifier: some-with-excludes
           filters: |
@@ -53,6 +53,7 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'web/**'
+              - '.nvmrc'
               - 'README.md'
               - 'README.zh.md'
               - 'assets/keeper-logo-light.svg'
@@ -62,6 +63,7 @@ jobs:
             container:
               - 'Dockerfile'
               - '.dockerignore'
+              - '.nvmrc'
               - 'docker-entrypoint.sh'
               - 'go.mod'
               - 'go.sum'
@@ -80,6 +82,7 @@ jobs:
               - '!web/**'
               - '!Dockerfile'
               - '!.dockerignore'
+              - '!.nvmrc'
               - '!docker-entrypoint.sh'
               - '!go.mod'
               - '!go.sum'
@@ -106,9 +109,9 @@ jobs:
       fail-fast: false
       matrix:
         runs-on:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+          - ubuntu-26.04
+          - macos-15
+          - windows-2025
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -116,7 +119,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
+          check-latest: true
           cache: true
 
       - name: Set up MSYS2
@@ -141,7 +145,7 @@ jobs:
   frontend:
     needs: changes
     if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.other == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -151,6 +155,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          check-latest: true
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -172,14 +177,18 @@ jobs:
   container:
     needs: changes
     if: ${{ needs.changes.outputs.container == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
       - name: Build Docker image
-        run: docker build -t cpa-usage-keeper:ci .
+        run: |
+          docker build --pull \
+            --build-arg NODE_IMAGE=node:24-alpine3.24 \
+            --build-arg GO_IMAGE=golang:1.26-alpine3.24 \
+            -t cpa-usage-keeper:ci .
 
   ci-gate:
     if: ${{ always() }}
@@ -188,7 +197,7 @@ jobs:
       - backend
       - frontend
       - container
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Verify CI results

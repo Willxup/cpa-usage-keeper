@@ -1,6 +1,7 @@
 package test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,59 @@ func TestLoginAttemptLimiterRecoversAfterWindow(t *testing.T) {
 	now = now.Add(time.Minute)
 	if allowed, _ := limiter.Allow("source-a"); !allowed {
 		t.Fatal("expected attempt to be allowed after the window resets")
+	}
+}
+
+func TestPendingLoginAttemptsCountOnlyGlobalRequestsUntilFailure(t *testing.T) {
+	now := time.Date(2026, time.October, 21, 0, 0, 0, 0, time.UTC)
+	limiter := auth.NewLoginAttemptLimiter(auth.LoginAttemptLimiterOptions{Now: func() time.Time { return now }})
+	for range 60 {
+		if allowed, _ := limiter.AllowPending("oidc:source"); !allowed {
+			t.Fatal("unfinished login consumed the source failure allowance")
+		}
+	}
+	if allowed, wait := limiter.AllowPending("oidc:other"); allowed || wait != time.Minute {
+		t.Fatalf("global request limit = %v, %s", allowed, wait)
+	}
+	now = now.Add(time.Minute)
+	for range 5 {
+		if allowed, _ := limiter.AllowPending("oidc:source"); !allowed {
+			t.Fatal("source limited before five recorded failures")
+		}
+		limiter.RecordFailure("oidc:source")
+	}
+	if allowed, _ := limiter.AllowPending("oidc:source"); allowed {
+		t.Fatal("five confirmed failures did not limit the source")
+	}
+	if allowed, _ := limiter.Allow("source"); !allowed {
+		t.Fatal("OIDC failures blocked password login")
+	}
+	now = now.Add(time.Minute)
+	if allowed, _ := limiter.AllowPending("oidc:source"); !allowed {
+		t.Fatal("OIDC failure window did not expire")
+	}
+}
+
+func TestPendingLoginFailureRecordingIsConcurrentAndDoesNotClearOtherFailures(t *testing.T) {
+	now := time.Date(2026, time.October, 21, 0, 0, 0, 0, time.UTC)
+	limiter := auth.NewLoginAttemptLimiter(auth.LoginAttemptLimiterOptions{PerSourceLimit: 20, GlobalLimit: 100, Now: func() time.Time { return now }})
+	var workers sync.WaitGroup
+	for range 19 {
+		workers.Go(func() { limiter.RecordFailure("oidc:source") })
+	}
+	workers.Wait()
+	for range 6 {
+		if allowed, _ := limiter.AllowPending("oidc:source"); !allowed {
+			t.Fatal("pending/canceled requests increased failure count")
+		}
+	}
+	limiter.RecordFailure("oidc:source")
+	if allowed, _ := limiter.AllowPending("oidc:source"); allowed {
+		t.Fatal("concurrent failures were lost or cleared by pending requests")
+	}
+	limiter.Reset("oidc:source")
+	if allowed, _ := limiter.AllowPending("oidc:source"); !allowed {
+		t.Fatal("successful authentication could not reset source failures")
 	}
 }
 

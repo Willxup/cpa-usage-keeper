@@ -13,7 +13,7 @@ func TestUsageIdentityAliasIsLocalOnlyAndPreservedAcrossSync(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
-	authType := entities.UsageIdentityAuthTypeAuthFile
+	authType := entities.UsageIdentityAuthTypeCredential
 
 	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{{
 		Name:     "Upstream Auth",

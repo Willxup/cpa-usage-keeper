@@ -100,7 +100,7 @@ func aggregateUsageIdentityFullStats(tx *gorm.DB, identity entities.UsageIdentit
 
 func usageIdentityBackfillEventsQuery(query *gorm.DB, identity entities.UsageIdentity) (*gorm.DB, bool) {
 	switch identity.AuthType {
-	case entities.UsageIdentityAuthTypeAuthFile:
+	case entities.UsageIdentityAuthTypeCredential:
 		return query.Where("auth_index = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "oauth"), true
 	case entities.UsageIdentityAuthTypeAIProvider:
 		return query.Where("source = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "apikey"), true

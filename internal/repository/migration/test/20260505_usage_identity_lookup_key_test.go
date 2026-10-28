@@ -70,7 +70,7 @@ func TestOpenDatabaseAddsUsageIdentityLookupKeyToExistingTable(t *testing.T) {
 		t.Fatalf("seed legacy apikey usage identity: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO usage_identities (name, auth_type, auth_type_name, identity, type, provider)
-		VALUES (?, ?, ?, ?, ?, ?)`, "OAuth", entities.UsageIdentityAuthTypeAuthFile, "oauth", "auth-index", "claude", "Claude").Error; err != nil {
+		VALUES (?, ?, ?, ?, ?, ?)`, "OAuth", entities.UsageIdentityAuthTypeCredential, "oauth", "auth-index", "claude", "Claude").Error; err != nil {
 		t.Fatalf("seed legacy oauth usage identity: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO usage_events (event_key, api_group_key, provider, endpoint, auth_type, request_id, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, total_tokens, created_at)

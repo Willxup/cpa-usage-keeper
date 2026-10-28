@@ -31,7 +31,7 @@ func (s *Service) DeleteCodexQuotaHistoryCycle(ctx context.Context, authIndex st
 	if authIndex == "" || cycleID <= 0 {
 		return fmt.Errorf("%w: auth_index and positive cycle_id are required", ErrValidation)
 	}
-	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	identity, err := repository.GetActiveCredentialUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}

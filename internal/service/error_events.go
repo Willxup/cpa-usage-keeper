@@ -31,7 +31,7 @@ type ErrorEventListResponse struct {
 	Events []entities.ErrorEvent
 	// HasMore 表示仓储多取一行后确认仍有下一页。
 	HasMore bool
-	// APIKey 是 AI Provider Identity 的真实 lookup key，仅供 API 从 body 摘要中精确删除；Auth File 为空。
+	// APIKey 是 AI Provider Identity 的真实 lookup key，仅供 API 从 body 摘要中精确删除；Credential 为空。
 	APIKey string
 }
 

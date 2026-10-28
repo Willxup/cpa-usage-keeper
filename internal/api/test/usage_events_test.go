@@ -299,38 +299,39 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	time.Local = location
 
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:                  42,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		Model:               "claude-sonnet",
-		ModelAlias:          "sonnet-business",
-		ResponseModel:       "actual-model",
-		ReasoningEffort:     "medium",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            new("192.0.2.10"),
-		XForwardedFor:       new("203.0.113.5, 198.51.100.8"),
-		UserAgent:           new("test-client/1.0"),
-		ExecutorType:        "responses",
-		Endpoint:            "POST /v1/responses",
-		AuthType:            "apikey",
-		RequestID:           "req-log-42",
-		Provider:            "OpenAI Mirror",
-		Source:              "sk-provider-key",
-		AuthIndex:           "2",
-		Failed:              false,
-		StatusCode:          new(200),
-		Stream:              new(true),
-		LatencyMS:           2000,
-		TTFTMS:              new(int64(45)),
-		InputTokens:         10,
-		OutputTokens:        61,
-		ReasoningTokens:     2,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         18,
-		CostUSD:             0.1234,
-		CostAvailable:       true,
-		PricingStyle:        "claude",
+		ID:                   42,
+		Timestamp:            time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		Model:                "claude-sonnet",
+		ModelAlias:           "sonnet-business",
+		ResponseModel:        "actual-model",
+		EffectiveServiceTier: "priority",
+		ReasoningEffort:      "medium",
+		ServiceTier:          "auto",
+		ResponseServiceTier:  "default",
+		ClientIP:             new("192.0.2.10"),
+		XForwardedFor:        new("203.0.113.5, 198.51.100.8"),
+		UserAgent:            new("test-client/1.0"),
+		ExecutorType:         "responses",
+		Endpoint:             "POST /v1/responses",
+		AuthType:             "apikey",
+		RequestID:            "req-log-42",
+		Provider:             "OpenAI Mirror",
+		Source:               "sk-provider-key",
+		AuthIndex:            "2",
+		Failed:               false,
+		StatusCode:           new(200),
+		Stream:               new(true),
+		LatencyMS:            2000,
+		TTFTMS:               new(int64(45)),
+		InputTokens:          10,
+		OutputTokens:         61,
+		ReasoningTokens:      2,
+		CacheReadTokens:      3,
+		CacheCreationTokens:  4,
+		TotalTokens:          18,
+		CostUSD:              0.1234,
+		CostAvailable:        true,
+		PricingStyle:         "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
@@ -345,7 +346,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		`"page_size":100`, `"total_pages":1`, `"source":"OpenAI Mirror"`,
 		`"auth_index":"2"`, `"request_id":"req-log-42"`, `"timestamp":"2026-04-22T19:00:00+08:00"`,
 		`"cache_read_tokens":3`, `"cache_creation_tokens":4`, `"reasoning_effort":"medium"`,
-		`"service_tier":"auto"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.10"`,
+		`"service_tier":"auto"`, `"effective_service_tier":"priority"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.10"`,
 		`"x_forwarded_for":"203.0.113.5, 198.51.100.8"`, `"user_agent":"test-client/1.0"`, `"endpoint":"POST /v1/responses"`,
 		`"ttft_ms":45`, `"speed_tps":30.5`, `"executor_type":"responses"`, `"status_code":200`, `"stream":true`,
 		`"cost_usd":0.1234`, `"cost_available":true`, `"pricing_style":"claude"`,
@@ -665,37 +666,38 @@ func TestUsageEventRequestLogDownloadSanitizesAttachmentFilename(t *testing.T) {
 
 func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) {
 	provider := &usageEventsStub{exportEvents: []servicedto.UsageEventRecord{{
-		ID:                  52,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey:         "sk-export123456",
-		Model:               "claude-sonnet",
-		ModelAlias:          "sonnet-export",
-		ResponseModel:       "actual-export-model",
-		ReasoningEffort:     "medium",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            new("192.0.2.10"),
-		XForwardedFor:       new("203.0.113.5, 198.51.100.8"),
-		UserAgent:           new("test-client/1.0"),
-		ExecutorType:        "responses",
-		Endpoint:            "POST /v1/responses",
-		AuthType:            "apikey",
-		Provider:            "Provider Fallback",
-		AuthIndex:           "authidx-export-main",
-		Failed:              true,
-		StatusCode:          new(429),
-		Stream:              new(false),
-		LatencyMS:           2000,
-		TTFTMS:              new(int64(45)),
-		InputTokens:         10,
-		OutputTokens:        61,
-		ReasoningTokens:     2,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         18,
-		CostUSD:             0.1234,
-		CostAvailable:       true,
-		PricingStyle:        "claude",
+		ID:                   52,
+		Timestamp:            time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		APIGroupKey:          "sk-export123456",
+		Model:                "claude-sonnet",
+		ModelAlias:           "sonnet-export",
+		ResponseModel:        "actual-export-model",
+		EffectiveServiceTier: "CustomTier",
+		ReasoningEffort:      "medium",
+		ServiceTier:          "auto",
+		ResponseServiceTier:  "default",
+		ClientIP:             new("192.0.2.10"),
+		XForwardedFor:        new("203.0.113.5, 198.51.100.8"),
+		UserAgent:            new("test-client/1.0"),
+		ExecutorType:         "responses",
+		Endpoint:             "POST /v1/responses",
+		AuthType:             "apikey",
+		Provider:             "Provider Fallback",
+		AuthIndex:            "authidx-export-main",
+		Failed:               true,
+		StatusCode:           new(429),
+		Stream:               new(false),
+		LatencyMS:            2000,
+		TTFTMS:               new(int64(45)),
+		InputTokens:          10,
+		OutputTokens:         61,
+		ReasoningTokens:      2,
+		CacheReadTokens:      3,
+		CacheCreationTokens:  4,
+		TotalTokens:          18,
+		CostUSD:              0.1234,
+		CostAvailable:        true,
+		PricingStyle:         "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
 		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{
@@ -747,8 +749,8 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !contains(body, "speed_tps,client_ip,x_forwarded_for,user_agent,input_tokens") || !contains(body, ",30.5,192.0.2.10,\"203.0.113.5, 198.51.100.8\",test-client/1.0,10,") {
 		t.Fatalf("expected client metadata after speed in csv export, got %s", body)
 	}
-	if !contains(body, "service_tier,response_service_tier,executor_type") || !contains(body, ",auto,default,responses,") {
-		t.Fatalf("expected separate request and response service tiers in csv export, got %s", body)
+	if !contains(body, "service_tier,effective_service_tier,response_service_tier,executor_type") || !contains(body, ",auto,CustomTier,default,responses,") {
+		t.Fatalf("expected separate client, outbound and response service tiers in csv export, got %s", body)
 	}
 	if !contains(body, "result,status_code,stream,endpoint") || !contains(body, "failed,429,false,POST /v1/responses") {
 		t.Fatalf("expected status_code and stream in csv export, got %s", body)
@@ -764,13 +766,14 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	}
 }
 
-func TestUsageEventsExportCSVFormatsClientMetadataAsText(t *testing.T) {
+func TestUsageEventsExportCSVFormatsUntrustedMetadataAsText(t *testing.T) {
 	provider := &usageEventsStub{exportEvents: []servicedto.UsageEventRecord{{
-		ID:            54,
-		Timestamp:     time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC),
-		ClientIP:      new("=1+1"),
-		XForwardedFor: new("+SUM(1,1)"),
-		UserAgent:     new("@HYPERLINK(\"https://example.invalid\")"),
+		ID:                   54,
+		Timestamp:            time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC),
+		EffectiveServiceTier: "=1+1",
+		ClientIP:             new("=1+1"),
+		XForwardedFor:        new("+SUM(1,1)"),
+		UserAgent:            new("@HYPERLINK(\"https://example.invalid\")"),
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	resp := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format=csv")
@@ -790,9 +793,10 @@ func TestUsageEventsExportCSVFormatsClientMetadataAsText(t *testing.T) {
 		columnIndexes[column] = index
 	}
 	for column, want := range map[string]string{
-		"client_ip":       "'=1+1",
-		"x_forwarded_for": "'+SUM(1,1)",
-		"user_agent":      "'@HYPERLINK(\"https://example.invalid\")",
+		"effective_service_tier": "'=1+1",
+		"client_ip":              "'=1+1",
+		"x_forwarded_for":        "'+SUM(1,1)",
+		"user_agent":             "'@HYPERLINK(\"https://example.invalid\")",
 	} {
 		index, ok := columnIndexes[column]
 		if !ok {
@@ -873,32 +877,33 @@ func TestUsageEventsExportAllowsTwoConcurrentStreamsAndRejectsThird(t *testing.T
 
 func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:                  53,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey:         "sk-json-export",
-		Model:               "gpt-5",
-		ModelAlias:          "gpt-json-alias",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            new("192.0.2.11"),
-		XForwardedFor:       new("203.0.113.6"),
-		UserAgent:           new("json-client/1.0"),
-		ExecutorType:        "chat_completions",
-		Endpoint:            "GET /v1/responses",
-		AuthType:            "oauth",
-		Source:              "claude-code",
-		AuthIndex:           "auth-file-export",
-		Failed:              false,
-		StatusCode:          new(200),
-		Stream:              new(true),
-		LatencyMS:           500,
-		InputTokens:         9,
-		OutputTokens:        5,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         14,
-		CostAvailable:       true,
-		PricingStyle:        "openai",
+		ID:                   53,
+		Timestamp:            time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		APIGroupKey:          "sk-json-export",
+		Model:                "gpt-5",
+		ModelAlias:           "gpt-json-alias",
+		EffectiveServiceTier: "ultrafast",
+		ServiceTier:          "auto",
+		ResponseServiceTier:  "default",
+		ClientIP:             new("192.0.2.11"),
+		XForwardedFor:        new("203.0.113.6"),
+		UserAgent:            new("json-client/1.0"),
+		ExecutorType:         "chat_completions",
+		Endpoint:             "GET /v1/responses",
+		AuthType:             "oauth",
+		Source:               "claude-code",
+		AuthIndex:            "credential-export",
+		Failed:               false,
+		StatusCode:           new(200),
+		Stream:               new(true),
+		LatencyMS:            500,
+		InputTokens:          9,
+		OutputTokens:         5,
+		CacheReadTokens:      3,
+		CacheCreationTokens:  4,
+		TotalTokens:          14,
+		CostAvailable:        true,
+		PricingStyle:         "openai",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
 		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{
@@ -920,11 +925,11 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		t.Fatalf("expected timestamped json filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
 	for _, fragment := range []string{
-		`"total_count":1`, `"auth_index":"auth-file-export"`, `"model_alias":"gpt-json-alias"`,
+		`"total_count":1`, `"auth_index":"credential-export"`, `"model_alias":"gpt-json-alias"`,
 		`"executor_type":"chat_completions"`, `"endpoint":"GET /v1/responses"`, `"is_identity_deleted":true`,
 		`"api_key":"Team <Ops> & Co"`, `"cpa_api_key_id":"9"`, `"source_type":""`,
 		`"reasoning_effort":""`, `"ttft_ms":null`, `"speed_tps":10`,
-		`"service_tier":"auto"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.11"`,
+		`"service_tier":"auto"`, `"effective_service_tier":"ultrafast"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.11"`,
 		`"x_forwarded_for":"203.0.113.6"`, `"user_agent":"json-client/1.0"`, `"cache_read_tokens":3`,
 		`"cache_creation_tokens":4`, `"cache_read_rate":33.33333333333333`, `"status_code":200`, `"stream":true`,
 	} {
@@ -1224,16 +1229,16 @@ func TestUsageEventsReturnsAndAcceptsCursorPagination(t *testing.T) {
 	}
 }
 
-func TestUsageEventsPassesAuthFileIdentitySourceFilterAsAuthIndex(t *testing.T) {
+func TestUsageEventsPassesCredentialIdentitySourceFilterAsAuthIndex(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h&source=auth-file-index")
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h&source=credential-index")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	if provider.lastFilter.AuthIndex != "auth-file-index" || provider.lastFilter.Source != "" {
-		t.Fatalf("expected auth file identity source filter to use auth_index only, got %+v", provider.lastFilter)
+	if provider.lastFilter.AuthIndex != "credential-index" || provider.lastFilter.Source != "" {
+		t.Fatalf("expected credential identity source filter to use auth_index only, got %+v", provider.lastFilter)
 	}
 }
 
@@ -1318,7 +1323,7 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 
 func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 	provider := &usageEventsStub{}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "Claude Main", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-zero", Type: "openai", Provider: "Zero Provider"}, {ID: 6, Name: "Deleted Source", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-deleted", Type: "openai", Provider: "Deleted Provider", TotalRequests: 5, IsDeleted: true}, {ID: 7, Name: "   ", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-display", Type: "claude", Provider: "Claude Display", TotalRequests: 1}}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "Claude Main", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-zero", Type: "openai", Provider: "Zero Provider"}, {ID: 6, Name: "Deleted Source", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-deleted", Type: "openai", Provider: "Deleted Provider", TotalRequests: 5, IsDeleted: true}, {ID: 7, Name: "   ", AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "auth-display", Type: "claude", Provider: "Claude Display", TotalRequests: 1}}}})
 	resp := serveAPIGet(router, "/api/v1/usage/events/filters/sources?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20")
 
 	if resp.Code != http.StatusOK {

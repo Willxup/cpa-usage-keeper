@@ -98,7 +98,7 @@ func TestProcessRedisUsageInboxReturnsAfterCommitWithoutSynchronousAggregation(t
 func TestProcessRedisUsageInboxEmptyBatchKeepsLegacyCatchUpWithoutNotifier(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	identity := entities.UsageIdentity{Name: "compat-auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "compat-auth", Type: "codex"}
+	identity := entities.UsageIdentity{Name: "compat-auth", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "compat-auth", Type: "codex"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("insert compatibility identity: %v", err)
 	}

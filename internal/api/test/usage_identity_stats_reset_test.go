@@ -16,7 +16,7 @@ import (
 )
 
 func TestUsageIdentityStatsResetPreservesLifetimeAndCountsLaterAggregation(t *testing.T) {
-	for _, authType := range []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider} {
+	for _, authType := range []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeCredential, entities.UsageIdentityAuthTypeAIProvider} {
 		t.Run(fmt.Sprint(authType), func(t *testing.T) {
 			db := openAPITestDatabase(t)
 			ctx := context.Background()

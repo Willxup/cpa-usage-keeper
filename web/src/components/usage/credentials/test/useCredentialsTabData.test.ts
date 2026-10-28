@@ -98,7 +98,7 @@ describe('quotaRefreshDisplayError', () => {
   it('turns refresh rejection codes into friendly messages', () => {
     expect(quotaRefreshDisplayError('duplicate')).toBe('Quota refresh is already running for this credential.')
     expect(quotaRefreshDisplayError('duplicate_request')).toBe('This credential was already included in the refresh request.')
-    expect(quotaRefreshDisplayError('not_auth_file')).toBe('Quota refresh only supports local auth files.')
+    expect(quotaRefreshDisplayError('not_credential')).toBe('Quota refresh only supports local credentials.')
     expect(quotaRefreshDisplayError('unsupported')).toBe('Quota refresh is not supported for this credential type.')
   })
 

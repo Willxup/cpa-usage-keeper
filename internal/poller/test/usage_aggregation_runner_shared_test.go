@@ -247,7 +247,7 @@ func TestUsageAggregationRunnerIdentityFailureDoesNotFreezeLaterRollups(t *testi
 	// Identity 持续失败时，已经到达的新 usage 目标仍必须开启自己的 5 秒窗口并推进三类全局聚合。
 	db := openUsageAggregationRunnerDatabase(t)
 	now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-	identity := entities.UsageIdentity{Name: "blocked-auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "blocked-auth", Type: "codex"}
+	identity := entities.UsageIdentity{Name: "blocked-auth", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "blocked-auth", Type: "codex"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed identity that will fail aggregation: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestUsageAggregationRunnerAlternatesOneRollupPageWithOneIdentityPage(t *tes
 	events := make([]entities.UsageEvent, 0, 1001)
 	for index := 1; index <= 27; index++ {
 		identity := fmt.Sprintf("fair-auth-%02d", index)
-		identities = append(identities, entities.UsageIdentity{Name: identity, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: identity, Type: "codex"})
+		identities = append(identities, entities.UsageIdentity{Name: identity, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: identity, Type: "codex"})
 	}
 	for index := 1; index <= 1001; index++ {
 		identity := identities[(index-1)%len(identities)].Identity
@@ -403,7 +403,7 @@ func TestUsageAggregationRunnerRescansIdentityHeadAfterNotificationDuringPagedPa
 	identities := make([]entities.UsageIdentity, 0, repository.UsageIdentityAggregationBatchSize+1)
 	for index := 1; index <= repository.UsageIdentityAggregationBatchSize+1; index++ {
 		identity := fmt.Sprintf("rescan-auth-%02d", index)
-		identities = append(identities, entities.UsageIdentity{Name: identity, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: identity, Type: "codex"})
+		identities = append(identities, entities.UsageIdentity{Name: identity, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: identity, Type: "codex"})
 	}
 	if err := db.Create(&identities).Error; err != nil {
 		t.Fatalf("seed rescan identities: %v", err)
@@ -555,7 +555,7 @@ func TestUsageAggregationRunnerBackgroundFailureStillLetsIdentityRun(t *testing.
 	// Activity 持续失败时 Overview、Latency 仍独立提交，下一 turn 的 Identity 也必须获得 writer。
 	db := openUsageAggregationRunnerDatabase(t)
 	now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-	identity := entities.UsageIdentity{Name: "failure-auth", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "failure-auth", Type: "codex"}
+	identity := entities.UsageIdentity{Name: "failure-auth", AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "failure-auth", Type: "codex"}
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("insert failure identity: %v", err)
 	}
