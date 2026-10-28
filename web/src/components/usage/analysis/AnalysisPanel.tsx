@@ -991,7 +991,7 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
 
   return (
     <section className={`${styles.analysisCard} ${styles.pairedChartCard} ${styles.topModelsCard} keeper-card-surface`}>
-      <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} subtitle={t('usage_stats.analysis_top_models_subtitle')} showPricingHint={false} hint="" />
+      <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} showPricingHint={false} hint="" />
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
           <div className={styles.analysisChartSurface}>
