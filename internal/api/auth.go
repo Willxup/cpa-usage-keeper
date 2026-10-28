@@ -334,7 +334,7 @@ func (h *authHandler) apiKeyLogin(c *gin.Context) {
 		return
 	}
 	row, err := h.cpaAPIKeyProvider.FindActiveCPAAPIKeyByValue(c.Request.Context(), request.APIKey)
-	if err != nil {
+	if err != nil || row.SourceType == entities.CPAAPIKeySourcePlugin {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
@@ -356,7 +356,7 @@ func (h *authHandler) activeViewerAPIKey(c *gin.Context, resolved resolvedSessio
 		return entities.CPAAPIKey{}, false
 	}
 	row, err := h.cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID)
-	if err != nil {
+	if err != nil || row.SourceType == entities.CPAAPIKeySourcePlugin {
 		h.deleteSession(resolved.Token)
 		clearSessionCookie(c, h.config.BasePath, resolved.CookieKind)
 		return entities.CPAAPIKey{}, false

@@ -3,7 +3,7 @@ package entities
 import "time"
 
 // UsageEventStorageColumns 是 hot/archive 原始事件复制使用的完整持久化列契约。
-const UsageEventStorageColumns = "id, event_key, api_group_key, provider, endpoint, auth_type, request_id, execution_id, trace_id, session_id, parent_session_id, node_kind, is_fork, is_compaction, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, timestamp, source, auth_index, failed, status_code, generate, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available, created_at"
+const UsageEventStorageColumns = "id, event_key, api_group_key, is_native_key, access_provider, provider, endpoint, auth_type, request_id, execution_id, trace_id, session_id, parent_session_id, node_kind, is_fork, is_compaction, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, timestamp, source, auth_index, failed, status_code, generate, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available, created_at"
 
 // UsageEventArchive 保存已经离开 hot usage_events 的原始事件，默认永久保留，可配置清理期限。
 // 字段必须与 UsageEvent 的持久化列保持一致，但 archive 不承担在线查询，因此不复制二级索引。
@@ -11,6 +11,8 @@ type UsageEventArchive struct {
 	ID                  int64 `gorm:"primaryKey;autoIncrement:false"`
 	EventKey            string
 	APIGroupKey         string
+	IsNativeKey         *bool   `gorm:"column:is_native_key"`
+	AccessProvider      *string `gorm:"column:access_provider"`
 	Provider            string  `gorm:"column:provider"`
 	Endpoint            string  `gorm:"column:endpoint"`
 	AuthType            string  `gorm:"column:auth_type"`

@@ -7,6 +7,8 @@ type UsageEvent struct {
 	ID                  int64 `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`
 	EventKey            string
 	APIGroupKey         string    `gorm:"index:idx_usage_events_api_group_key_timestamp,priority:1"`
+	IsNativeKey         *bool     `gorm:"column:is_native_key"`
+	AccessProvider      *string   `gorm:"column:access_provider"`
 	Provider            string    `gorm:"column:provider"`
 	Endpoint            string    `gorm:"column:endpoint"`
 	AuthType            string    `gorm:"column:auth_type;index:idx_usage_events_auth_type_auth_index_id,priority:1"`

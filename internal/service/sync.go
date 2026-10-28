@@ -10,6 +10,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
@@ -47,6 +48,11 @@ type UsageHeaderSnapshotAppender interface {
 	TryAppendUsageHeaderSnapshots([]*quota.UsageHeaderSnapshot) bool
 }
 
+// PluginAPIKeyNotifier 只接受提交成功的轻量第三方身份，不接收事件或数据库水位。
+type PluginAPIKeyNotifier interface {
+	NotifyPluginAPIKeys([]entities.PluginAPIKeyIdentity)
+}
+
 const (
 	redisInboxProcessLimit                = 1000
 	redisUsageIdentityTypeLookupBatchSize = 500
@@ -72,6 +78,7 @@ type SyncService struct {
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
+	pluginAPIKeys    PluginAPIKeyNotifier
 }
 
 // NewSyncService 按配置组装 metadata／维护服务；远端 usage 拉取由 poller 独立负责。
@@ -98,6 +105,7 @@ type SyncServiceOptions struct {
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
 	UsageHeaderQuota UsageHeaderSnapshotAppender
+	PluginAPIKeys    PluginAPIKeyNotifier
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟和 metadata fetcher。
@@ -124,6 +132,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
 		usageHeaderQuota: opts.UsageHeaderQuota,
+		pluginAPIKeys:    opts.PluginAPIKeys,
 	}
 }
 
@@ -325,6 +334,8 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	readyEvents := make([]entities.UsageEvent, 0, len(events))
 	// headerSnapshots 只保存解码阶段创建的同一快照指针，不复制结构体或嵌套 quota 投影。
 	headerSnapshots := make([]*quota.UsageHeaderSnapshot, 0, len(events))
+	pluginIdentities := make([]entities.PluginAPIKeyIdentity, 0)
+	pluginKeysSeen := make(map[string]struct{})
 	for index, item := range normalizedItems {
 		// ready=false 的槽位依赖失败的 identity 查询，不能按 default 猜测入库。
 		if !item.ready {
@@ -333,6 +344,13 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		// normalizedItems 与原 validRows/events/eventSnapshots 使用同一索引，事务关联不会串行。
 		readyRows = append(readyRows, validRows[index])
 		readyEvents = append(readyEvents, item.event)
+		if s.pluginAPIKeys != nil && item.event.IsNativeKey != nil && !*item.event.IsNativeKey &&
+			item.event.AccessProvider != nil && helper.IsPluginAccessProvider(*item.event.AccessProvider) {
+			if _, exists := pluginKeysSeen[item.event.APIGroupKey]; !exists && helper.IsPluginAPIKeyGroupKey(item.event.APIGroupKey) {
+				pluginKeysSeen[item.event.APIGroupKey] = struct{}{}
+				pluginIdentities = append(pluginIdentities, entities.PluginAPIKeyIdentity{APIGroupKey: item.event.APIGroupKey, AccessProvider: *item.event.AccessProvider})
+			}
+		}
 		if eventSnapshots[index] != nil {
 			// 只收集已准备入库事件的 snapshot，unresolved snapshot 不得提前通知 quota worker。
 			headerSnapshots = append(headerSnapshots, eventSnapshots[index])
@@ -414,6 +432,10 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 事务已经同时提交 usage_events 与对应 inbox processed，只有此时事件级 Token 日志才代表真实入库事件。
 	logCommittedTokenProcessingEvents(normalizedItems)
 	if result.InsertedEvents > 0 {
+		if s.pluginAPIKeys != nil && len(pluginIdentities) > 0 {
+			// 独立切片只包含真正提交的 ready 事件身份；登记失败不影响用量提交。
+			s.pluginAPIKeys.NotifyPluginAPIKeys(append([]entities.PluginAPIKeyIdentity(nil), pluginIdentities...))
+		}
 		// usage_events 事务已经提交后才通知最近事件缓存，避免缓存看到未落库的数据。
 		if s.recentUsage != nil && !s.recentUsage.TryAppend(events) {
 			// 缓存队列满只影响 realtime/边界缓存的新鲜度，不能反向阻塞或回滚写入链路。

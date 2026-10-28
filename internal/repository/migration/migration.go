@@ -103,6 +103,7 @@ const (
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 	// migrationRecoverExecutionUsageEvents 以短事务回填事件标识并重新排队旧入口误拒绝的执行消息。
 	migrationRecoverExecutionUsageEvents = "20261018_recover_execution_usage_events"
+	migrationAddPluginAPIKeySources      = "20261019_plugin_api_key_sources"
 )
 
 type schemaMigration struct {
@@ -317,6 +318,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationRemoveRanking, run: removeRankingMigration},
 		// 恢复迁移追加在 v2 既有迁移之后，保留已部署 next 的执行顺序。
 		{version: migrationRecoverExecutionUsageEvents, run: recoverExecutionUsageEventsMigration, disableTransaction: true},
+		{version: migrationAddPluginAPIKeySources, run: addPluginAPIKeySourcesMigration},
 	}
 }
 

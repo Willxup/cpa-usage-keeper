@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { IconPencil } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 
 interface CredentialAliasEditorProps {
   identityId: string
-  displayName: string
+  displayName: ReactNode
   disabled?: boolean
   onOpenDetails?: () => void
   onEdit: () => void

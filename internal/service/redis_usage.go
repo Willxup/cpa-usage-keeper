@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -60,6 +61,8 @@ type queuedUsageDetail struct {
 	Endpoint            string          `json:"endpoint"`
 	AuthType            string          `json:"auth_type"`
 	APIKey              string          `json:"api_key"`
+	IsNativeKey         *bool           `json:"is_native_key"`
+	AccessProvider      *string         `json:"access_provider"`
 	RequestID           string          `json:"request_id"`
 	ExecutionID         *string         `json:"execution_id"`
 	TraceID             *string         `json:"trace_id"`
@@ -131,6 +134,11 @@ func redisTokenStatsAllZero(tokens dto.TokenStats) bool {
 // toUsageEvent 保持 Redis payload 的 model/request_id 语义，缺失时间才用本地拉取时间兜底。
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent {
 	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
+	if d.IsNativeKey != nil && !*d.IsNativeKey && d.AccessProvider != nil &&
+		helper.IsPluginAccessProvider(*d.AccessProvider) && strings.TrimSpace(d.APIKey) != "" {
+		// 仅在解码新消息时编码一次，后续复制与聚合直接复用统一标识。
+		apiGroupKey = helper.PluginAPIKeyGroupKey(*d.AccessProvider, d.APIKey)
+	}
 	model := firstNonEmpty(d.Model, "unknown")
 	timestamp := timeutil.NormalizeStorageTime(d.Timestamp)
 	if timestamp.IsZero() {
@@ -147,6 +155,8 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	return entities.UsageEvent{
 		EventKey:            eventKey,
 		APIGroupKey:         apiGroupKey,
+		IsNativeKey:         d.IsNativeKey,
+		AccessProvider:      d.AccessProvider,
 		Provider:            strings.TrimSpace(d.Provider),
 		Endpoint:            strings.TrimSpace(d.Endpoint),
 		AuthType:            normalizeRedisAuthType(d.AuthType),

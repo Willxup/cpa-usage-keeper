@@ -10,11 +10,18 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const translations: Record<string, string> = {
   'common.save': 'Save',
+  'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'usage_stats.credentials_edit_title': 'Edit credential',
+  'usage_stats.api_key_settings_edit_alias': 'Edit alias',
+  'usage_stats.api_key_settings_plugin_identity': 'Third-party Identity #{{id}}',
+  'usage_stats.api_key_settings_plugin': 'Third-party',
+  'usage_stats.api_key_settings_native': 'Native',
+  'usage_stats.api_key_settings_hide_key': 'Hide API key',
   'usage_stats.api_key_settings_title': 'API Key Settings',
   'usage_stats.api_key_settings_subtitle': 'Set display aliases.',
-  'usage_stats.api_key_settings_display_key': 'API Key',
   'usage_stats.api_key_settings_alias': 'Alias',
-  'usage_stats.api_key_settings_show_full': 'Show full API keys',
+  'usage_stats.api_key_settings_show_key': 'Show API key',
   'usage_stats.api_key_settings_copy': 'Copy',
   'usage_stats.api_key_settings_copied': 'Copied',
   'usage_stats.api_key_settings_copy_success': 'API Key copied.',
@@ -22,12 +29,15 @@ const translations: Record<string, string> = {
 }
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string) => translations[key] ?? key,
+    t: (key: string, values?: Record<string, string>) => (translations[key] ?? key).replace('{{id}}', values?.id ?? ''),
   }),
 }))
 
 const apiKey: CpaApiKeySettingsItem = {
+  sourceType: 'native',
+  accessProvider: '',
   id: '9007199254740993',
   apiKey: 'sk-alpha123456',
   keyAlias: 'Primary',
@@ -67,12 +77,12 @@ describe('ApiKeySettingsCard copy action', () => {
     vi.restoreAllMocks()
   })
 
-  const renderCard = async (onNotice: ReturnType<typeof vi.fn>) => {
+  const renderCard = async (onNotice: ReturnType<typeof vi.fn>, items = [apiKey], onSaveAlias: (id: string, alias: string) => void | Promise<void> = () => undefined) => {
     await act(async () => {
       root.render(
         <ApiKeySettingsCard
-          apiKeys={[apiKey]}
-          onSaveAlias={() => undefined}
+          apiKeys={items}
+          onSaveAlias={onSaveAlias}
           onNotice={onNotice}
         />,
       )
@@ -149,5 +159,93 @@ describe('ApiKeySettingsCard copy action', () => {
     expect(onNotice).toHaveBeenCalledWith('error', 'Unable to copy API Key.')
     expect(container.querySelector('button[aria-label="Copy"]')).not.toBeNull()
     expect(container.querySelector('button[aria-label="Copied"]')).toBeNull()
+  })
+
+  const pluginKey: CpaApiKeySettingsItem = {
+    id: '7', sourceType: 'plugin', accessProvider: 'plugin:external-plugin:auth-provider',
+    keyAlias: '', displayKey: 'Third-party Identity #7', label: 'Third-party Identity #7', lastSyncedAt: null,
+    apiKey: 'private-principal-that-must-never-render',
+  }
+  const changeAlias = async (input: HTMLInputElement, value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const openPluginEditor = async () => {
+    const opener = container.querySelector<HTMLButtonElement>('button[aria-label="Edit credential"]')!
+    await act(async () => { opener.focus(); opener.click() })
+    return opener
+  }
+
+  it('keeps third-party cards limited to alias editing and shows the complete safe source in a portal tooltip', async () => {
+    await renderCard(vi.fn(), [pluginKey])
+    expect(container.querySelectorAll('button')).toHaveLength(1)
+    expect(container.querySelector('input')).toBeNull()
+    expect(container.textContent).toContain('Third-party Identity #7')
+    expect(container.textContent).not.toContain(pluginKey.apiKey)
+    const source = Array.from(container.querySelectorAll<HTMLSpanElement>('span[tabindex="0"]')).find((el) => el.textContent === 'external-plugin:auth-provider')!
+    await act(async () => source.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('external-plugin:auth-provider')
+    expect(document.querySelector('[role="tooltip"]')?.textContent).not.toContain(pluginKey.apiKey)
+    expect(container.querySelector('[title="external-plugin:auth-provider"]')).toBeNull()
+  })
+
+  it('reveals native keys independently and never places a revealed raw key in a tooltip', async () => {
+    const second = { ...apiKey, id: 'second', apiKey: 'sk-second654321' }
+    await renderCard(vi.fn(), [apiKey, second, pluginKey])
+    const toggles = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Show API key"]')
+    expect(toggles).toHaveLength(2)
+    await act(async () => toggles[0].click())
+    expect(container.textContent).toContain(apiKey.apiKey)
+    expect(container.textContent).not.toContain(second.apiKey)
+    expect(container.textContent).not.toContain(pluginKey.apiKey)
+    const raw = Array.from(container.querySelectorAll('span')).find((el) => el.textContent === apiKey.apiKey)!
+    await act(async () => raw.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent ?? '').not.toContain(apiKey.apiKey)
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Hide API key"]')!.click())
+    expect(container.textContent).not.toContain(apiKey.apiKey)
+  })
+
+  it('opens the shared pencil editor with only alias, ignores IME Enter, and saves a trimmed alias on Enter', async () => {
+    const save = vi.fn(async () => undefined)
+    await renderCard(vi.fn(), [pluginKey], save)
+    const opener = await openPluginEditor()
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    expect(input.maxLength).toBe(128)
+    expect(document.querySelectorAll('[role="dialog"] input')).toHaveLength(1)
+    expect(save).not.toHaveBeenCalled()
+    await changeAlias(input, '  External team  ')
+    await act(async () => {
+      input.focus()
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, isComposing: true }))
+    })
+    expect(save).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    await act(async () => {
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(save).toHaveBeenCalledExactlyOnceWith('7', 'External team')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('retains a failed alias draft and restores focus when Escape cancels it', async () => {
+    const save = vi.fn(async () => { throw new Error('save failed') })
+    await renderCard(vi.fn(), [pluginKey], save)
+    const opener = await openPluginEditor()
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    await changeAlias(input, 'Draft alias')
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(document.querySelector('[role="alert"]')).not.toBeNull()
+    expect(input.value).toBe('Draft alias')
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    await act(async () => { input.focus(); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+    expect(container.textContent).not.toContain('Draft alias')
   })
 })
