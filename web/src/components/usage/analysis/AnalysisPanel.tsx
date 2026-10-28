@@ -1130,7 +1130,6 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
   return (
     <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
       <AnalysisCardHeader title={t('usage_stats.analysis_composition_title')}
-        subtitle={tabs.length === 1 ? t('usage_stats.analysis_composition_single_dimension_subtitle') : t('usage_stats.analysis_composition_subtitle')}
         showPricingHint={hasUnavailableCost} hint={t('usage_stats.cost_need_price')} />
       <div className={styles.pairedChartToolbar}>
         <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>

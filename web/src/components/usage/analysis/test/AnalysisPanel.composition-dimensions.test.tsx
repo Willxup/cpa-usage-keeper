@@ -67,6 +67,5 @@ describe('AnalysisPanel composition dimensions', () => {
     expect(markup).toContain('aria-selected="true"');
     expect(markup).toContain('Model usage');
     expect(markup).not.toContain('API Key usage');
-    expect(markup).toContain('usage_stats.analysis_composition_single_dimension_subtitle');
   });
 });
