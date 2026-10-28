@@ -1034,7 +1034,6 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
     <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_latency_title')}
-        subtitle={t('usage_stats.analysis_latency_subtitle')}
         showPricingHint={false}
         hint=""
       />
