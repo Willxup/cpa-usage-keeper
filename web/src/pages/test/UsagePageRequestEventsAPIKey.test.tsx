@@ -70,7 +70,7 @@ describe('UsagePage top API Key request event filter', () => {
     api.fetchCpaApiKeyOptions.mockReset().mockResolvedValue(keyOptions);
     api.fetchUsageEvents.mockReset().mockImplementation(async (_range, _signal, options) => options.cursor
       ? { ...firstPage, events: [{ ...firstPage.events[0], id: '100' }], has_more: false, next_cursor: null }
-      : firstPage);
+      : { ...firstPage, events: [...firstPage.events] });
     api.exportUsageEvents.mockReset().mockResolvedValue({ blob: new Blob(['events']), filename: 'events.csv' });
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(2000);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
@@ -104,7 +104,7 @@ describe('UsagePage top API Key request event filter', () => {
     const filters = { model: 'gpt-5', apiKeyId: '11', source: 'source-1', result: 'failed' };
     const range = expect.objectContaining({ range: '24h' });
     expect(api.fetchUsageEvents).toHaveBeenCalledExactlyOnceWith(range, expect.any(AbortSignal), expect.objectContaining(filters));
-    expect(container.querySelector('input[aria-label="API Key"]')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="API Key"]')?.value).toBe('Overview key');
     await act(async () => button('Load more').click());
     expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(range, expect.any(AbortSignal), expect.objectContaining({ ...filters, cursor: 'cursor-101' }));
 
@@ -127,7 +127,7 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.exportUsageEvents).toHaveBeenLastCalledWith(range, format, { ...filters, apiKeyId: '33' });
   });
 
-  it('restores the top selection and clears only Model, Source and Status', async () => {
+  it('restores the shared selection and clears API Key, Model, Source and Status together', async () => {
     await render();
     await choose(topKey(), 'Other key');
     await act(async () => root.unmount());
@@ -137,8 +137,57 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('33');
     await act(async () => button('Clear Filters').click());
     expect(storedFilters()).toEqual({ model: '__all__', source: '__all__', result: '__all__' });
-    expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('33');
-    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '33', model: undefined, source: undefined, result: undefined });
+    expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('');
+    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '', model: undefined, source: undefined, result: undefined });
+    expect(topKey().textContent).toContain('All');
+    expect(button('Clear Filters').disabled).toBe(true);
+  });
+
+  it('searches alias and fallback labels locally, then shares the selected key with queries, pagination and export', async () => {
+    api.fetchCpaApiKeyOptions.mockResolvedValue({ options: [
+      { id: '11', label: 'Research team' },
+      { id: '22', label: 'sk-demo****1234' },
+    ] });
+    await render();
+    const control = () => container.querySelector<HTMLInputElement>('input[aria-label="API Key"]')!;
+    expect(control().value).toBe('Research team');
+    await act(async () => control().click());
+    const beforeSearch = api.fetchUsageEvents.mock.calls.length;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(control(), '1234');
+      control().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(Array.from(document.querySelectorAll('[role="option"]')).map((node) => node.textContent)).toEqual(['sk-demo****1234']);
+    expect(api.fetchUsageEvents).toHaveBeenCalledTimes(beforeSearch);
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+    expect(control().value).toBe('sk-demo****1234');
+    expect(topKey().textContent).toContain('sk-demo****1234');
+    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('22');
+    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    await act(async () => button('Load more').click());
+    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '22', cursor: 'cursor-101' });
+    await act(async () => button('Export').click());
+    await act(async () => button('Export CSV').click());
+    expect(api.exportUsageEvents.mock.lastCall![2].apiKeyId).toBe('22');
+    await choose(control(), 'Research team');
+    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('11');
+    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+  });
+
+  it('keeps duplicate aliases distinct by key ID and enables clear when only an API key is selected', async () => {
+    localStorage.removeItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY);
+    api.fetchCpaApiKeyOptions.mockResolvedValue({ options: [
+      { id: '11', label: 'Shared alias' }, { id: '22', label: 'Shared alias' },
+    ] });
+    await render();
+    expect(button('Clear Filters').disabled).toBe(false);
+    await act(async () => container.querySelector<HTMLInputElement>('input[aria-label="API Key"]')!.click());
+    const duplicates = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).filter((node) => node.textContent === 'Shared alias');
+    expect(duplicates).toHaveLength(2);
+    await act(async () => duplicates[1].click());
+    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('22');
+    await act(async () => button('Clear Filters').click());
+    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('');
     expect(button('Clear Filters').disabled).toBe(true);
   });
 

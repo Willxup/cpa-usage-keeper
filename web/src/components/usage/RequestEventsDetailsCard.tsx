@@ -15,7 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
-import { Select } from '@/components/ui/Select';
+import { Select, type SelectOption as APIKeySelectOption } from '@/components/ui/Select';
 import {
   IconArrowDownToLine,
   IconArrowUpFromLine,
@@ -387,6 +387,11 @@ export interface RequestEventsDetailsCardProps {
   modelFilter: string;
   sourceFilter: string;
   resultFilter: string;
+  apiKeyFilter?: string;
+  apiKeyOptions?: ReadonlyArray<APIKeySelectOption>;
+  selectedApiKeyOption?: APIKeySelectOption;
+  onApiKeyFilterOpen?: () => void;
+  onApiKeyFilterChange?: (apiKeyId: string) => void;
   exportingFormat?: RequestEventExportFormat | null;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -584,6 +589,11 @@ export function RequestEventsDetailsCard({
   modelFilter,
   sourceFilter,
   resultFilter,
+  apiKeyFilter = '',
+  apiKeyOptions = [],
+  selectedApiKeyOption,
+  onApiKeyFilterOpen,
+  onApiKeyFilterChange,
   exportingFormat = null,
   hasMore = false,
   loadingMore = false,
@@ -1196,12 +1206,14 @@ export function RequestEventsDetailsCard({
   );
 
   const hasActiveFilters =
+    (Boolean(onApiKeyFilterChange) && apiKeyFilter !== '') ||
     modelFilter !== ALL_FILTER ||
     sourceFilter !== ALL_FILTER ||
     resultFilter !== ALL_FILTER;
 
 
   const handleClearFilters = () => {
+    onApiKeyFilterChange?.('');
     onModelFilterChange(ALL_FILTER);
     onSourceFilterChange(ALL_FILTER);
     onResultFilterChange(ALL_FILTER);
@@ -1246,6 +1258,27 @@ export function RequestEventsDetailsCard({
       >
         <div className={styles.requestEventsToolbar}>
           <div className={styles.requestEventsFiltersGroup}>
+            {onApiKeyFilterChange && (
+              <div className={styles.requestEventsFilterItem}>
+                <span className={styles.requestEventsFilterLabel}>
+                  {t('usage_stats.api_key_filter')}
+                </span>
+                <Select
+                  value={apiKeyFilter}
+                  options={apiKeyOptions}
+                  selectedOption={selectedApiKeyOption}
+                  onOpen={onApiKeyFilterOpen}
+                  onChange={onApiKeyFilterChange}
+                  search={{
+                    placeholder: t('usage_stats.request_events_search_api_key'),
+                    noResultsText: t('usage_stats.request_events_no_matching_api_keys'),
+                  }}
+                  className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
+                  ariaLabel={t('usage_stats.api_key_filter')}
+                  fullWidth={false}
+                />
+              </div>
+            )}
             {/* 控件已有 aria-label，外层避免使用 label 将标题和空隙的点击转交给控件。 */}
             <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
