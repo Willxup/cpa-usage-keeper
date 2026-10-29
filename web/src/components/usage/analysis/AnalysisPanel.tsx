@@ -787,14 +787,13 @@ function CostHeaderHint({ show, label }: { show: boolean; label: string }) {
   return show ? <small className={styles.costHeaderHint}>{label}</small> : null;
 }
 
-function AnalysisCardHeader({ title, subtitle, showPricingHint, hint }: { title: string; subtitle?: string; showPricingHint: boolean; hint: string }) {
+function AnalysisCardHeader({ title, showPricingHint, hint }: { title: string; showPricingHint: boolean; hint: string }) {
   return (
     <div className={`${styles.cardHeader} keeper-card-heading`}>
       <div className={`${styles.cardTitleLine} keeper-card-title-track`}>
         <h2 className="keeper-card-title">{title}</h2>
         <CostHeaderHint show={showPricingHint} label={hint} />
       </div>
-      {subtitle && <p className="keeper-card-subtitle">{subtitle}</p>}
     </div>
   );
 }
@@ -1512,7 +1511,6 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
     <section className={`${styles.analysisCard} ${styles.heatmapCard} keeper-card-surface ${isDark ? styles.heatmapCardDark : styles.heatmapCardLight}`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_heatmap_title')}
-        subtitle={t('usage_stats.analysis_heatmap_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
