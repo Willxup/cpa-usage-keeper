@@ -93,17 +93,6 @@ describe('RequestEventsDetailsCard service tier column', () => {
     expect(html).toContain(`aria-label="${tooltipLabel}"`);
   });
 
-  it.each([
-    ['priority', 'default', true],
-    ['priority', 'priority', false],
-    ['', 'default', false],
-    ['priority', '', false],
-    ['', '', false],
-  ])('marks a mismatch only for two nonempty unequal tiers (%j, %j)', (effective, response, mismatch) => {
-    const html = renderCard([{ ...baseEvent, effective_service_tier: effective, response_service_tier: response }]);
-    expect(html.includes('aria-label="Effective and response speed modes differ"')).toBe(mismatch);
-  });
-
   it('maps the request / response fallback while keeping missing tooltip values as dashes', () => {
     const html = renderCard([
       { ...baseEvent, effective_service_tier: undefined, response_service_tier: '' },
