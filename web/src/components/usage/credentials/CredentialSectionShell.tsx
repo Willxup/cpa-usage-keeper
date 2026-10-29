@@ -9,7 +9,6 @@ type CredentialSectionStyle = CSSProperties
 interface CredentialSectionShellProps {
   title: string
   subtitle: string
-  countLabel: string
   titleExtra?: ReactNode
   actions?: ReactNode
   style?: CredentialSectionStyle
@@ -37,14 +36,13 @@ interface CredentialTableHeaderProps {
   rowClassName?: string
 }
 
-export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ title, subtitle, titleExtra, actions, style, children }: CredentialSectionShellProps) {
   return (
     <section className={`${styles.credentialSectionCard} keeper-card-surface`} style={style}>
       <div className={styles.credentialSectionHeader}>
         <div className={styles.credentialSectionTitleBlock}>
           <div className={`${styles.credentialSectionTitleRow} keeper-card-title-track`}>
             <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
-            <span className={styles.credentialCountBadge}>{countLabel}</span>
             {titleExtra}
           </div>
           <p className={`${styles.credentialSectionSubtitle} keeper-card-subtitle`}>{subtitle}</p>
