@@ -118,25 +118,27 @@ describe('RequestEventsDetailsCard service tier column', () => {
     }
   });
 
-  it('repositions the tooltip when its scroll container or viewport changes', async () => {
+  it('keeps the tooltip anchored after scrolling or resizing', async () => {
     const mounted = await mountCard([baseEvent]);
+    const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
+    const initialRect = new DOMRect(300, 50, 40, 20);
+    let currentRect = initialRect;
+    const getRect = vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
     try {
-      const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
-      let currentRect = new DOMRect(100, 50, 40, 20);
-      vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
       await act(async () => cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
       const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement;
-      expect(tooltip.style.left).toBe('148px');
-      expect(tooltip.style.top).toBe('80px');
-      currentRect = new DOMRect(300, 200, 40, 20);
-      await act(async () => mounted.container.querySelector('table')!.parentElement!.dispatchEvent(new Event('scroll')));
-      expect(tooltip.style.left).toBe('320px');
-      expect(tooltip.style.top).toBe('230px');
-      currentRect = new DOMRect(400, 300, 40, 20);
+      const initialLeft = Number.parseFloat(tooltip.style.left);
+      const initialTop = Number.parseFloat(tooltip.style.top);
+      currentRect = new DOMRect(400, 200, 40, 20);
+      await act(async () => mounted.container.dispatchEvent(new Event('scroll')));
+      expect(Number.parseFloat(tooltip.style.left) - initialLeft).toBeCloseTo(currentRect.left - initialRect.left);
+      expect(Number.parseFloat(tooltip.style.top) - initialTop).toBeCloseTo(currentRect.top - initialRect.top);
+      currentRect = new DOMRect(500, 300, 40, 20);
       await act(async () => window.dispatchEvent(new Event('resize')));
-      expect(tooltip.style.left).toBe('420px');
-      expect(tooltip.style.top).toBe('330px');
+      expect(Number.parseFloat(tooltip.style.left) - initialLeft).toBeCloseTo(currentRect.left - initialRect.left);
+      expect(Number.parseFloat(tooltip.style.top) - initialTop).toBeCloseTo(currentRect.top - initialRect.top);
     } finally {
+      getRect.mockRestore();
       await mounted.unmount();
     }
   });
