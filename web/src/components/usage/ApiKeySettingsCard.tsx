@@ -239,7 +239,7 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
     </span>
   );
   return (
-    <Card title={t('usage_stats.api_key_settings_title')} subtitle={t('usage_stats.api_key_settings_subtitle')}
+    <Card title={t('usage_stats.api_key_settings_title')}
       className={`${styles.detailsFixedCard} ${styles.apiKeySettingsCard}`}>
       <div ref={apiKeySettingsBodyRef} className={styles.apiKeySettingsBody}>
         {loading && apiKeys.length === 0 ? (

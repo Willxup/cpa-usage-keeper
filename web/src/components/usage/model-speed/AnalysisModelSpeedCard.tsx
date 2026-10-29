@@ -212,8 +212,7 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
 
   return <section className={`${panelStyles.analysisCard} ${styles.card} keeper-card-surface`} data-analysis-model-speed>
     <div className={`${styles.header} keeper-card-heading`}>
-      <div><h2 className="keeper-card-title">{t('usage_stats.analysis_model_speed_title')}</h2>
-        <p className="keeper-card-subtitle">{t('usage_stats.analysis_model_speed_subtitle')}</p></div>
+      <div><h2 className="keeper-card-title">{t('usage_stats.analysis_model_speed_title')}</h2></div>
       <ModelSpeedPicker candidates={candidates} selected={selected} onChange={choose} onReset={reset} disabled={initialLoading} onOpenChange={changePickerOpen} />
     </div>
     <div className={styles.body}>

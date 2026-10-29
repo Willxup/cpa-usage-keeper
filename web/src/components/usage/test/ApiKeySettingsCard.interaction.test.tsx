@@ -19,7 +19,6 @@ const translations: Record<string, string> = {
   'usage_stats.api_key_settings_native': 'Native',
   'usage_stats.api_key_settings_hide_key': 'Hide API key',
   'usage_stats.api_key_settings_title': 'API Key Settings',
-  'usage_stats.api_key_settings_subtitle': 'Set display aliases.',
   'usage_stats.api_key_settings_alias': 'Alias',
   'usage_stats.api_key_settings_show_key': 'Show API key',
   'usage_stats.api_key_settings_copy': 'Copy',

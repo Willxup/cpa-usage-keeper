@@ -61,7 +61,6 @@ export function ServiceHealthCard({ activity, loading, requestIdentity }: Servic
           <div className="keeper-card-title-track">
             <h3 className="keeper-card-title">{t('usage_stats.service_health_title')}</h3>
           </div>
-          <p className="keeper-card-subtitle">{t('usage_stats.service_health_subtitle')}</p>
         </div>
         <div className={styles.activitySummary} data-activity-summary="health">
           <span className={styles.activitySummaryLabel}>{t('usage_stats.success_rate')}</span>
