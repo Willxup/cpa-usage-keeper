@@ -12,16 +12,16 @@ const sessions: AuthManagedSessionItem[] = [
     role: 'admin',
     source: 'standard',
     current: true,
-    loginAt: '2026/06/20 10:00:00',
-    expiresAt: '2026/06/20 12:00:00',
+    loginAt: '2026-06-20 10:00:00',
+    expiresAt: '2026-06-20 12:00:00',
   },
   {
     id: 'other-admin-hash',
     kind: 'admin',
     role: 'admin',
     source: 'standard',
-    loginAt: '2026/06/20 10:05:00',
-    expiresAt: '2026/06/20 12:05:00',
+    loginAt: '2026-06-20 10:05:00',
+    expiresAt: '2026-06-20 12:05:00',
   },
   {
     id: 'hashed-session-id',
@@ -31,8 +31,8 @@ const sessions: AuthManagedSessionItem[] = [
     apiKeyId: '42',
     label: 'Team Key',
     displayKey: 'sk-*********123456',
-    loginAt: '2026/06/20 10:10:00',
-    expiresAt: '2026/06/27 10:10:00',
+    loginAt: '2026-06-20 10:10:00',
+    expiresAt: '2026-06-27 10:10:00',
   },
 ];
 
@@ -62,13 +62,10 @@ describe('SessionSettingsCard', () => {
     expect(html).toContain('Keeper login');
     expect(html).toContain('CPAMC login');
     expect(html).toContain('Current');
-    expect(html).toContain('2026/06/20 10:00:00');
-    expect(html).toContain('2026/06/20 12:00:00');
-    expect(html).toContain('2026/06/20 10:05:00');
-    expect(html).toContain('2026/06/20 12:05:00');
+    for (const timestamp of ['2026-06-20 10:00:00', '2026-06-20 12:00:00', '2026-06-20 10:05:00', '2026-06-20 12:05:00', '2026-06-20 10:10:00', '2026-06-27 10:10:00']) {
+      expect(html).toContain(timestamp);
+    }
     expect(html).toContain('Team Key');
-    expect(html).toContain('2026/06/20 10:10:00');
-    expect(html).toContain('2026/06/27 10:10:00');
     expect(html).not.toContain('All admin sessions will be signed out together.');
     expect(html).not.toContain('sk-*********123456');
     expect(html).not.toContain('current-admin-hash');
@@ -121,9 +118,9 @@ describe('SessionSettingsCard client metadata', () => {
       userAgent,
       loginIp: '203.0.113.9',
       lastSeenIp: '198.51.100.42',
-      loginAt: '2026/08/13 10:00:00',
-      lastSeenAt: '2026/08/13 10:15:00',
-      expiresAt: '2026/08/20 10:00:00',
+      loginAt: '2026-08-13 10:00:00',
+      lastSeenAt: '2026-08-13 10:15:00',
+      expiresAt: '2026-08-20 10:00:00',
     };
 
     const html = renderCard({ sessions: [session] });
@@ -132,7 +129,7 @@ describe('SessionSettingsCard client metadata', () => {
     expect(html).toContain('User-Agent');
     expect(html).toMatch(/<dt[^>]*>Login IP<\/dt><dd[^>]*>203\.0\.113\.9<\/dd>/);
     expect(html).toMatch(/<dt[^>]*>Recent IP<\/dt><dd[^>]*>198\.51\.100\.42<\/dd>/);
-    expect(html).toMatch(/<dt[^>]*>Last active<\/dt><dd[^>]*>2026\/08\/13 10:15:00<\/dd>/);
+    expect(html).toMatch(/<dt[^>]*>Last active<\/dt><dd[^>]*>2026-08-13 10:15:00<\/dd>/);
   });
 
   it('renders an honest fallback for sessions created before metadata collection', () => {
@@ -141,9 +138,9 @@ describe('SessionSettingsCard client metadata', () => {
       kind: 'admin',
       role: 'admin',
       source: 'standard',
-      loginAt: '2026/08/01 10:00:00',
-      lastSeenAt: '2026/08/01 10:00:00',
-      expiresAt: '2026/08/08 10:00:00',
+      loginAt: '2026-08-01 10:00:00',
+      lastSeenAt: '2026-08-01 10:00:00',
+      expiresAt: '2026-08-08 10:00:00',
     };
 
     const html = renderCard({ sessions: [legacySession] });

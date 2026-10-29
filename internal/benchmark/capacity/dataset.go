@@ -554,7 +554,8 @@ func correlatedDimensions(modelIndex, identityIndex int, provider string, random
 func eventInsertArgs(event generatedEvent) []any {
 	timestamp := timeutil.FormatStorageTime(event.Timestamp)
 	return []any{
-		event.ID, event.EventKey, event.APIGroupKey, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
+		// 合成数据继续模拟缺失上游来源的旧事件，列合同新增字段保持 NULL。
+		event.ID, event.EventKey, event.APIGroupKey, nil, nil, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
 		nil, nil, "", "", nil, nil, nil,
 		nil, nil, nil, event.Model, event.ModelAlias, "", event.ReasoningEffort, event.ServiceTier, "", event.ResponseServiceTier,
 		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, event.StatusCode, true, event.Stream, event.LatencyMS, event.TTFTMS,

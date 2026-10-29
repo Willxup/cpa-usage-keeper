@@ -743,29 +743,6 @@
   }
 }
 
-.apiKeyVisibilityToggle:global(.btn) {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0;
-  border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
-  box-shadow: none;
-
-  > span {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-}
-
-.apiKeyVisibilityToggleActive:global(.btn) {
-  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color));
-  color: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-primary));
-}
-
 .cardHeaderCompact {
   gap: 14px;
   align-items: flex-start;
@@ -1741,10 +1718,8 @@
 }
 
 .apiKeySettingsBody {
-  display: flex;
+  container: api-key-settings / inline-size;
   flex: 0 0 auto;
-  flex-direction: column;
-  gap: 12px;
   max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
@@ -1756,50 +1731,90 @@
 
 .apiKeySettingsList {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+// 按卡片区域的可用宽度响应，Settings 窄容器不受外部屏幕宽度影响。
+@container api-key-settings (min-width: 720px) {
+  .apiKeySettingsList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container api-key-settings (min-width: 1100px) {
+  .apiKeySettingsList {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .apiKeySettingsItem {
-  display: grid;
-  grid-template-columns: minmax(140px, 0.9fr) minmax(200px, 1.1fr);
-  align-items: start;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
-  border-radius: 20px;
-  background:
-    radial-gradient(360px 120px at 0% 0%, rgba($primary-color, 0.08), transparent 62%),
-    color-mix(in srgb, var(--bg-secondary) 72%, transparent);
-}
-
-.apiKeySettingsSummary {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 12px;
   min-width: 0;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
 }
 
-.apiKeySettingsNameRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+.apiKeySettingsHeader,
+.apiKeySettingsKeyActions {
+  display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 32px;
+}
+
+.apiKeySettingsHeader {
+  justify-content: space-between;
+  min-height: 28px;
 }
 
 .apiKeySettingsName {
-  display: -webkit-box;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.apiKeySettingsText {
+  display: block;
   min-width: 0;
   overflow: hidden;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.25;
-  word-break: break-all;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.apiKeySettingsKey {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.apiKeySettingsKeySpace {
+  height: 3lh;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.apiKeySettingsRevealedKey {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
 }
 
 .apiKeySettingsCopyIconButton {
@@ -1840,67 +1855,33 @@
 
 .apiKeySettingsMeta {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  color: var(--text-tertiary);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.apiKeySettingsForm {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.apiKeyAliasField {
-  display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
-
-  :global(.form-group) {
-    width: 100%;
-    min-width: 0;
-    margin-bottom: 0;
-  }
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+  height: calc(4lh + 6px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
-.apiKeyFieldLabel,
-.apiKeyAliasLabel {
-  padding-left: 10px;
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.apiKeyAliasInput:global(.input) {
-  width: 100%;
-  height: 32px;
-  min-height: 32px;
-  box-sizing: border-box;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.apiKeySettingsActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  align-self: end;
-  gap: 8px;
+.apiKeySettingsFooter {
+  height: 1lh;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
-.apiKeySettingsSaveButton {
-  min-width: 68px;
-  justify-content: center;
+.apiKeySettingsSource {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.apiKeyAliasModalName {
+  margin-top: 0;
+  overflow-wrap: anywhere;
 }
 
 .sessionSettingsCard:global(.card) {
@@ -1981,7 +1962,7 @@
 
 .sessionSettingsDetailLabel {
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -1990,7 +1971,7 @@
   min-width: 0;
   margin: 0;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -2209,6 +2190,11 @@
   color: #3b82f6;
 }
 
+.apiKeySettingsPluginBadge {
+  background: color-mix(in srgb, #7c3aed 12%, var(--bg-primary));
+  color: #7c3aed;
+}
+
 .sessionSettingsSourceEmbed {
   background: color-mix(in srgb, #f59e0b 13%, var(--bg-primary));
   color: #d97706;
@@ -2234,68 +2220,7 @@
   line-height: 1.6;
 }
 
-@include tablet {
-  .apiKeySettingsList {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .apiKeySettingsItem {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: stretch;
-  }
-
-}
-
 @include mobile {
-  .apiKeySettingsCard:global(.card) {
-    height: auto;
-    overflow: visible;
-  }
-
-  .apiKeySettingsBody {
-    max-height: var(--settings-list-scroll-height);
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .apiKeySettingsList {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .apiKeySettingsItem {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: stretch;
-    padding: 12px;
-    gap: 12px;
-  }
-
-  .apiKeySettingsForm {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .apiKeySettingsActions {
-    justify-content: stretch;
-  }
-
-  .apiKeySettingsSaveButton {
-    flex: 1 1 0;
-  }
-
-  .apiKeyAliasField {
-    width: 100%;
-  }
-
-  .apiKeyAliasInput {
-    max-width: 100%;
-  }
-
-  .apiKeySettingsActions,
-  .apiKeySettingsSaveButton {
-    width: 100%;
-  }
-
   .sessionSettingsCard:global(.card) {
     height: auto;
     overflow: visible;

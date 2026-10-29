@@ -6,8 +6,8 @@ import { ApiKeySettingsCard, copyApiKeyToClipboard, getApiKeySettingsVisibleKey 
 import type { CpaApiKeySettingsItem } from '@/lib/types';
 
 const apiKeys: CpaApiKeySettingsItem[] = [
-  { id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: 'Primary', displayKey: 'sk-*********123456', label: 'Primary', lastSyncedAt: '2026-05-13T00:00:00Z' },
-  { id: '9007199254740994', apiKey: 'sk-beta654321', keyAlias: '', displayKey: 'sk-*********654321', label: 'sk-*********654321', lastSyncedAt: null },
+  { sourceType: 'native', accessProvider: '', id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: 'Primary', displayKey: 'sk-*********123456', label: 'Primary', lastSyncedAt: '2026-05-13T00:00:00Z' },
+  { sourceType: 'native', accessProvider: '', id: '9007199254740994', apiKey: 'sk-beta654321', keyAlias: '', displayKey: 'sk-*********654321', label: 'sk-*********654321', lastSyncedAt: null },
 ];
 
 const renderCard = (props: Partial<React.ComponentProps<typeof ApiKeySettingsCard>> = {}) => renderToStaticMarkup(
@@ -32,16 +32,33 @@ describe('ApiKeySettingsCard', () => {
     expect(html).toContain('sk-*********654321');
     expect(html).not.toContain('sk-alpha123456');
     expect(html).not.toContain('sk-beta654321');
-    expect(html).toContain('aria-label="Show full API keys"');
+    expect(html).toContain('aria-label="Show API key"');
     expect(countOccurrences(html, 'aria-label="Copy"')).toBe(2);
-    expect(html).toContain('title="sk-*********123456"');
+    expect(html).not.toContain('title="sk-*********123456"');
+    expect(html).not.toContain('<input');
     expect(html).not.toContain('9007199254740993');
     expect(html).not.toContain('Local ID');
   });
 
-  it('uses the title eye toggle state to choose masked or raw keys', () => {
+  it('uses each native card reveal state to choose masked or raw keys', () => {
     expect(getApiKeySettingsVisibleKey(apiKeys[0], false)).toBe('sk-*********123456');
     expect(getApiKeySettingsVisibleKey(apiKeys[0], true)).toBe('sk-alpha123456');
+  });
+
+  it('renders third-party aliases and safe source text with only the shared edit action', () => {
+    const html = renderCard({ apiKeys: [{
+      id: '7', sourceType: 'plugin', accessProvider: 'plugin:external-plugin:auth-provider',
+      keyAlias: 'External team', displayKey: 'Third-party Identity #7', label: 'External team', lastSyncedAt: null,
+    }] });
+    expect(html).toContain('Third-party');
+    expect(html).toContain('External team');
+    expect(html).toContain('Third-party Identity #7');
+    expect(html).toContain('external-plugin:auth-provider');
+    expect(html).not.toContain('plugin:external-plugin');
+    expect(html).not.toContain('aria-label="Copy"');
+    expect(html).not.toContain('aria-label="Show API key"');
+    expect(html).not.toContain('Last synced');
+    expect(html).not.toContain('<input');
   });
 
   it('copies the raw key value', async () => {
@@ -83,6 +100,6 @@ describe('ApiKeySettingsCard', () => {
 
   it('renders empty and loading states', () => {
     expect(renderCard({ apiKeys: [], loading: true })).toContain('Loading...');
-    expect(renderCard({ apiKeys: [], loading: false })).toContain('No CPA API keys synced yet.');
+    expect(renderCard({ apiKeys: [], loading: false })).toContain('No API keys available yet.');
   });
 });

@@ -71,6 +71,7 @@ type App struct {
 	CPAErrors Runner
 	// UsageAggregation 是唯一串行调度三类派生聚合事务的后台 runner。
 	UsageAggregation  Runner
+	PluginAPIKeys     Runner
 	Maintenance       *StorageCleanupRunner
 	MetadataSync      *MetadataSyncRunner
 	QuotaService      QuotaRunner
@@ -149,6 +150,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	}()
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
+	pluginAPIKeyRunner := poller.NewPluginAPIKeyRunner(db)
 	// 同一个版本协调器连接后台快照与所有凭据修改入口，网络调用仍使用原有路径锁。
 	credentialMetadata := &service.CredentialMetadataCoordinator{}
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
@@ -164,6 +166,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		UsageAggregationNotifier: usageAggregationRunner,
 		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
 		UsageHeaderQuota: quotaService,
+		PluginAPIKeys:    pluginAPIKeyRunner,
 	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
@@ -253,6 +256,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		RedisProcess:      redisProcessRunner,
 		CPAErrors:         redisErrorIngestRunner,
 		UsageAggregation:  usageAggregationRunner,
+		PluginAPIKeys:     pluginAPIKeyRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
 		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
@@ -420,6 +424,14 @@ func (a *App) startReadyBackgroundTasks(ctx context.Context) {
 			// runner 错误只终止该后台任务，不影响 HTTP 或已提交 usage 数据。
 			if err := a.UsageAggregation.Run(ctx); err != nil {
 				logrus.Errorf("usage aggregation stopped: %v", err)
+			}
+		})
+	}
+	if a.PluginAPIKeys != nil {
+		// Close 先取消并等待 runner，再关闭共享数据库；不为排空内存队列延迟退出。
+		a.startBackgroundTask(func() {
+			if err := a.PluginAPIKeys.Run(ctx); err != nil {
+				logrus.WithError(err).Error("plugin API key registration stopped")
 			}
 		})
 	}
