@@ -1417,7 +1417,6 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
     <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_model_efficiency_title')}
-        subtitle={t('usage_stats.analysis_model_efficiency_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
