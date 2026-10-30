@@ -1,4 +1,4 @@
-import type { ClaudeResetGrantStatus, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
+import type { ClaudeResetGrantStatus, SubscriptionObservation, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
@@ -64,6 +64,7 @@ export interface CredentialRow {
   /** 最近 5h 滚动窗口内的缓存率，与终身 cacheReadRate 同公式、不同作用域。 */
   windowCacheReadRate: number | null
   quota: UsageQuotaRow[]
+  observation?: SubscriptionObservation
   quotaResetCreditsAvailableCount?: number | null
   claudeResetGrants?: ClaudeResetGrantStatus
   quotaLoading: boolean
@@ -176,6 +177,7 @@ export function buildCredentialRows(
       ...credentialUsageStats(identity),
       windowCacheReadRate: windowCacheReadRate(identity.credential_health),
       quota,
+      observation: quotaResponse?.observation,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       claudeResetGrants: quotaResponse?.claudeResetGrants,
       quotaLoading: state?.quotaLoading ?? false,

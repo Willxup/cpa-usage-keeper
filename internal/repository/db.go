@@ -18,6 +18,7 @@ import (
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
 	"github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
@@ -56,6 +57,9 @@ func OpenUnmigratedDatabasePools(cfg config.Config) (*gorm.DB, *gorm.DB, error) 
 
 // openReadPoolForWriter 给文件库配独立只读池，内存库复用 writer；失败关闭已打开的池，成功交调用方管理。
 func openReadPoolForWriter(cfg config.Config, db *gorm.DB) (*gorm.DB, *gorm.DB, error) {
+	if cfg.DatabaseDriver == "postgres" {
+		return db, db, nil
+	}
 	// :memory: 和临时内存 URI 按连接隔离，必须复用 writer 才能保持原来同一份数据库。
 	if sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) {
 		return db, db, nil
@@ -97,8 +101,35 @@ func closeDatabasePool(db *gorm.DB) {
 	}
 }
 
-// OpenDatabase 统一创建 GORM SQLite 连接，并按新库/旧库分支执行初始化或迁移。
+// OpenDatabase 统一创建 GORM SQLite/PostgreSQL 连接，并按新库/旧库分支执行初始化或迁移。
 func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
+	if cfg.DatabaseDriver == "postgres" && cfg.DatabaseDSN != "" {
+		db, err := OpenDatabaseConnection(cfg)
+		if err != nil {
+			return nil, err
+		}
+		hasTables, err := databaseHasTables(db)
+		if err != nil {
+			closeDatabasePool(db)
+			return nil, err
+		}
+		if !hasTables {
+			if _, err := BootstrapPricingInitialization(context.Background(), db); err != nil {
+				closeDatabasePool(db)
+				return nil, err
+			}
+			if err := EnsurePricingBootstrapInbox(context.Background(), db); err != nil {
+				closeDatabasePool(db)
+				return nil, err
+			}
+			if err := InitializeFreshPricingDatabase(context.Background(), db); err != nil {
+				closeDatabasePool(db)
+				return nil, err
+			}
+		}
+		return db, nil
+	}
+
 	// 先判断物理文件是否存在，后续用它区分全新数据库和需要跑迁移的旧库。
 	databaseExists, err := sqliteDatabaseFileExists(cfg.SQLitePath)
 	if err != nil {
@@ -115,7 +146,7 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		}
 	}()
 	// 空文件和新文件先固定 fresh 身份，再沿与 App 相同的建表完成合同初始化。
-	hasTables, err := sqliteDatabaseHasTables(db)
+	hasTables, err := databaseHasTables(db)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +192,27 @@ func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *
 	}})
 }
 
-// OpenDatabaseConnection 只打开唯一 writer 并设置连接级 SQLite 约束，不执行建表或业务迁移。
+// OpenDatabaseConnection 只打开唯一 writer 并设置连接级 SQLite/PostgreSQL 约束，不执行建表或业务迁移。
 func OpenDatabaseConnection(cfg config.Config) (*gorm.DB, error) {
+	if cfg.DatabaseDriver == "postgres" && cfg.DatabaseDSN != "" {
+		db, err := gorm.Open(postgres.Open(cfg.DatabaseDSN), &gorm.Config{
+			Logger:  logging.NewGORMLogger(),
+			NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("open postgres database: %w", err)
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			closeDatabasePool(db)
+			return nil, fmt.Errorf("configure postgres database: %w", err)
+		}
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetConnMaxLifetime(5 * time.Minute)
+		return db, nil
+	}
+
 	// SQLite DSN 统一补齐 busy_timeout/foreign_keys，调用方只需要传项目配置里的路径。
 	dsn := sqliteDSN(cfg.SQLitePath)
 	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
@@ -332,14 +382,28 @@ func sqliteDatabaseFileExists(path string) (bool, error) {
 	return false, fmt.Errorf("check sqlite database %s: %w", filepath.Clean(trimmed), err)
 }
 
-// sqliteDatabaseHasTables 用业务表数量判断文件是否已经初始化过。
-func sqliteDatabaseHasTables(db *gorm.DB) (bool, error) {
+// databaseHasTables 用业务表数量判断数据库是否已经初始化过。
+func databaseHasTables(db *gorm.DB) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("database is nil")
+	}
+	if db.Dialector != nil && db.Dialector.Name() == "postgres" {
+		var count int64
+		if err := db.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'").Scan(&count).Error; err != nil {
+			return false, fmt.Errorf("check postgres database tables: %w", err)
+		}
+		return count > 0, nil
+	}
 	var count int64
 	// sqlite_% 是 SQLite 内部表，不能用来判断项目 schema 是否存在。
 	if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&count).Error; err != nil {
 		return false, fmt.Errorf("check sqlite database tables: %w", err)
 	}
 	return count > 0, nil
+}
+
+func sqliteDatabaseHasTables(db *gorm.DB) (bool, error) {
+	return databaseHasTables(db)
 }
 
 // InsertUsageEvents 按 Redis inbox 消费结果逐条落库；request_id/event_key 重复也保留为独立事件。

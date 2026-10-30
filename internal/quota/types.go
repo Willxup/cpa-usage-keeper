@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -48,6 +49,67 @@ type QuotaWindow struct {
 	Duration *float64 `json:"duration,omitempty"`
 	Unit     string   `json:"unit,omitempty"`
 	Seconds  *int64   `json:"seconds,omitempty"`
+}
+
+type ResetSemantics string
+
+const (
+	ResetSemanticsAbsolute   ResetSemantics = "absolute"
+	ResetSemanticsRelative   ResetSemantics = "relative"
+	ResetSemanticsContinuous ResetSemantics = "continuous"
+	ResetSemanticsUnknown    ResetSemantics = "unknown"
+)
+
+type FreshnessState string
+
+const (
+	FreshnessFresh   FreshnessState = "fresh"
+	FreshnessStale   FreshnessState = "stale"
+	FreshnessUnknown FreshnessState = "unknown"
+)
+
+type ObservationStatus string
+
+const (
+	ObservationStatusComplete ObservationStatus = "complete"
+	ObservationStatusPartial  ObservationStatus = "partial"
+	ObservationStatusFailed   ObservationStatus = "failed"
+)
+
+type ObservationError struct {
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	SafeMessage string `json:"safe_message"`
+	Retryable   bool   `json:"retryable"`
+}
+
+type QuotaWindowItem struct {
+	Key            string         `json:"key"`
+	Label          string         `json:"label"`
+	Used           *float64       `json:"used,omitempty"`
+	Remaining      *float64       `json:"remaining,omitempty"`
+	Limit          *float64       `json:"limit,omitempty"`
+	Unit           string         `json:"unit"`
+	Percent        *float64       `json:"percent,omitempty"`
+	ResetAt        *time.Time     `json:"reset_at,omitempty"`
+	ResetSemantics ResetSemantics `json:"reset_semantics"`
+}
+
+type SubscriptionObservation struct {
+	Provider       string             `json:"provider"`
+	IdentityType   string             `json:"identity_type"`
+	AuthIndex      string             `json:"auth_index"`
+	AccountID      *string            `json:"account_id,omitempty"`
+	Source         string             `json:"source"`
+	ObservedAt     time.Time          `json:"observed_at"`
+	LastSuccessAt  *time.Time         `json:"last_success_at,omitempty"`
+	ResetAt        *time.Time         `json:"reset_at,omitempty"`
+	ResetSemantics ResetSemantics     `json:"reset_semantics"`
+	Freshness      FreshnessState     `json:"freshness"`
+	Confidence     float64            `json:"confidence"`
+	Status         ObservationStatus  `json:"status"`
+	Error          *ObservationError  `json:"error,omitempty"`
+	Windows        []QuotaWindowItem  `json:"windows"`
 }
 
 type SubscriptionInfo struct {

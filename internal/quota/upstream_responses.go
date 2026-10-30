@@ -126,6 +126,11 @@ func cloneUpstreamHeader(header map[string][]string) map[string][]string {
 	}
 	cloned := make(map[string][]string, len(header))
 	for key, values := range header {
+		lowerKey := strings.ToLower(strings.TrimSpace(key))
+		if lowerKey == "set-cookie" || lowerKey == "authorization" || lowerKey == "cookie" || lowerKey == "x-api-key" || lowerKey == "proxy-authorization" {
+			cloned[key] = []string{"[REDACTED]"}
+			continue
+		}
 		cloned[key] = append([]string(nil), values...)
 	}
 	return cloned

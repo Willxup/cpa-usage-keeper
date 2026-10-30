@@ -22,6 +22,10 @@ func SourceByID(id string) (Source, error) {
 		return Source{"models-dev", "Models.dev", "https://models.dev/api.json"}, nil
 	case "litellm":
 		return Source{"litellm", "LiteLLM", "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"}, nil
+	case "model-json", "local", "models-json":
+		return Source{"model-json", "Model JSON", "file://model.json"}, nil
+	case "dp-agents":
+		return Source{"dp-agents", "DP Agents", "https://raw.githubusercontent.com/darkrei08/dp-agents/main/models.json"}, nil
 	default:
 		return Source{}, ErrInvalidSource
 	}
@@ -36,12 +40,14 @@ type Cost struct {
 }
 
 type Model struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Family      string `json:"family"`
-	LastUpdated string `json:"last_updated"`
-	Status      string `json:"status"`
-	Cost        Cost   `json:"cost"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Family              string `json:"family"`
+	LastUpdated         string `json:"last_updated"`
+	Status              string `json:"status"`
+	ContextWindowTokens int64  `json:"context_window_tokens,omitempty"`
+	MaxOutputTokens     int64  `json:"max_output_tokens,omitempty"`
+	Cost                Cost   `json:"cost"`
 }
 
 type Entry struct {
@@ -69,6 +75,10 @@ func (c *Client) Fetch(ctx context.Context, sourceID string) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
+	if strings.HasPrefix(source.URL, "file://") {
+		filePath := strings.TrimPrefix(source.URL, "file://")
+		return LoadModelJSONFile(filePath)
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("build pricing catalog request: %w", err)
@@ -82,12 +92,15 @@ func (c *Client) Fetch(ctx context.Context, sourceID string) (Catalog, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Catalog{}, fmt.Errorf("fetch %s pricing catalog: unexpected status %d", source.Name, response.StatusCode)
 	}
-	// 每次预览读取所选来源；两个适配器统一为同一种目录，后续匹配不依赖上游 JSON 格式。
+	// 每次预览读取所选来源；适配器统一为同一种目录，后续匹配不依赖上游 JSON 格式。
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<20))
 	var entries []Entry
-	if source.ID == "litellm" {
+	switch source.ID {
+	case "litellm":
 		entries, err = decodeLiteLLM(decoder)
-	} else {
+	case "model-json", "dp-agents":
+		entries, err = decodeModelJSON(response.Body)
+	default:
 		entries, err = decodeModelsDev(decoder)
 	}
 	if err != nil {
