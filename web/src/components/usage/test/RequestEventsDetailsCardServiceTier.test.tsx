@@ -71,9 +71,7 @@ describe('RequestEventsDetailsCard service tier column', () => {
           cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: 120, clientY: 80 }));
         });
         const tooltipText = document.body.querySelector('[role="tooltip"]')!.textContent!;
-        for (const line of lines) expect(tooltipText).toContain(line);
-        expect(tooltipText.indexOf(lines[0])).toBeLessThan(tooltipText.indexOf(lines[1]));
-        expect(tooltipText.indexOf(lines[1])).toBeLessThan(tooltipText.indexOf(lines[2]));
+        expect(tooltipText.replace(/\s+/g, '')).toBe(lines.join('').replace(/\s+/g, ''));
         await act(async () => cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
         expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
       }
