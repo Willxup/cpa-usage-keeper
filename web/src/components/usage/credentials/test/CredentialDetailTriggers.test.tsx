@@ -9,7 +9,7 @@ import { createAiProviderSectionProps, createCredentialSectionProps } from './cr
 import type { AiProviderCredentialRow, CredentialRow } from '../credentialViewModels'
 
 vi.mock('react-i18next', () => {
-  const t = (key: string, params?: { count?: number }) => key === 'usage_stats.credentials_count' ? String(params?.count ?? 0) : key
+  const t = (key: string) => key
   return {
     initReactI18next: { type: '3rdParty', init: () => undefined },
     useTranslation: () => ({ t }),

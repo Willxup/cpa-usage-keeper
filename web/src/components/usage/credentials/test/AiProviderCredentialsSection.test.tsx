@@ -7,7 +7,7 @@ import type { AiProviderCredentialRow } from '../credentialViewModels'
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, params?: { count?: number }) => (key === 'usage_stats.credentials_count' ? `${params?.count ?? 0}` : key),
+    t: (key: string) => key,
   }),
 }))
 
