@@ -50,7 +50,7 @@ const cellText = (html: string) => {
 };
 
 describe('RequestEventsDetailsCard service tier column', () => {
-  it('shows mapped tiers with raw values in parentheses, with Effective first in every locale', async () => {
+  it('shows localized tier details visually and accessibly, with Effective first', async () => {
     const events = [{ ...baseEvent, effective_service_tier: 'ultrafast' }];
     const mounted = await mountCard(events);
     const localizedLines = [
@@ -72,6 +72,7 @@ describe('RequestEventsDetailsCard service tier column', () => {
         });
         const tooltipText = document.body.querySelector('[role="tooltip"]')!.textContent!;
         expect(tooltipText.replace(/\s+/g, '')).toBe(lines.join('').replace(/\s+/g, ''));
+        expect(cell.getAttribute('aria-label')).toBe(lines.join('; '));
         await act(async () => cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
         expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
       }
