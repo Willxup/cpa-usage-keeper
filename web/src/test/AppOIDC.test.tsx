@@ -12,7 +12,7 @@ vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeo
 vi.mock('react-i18next', async (importOriginal) => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../components/AppFooter', () => ({ AppFooter: () => null }));
 vi.mock('../pages/UsagePage', () => ({ UsagePage: ({ onAuthRequired }: { onAuthRequired: () => void }) => <button data-expire onClick={onAuthRequired}>Expire</button> }));
-vi.mock('../pages/LoginPage', () => ({ LoginPage: ({ oidcEnabled, onOIDCLogin, adminError }: ComponentProps<typeof import('../pages/LoginPage').LoginPage>) => (
+vi.mock('../pages/LoginPage', () => ({ LoginBackdrop: () => null, LoginPage: ({ oidcEnabled, onOIDCLogin, adminError }: ComponentProps<typeof import('../pages/LoginPage').LoginPage>) => (
   <><div data-error>{adminError}</div>{oidcEnabled && <button data-oidc onClick={() => void onOIDCLogin?.()}>OIDC</button>}</>
 ) }));
 

@@ -10,10 +10,113 @@
   align-items: center;
   justify-content: center;
   padding: 32px 20px;
+}
+
+// Logo 六色按冷色、绿黄、暖色分层交叠，裁剪只作用于装饰层。
+.backdrop {
+  --login-blue: rgba(37, 99, 235, 0.38);
+  --login-cyan: rgba(6, 182, 212, 0.36);
+  --login-green: rgba(16, 185, 129, 0.29);
+  --login-yellow: rgba(251, 191, 36, 0.27);
+  --login-coral: rgba(251, 90, 90, 0.28);
+  --login-rose: rgba(219, 39, 119, 0.26);
+
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.8;
+  background: linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px;
+
+  > span {
+    position: absolute;
+    width: 100%;
+    height: 115%;
+    animation: glowDrift 10s ease-in-out infinite alternate;
+  }
+
+  &[data-renderer='webgl'] > span {
+    visibility: hidden;
+    animation: none;
+  }
+
+  &[data-renderer='webgl'] > canvas {
+    visibility: visible;
+  }
+
+  &[data-paused='true'] > span {
+    animation-play-state: paused;
+  }
+
+  @include mobile {
+    > span {
+      animation-name: glowDriftMobile;
+    }
+
+    .greenGlow {
+      animation: none;
+    }
+  }
+}
+
+.flowCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+}
+
+.coolGlow {
+  left: -12%;
+  top: -20%;
   background:
-    linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px,
-    radial-gradient(900px 480px at 12% 0%, rgba($primary-color, 0.16), transparent 58%),
-    var(--bg-secondary);
+    radial-gradient(ellipse at 25% 58%, var(--login-blue), transparent 48%),
+    radial-gradient(ellipse at 45% 45%, var(--login-cyan), transparent 48%);
+}
+
+.backdrop > .greenGlow {
+  left: 0;
+  top: -25%;
+  background:
+    radial-gradient(ellipse at 48% 35%, var(--login-green), transparent 45%),
+    radial-gradient(ellipse at 70% 48%, var(--login-yellow), transparent 40%);
+  animation-duration: 13s;
+  animation-delay: -6s;
+  animation-direction: alternate-reverse;
+}
+
+.backdrop > .warmGlow {
+  left: 16%;
+  top: 8%;
+  background:
+    radial-gradient(ellipse at 68% 40%, var(--login-coral), transparent 45%),
+    radial-gradient(ellipse at 48% 65%, var(--login-rose), transparent 45%);
+  animation-duration: 16s;
+  animation-delay: -10s;
+}
+
+@keyframes glowDrift {
+  from { transform: translate(-5%, -5%) rotate(-8deg) scale(0.95, 1); }
+  to { transform: translate(9%, 9%) rotate(12deg) scale(1.12, 0.92); }
+}
+
+@keyframes glowDriftMobile {
+  from { transform: translate(-2%, -2%); }
+  to { transform: translate(3%, 3%); }
+}
+
+:global([data-theme='dark']) {
+  .backdrop {
+    --login-blue: rgba(37, 99, 235, 0.62);
+    --login-cyan: rgba(6, 182, 212, 0.5);
+    --login-green: rgba(16, 185, 129, 0.42);
+    --login-yellow: rgba(251, 191, 36, 0.26);
+    --login-coral: rgba(251, 90, 90, 0.42);
+    --login-rose: rgba(219, 39, 119, 0.46);
+    opacity: 0.94;
+  }
 }
 
 .frame {
@@ -240,4 +343,10 @@
 
 .form :global(.btn) {
   border-radius: $radius-full;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop > span {
+    animation: none;
+  }
 }

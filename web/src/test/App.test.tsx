@@ -24,6 +24,7 @@ vi.mock('../pages/UsagePage', () => ({
   ),
 }));
 vi.mock('../pages/LoginPage', () => ({
+  LoginBackdrop: () => null,
   LoginPage: ({ onPasswordSubmit, onAPIKeySubmit }: ComponentProps<typeof import('../pages/LoginPage').LoginPage>) => (
     <><button data-password-login onClick={() => onPasswordSubmit('password')}>Password</button>
       <button data-key-login onClick={() => onAPIKeySubmit('test-key')}>API Key</button></>
