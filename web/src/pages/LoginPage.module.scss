@@ -3,6 +3,10 @@
 
 .pageShell {
   --login-form-gap: 18px;
+  --login-glass-bg: color-mix(in srgb, var(--bg-primary) 18%, transparent);
+  --login-glass-border: rgba(255, 255, 255, 0.55);
+  --login-glass-shadow: rgba(54, 41, 27, 0.05);
+  --login-input-bg: rgba(255, 255, 255, 0.32);
 
   flex: 1 1 auto;
   min-height: 0;
@@ -108,6 +112,12 @@
 }
 
 :global([data-theme='dark']) {
+  .pageShell {
+    --login-glass-border: rgba(255, 255, 255, 0.1);
+    --login-glass-shadow: rgba(0, 0, 0, 0.16);
+    --login-input-bg: rgba(12, 12, 14, 0.28);
+  }
+
   .backdrop {
     --login-blue: rgba(37, 99, 235, 0.62);
     --login-cyan: rgba(6, 182, 212, 0.5);
@@ -154,8 +164,6 @@
   padding: 4px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .themePill {
@@ -181,10 +189,11 @@
   }
 }
 
+.languageSwitcher > button[aria-pressed='true'],
 .themePillActive {
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
   color: var(--text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 20px var(--login-glass-shadow), inset 0 0 0 1px var(--login-glass-border);
 }
 
 .brandBlock {
@@ -244,11 +253,6 @@
   flex-direction: column;
   padding: 28px;
   border-radius: 28px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 96%, rgba($primary-color, 0.08)), color-mix(in srgb, var(--bg-primary) 88%, transparent)),
-    var(--bg-primary);
-  box-shadow: var(--floating-shadow);
-  border: 1px solid color-mix(in srgb, var(--border-color) 84%, rgba($primary-color, 0.28));
 
   @include mobile {
     padding: 20px;
@@ -258,6 +262,17 @@
 .loginCardOIDCSpace {
   // API Key 页签把 OIDC 按钮的空间留在卡片外，保留居中位置与卡片本身的高度。
   margin-bottom: calc(var(--keeper-control-height-md) + var(--login-form-gap));
+}
+
+// 登录卡片与顶部切换器共用玻璃材质，尺寸与排版仍沿用现有规则。
+.pageShell .loginCard,
+.pageShell .languageSwitcher,
+.pageShell .themeSwitcher {
+  background: var(--login-glass-bg);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 8px 32px var(--login-glass-shadow);
+  border-color: var(--login-glass-border);
 }
 
 .cardHeader {
@@ -292,7 +307,7 @@
   margin-bottom: 18px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 12%, transparent);
 }
 
 .tab {
@@ -318,7 +333,7 @@
 
 .tabActive {
   border-color: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  background: var(--floating-surface);
+  background: color-mix(in srgb, var(--floating-surface) 50%, transparent);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 3px 8px rgb(0 0 0 / 6%);
 }
@@ -328,6 +343,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--login-form-gap);
+
+  :global(.input:not(:disabled)) {
+    background-color: var(--login-input-bg);
+  }
 
   :global(.input::placeholder) {
     font-size: 12px;
@@ -348,5 +367,25 @@
 @media (prefers-reduced-motion: reduce) {
   .backdrop > span {
     animation: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pageShell .loginCard,
+  .pageShell .languageSwitcher,
+  .pageShell .themeSwitcher {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .pageShell .loginCard,
+  .pageShell .languageSwitcher,
+  .pageShell .themeSwitcher {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

@@ -84,7 +84,7 @@ export function LoginPage({ loading = false, oidcEnabled = false, onOIDCLogin, a
     <div className={styles.pageShell} data-keeper-page="login">
       <div className={styles.frame}>
         <div className={styles.utilityDock}>
-          <LanguageSwitcher />
+          <LanguageSwitcher className={styles.languageSwitcher} />
           <div className={styles.themeSwitcher} role="tablist" aria-label={t('usage_stats.theme_switch')}>
             {themeOptions.map((option) => {
               const active = theme === option.value;
