@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({ getSession: vi.fn(), startOIDCLogin: vi.fn(), lo
 vi.mock('../lib/api', async (original) => ({ ...await original<typeof import('../lib/api')>(), ...api }));
 vi.mock('../components/AppFooter', () => ({ AppFooter: () => null }));
 vi.mock('../pages/UsagePage', () => ({ UsagePage: () => null }));
-vi.mock('../pages/LoginPage', () => ({ LoginPage: ({ onOIDCLogin, onPasswordSubmit, adminError }: ComponentProps<typeof import('../pages/LoginPage').LoginPage>) => (
+vi.mock('../pages/LoginPage', () => ({ LoginBackdrop: () => null, LoginPage: ({ onOIDCLogin, onPasswordSubmit, adminError }: ComponentProps<typeof import('../pages/LoginPage').LoginPage>) => (
   <><div role="alert">{adminError}</div><button data-oidc onClick={() => void onOIDCLogin?.()}>OIDC</button><button data-password onClick={() => void onPasswordSubmit('wrong')}>Password</button></>
 ) }));
 
