@@ -75,6 +75,10 @@ type Config struct {
 	QuotaUpstreamResponsesEnabled bool
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
+	// DatabaseDriver 是数据库类型：sqlite 或 postgres。默认值：sqlite。
+	DatabaseDriver string
+	// DatabaseDSN 是完整的数据库连接字符串（PostgreSQL DSN 或 URL）。
+	DatabaseDSN string
 	// SQLitePath 是 SQLite 数据库文件路径。
 	SQLitePath string
 	// BackupEnabled 控制是否保存 SQLite 数据库备份文件。
@@ -284,6 +288,19 @@ func Load(options LoadOptions) (*Config, error) {
 
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
+	databaseDriver := strings.ToLower(strings.TrimSpace(os.Getenv("DB_DRIVER")))
+	databaseDSN := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if databaseDSN == "" {
+		databaseDSN = strings.TrimSpace(os.Getenv("POSTGRES_DSN"))
+	}
+	if databaseDriver == "" {
+		if strings.HasPrefix(databaseDSN, "postgres://") || strings.HasPrefix(databaseDSN, "postgresql://") {
+			databaseDriver = "postgres"
+		} else {
+			databaseDriver = "sqlite"
+		}
+	}
+
 	cfg := &Config{
 		AppHost:                       strings.TrimSpace(os.Getenv("APP_HOST")),
 		AppPort:                       getString("APP_PORT", "8080"),
@@ -304,6 +321,8 @@ func Load(options LoadOptions) (*Config, error) {
 		QuotaRefreshWorkerLimit:       quotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: quotaUpstreamResponsesEnabled,
 		WorkDir:                       workDir,
+		DatabaseDriver:                databaseDriver,
+		DatabaseDSN:                   databaseDSN,
 		SQLitePath:                    filepath.Join(workDir, workDirDatabaseName),
 		BackupEnabled:                 backupEnabled,
 		BackupDir:                     filepath.Join(workDir, workDirBackupsName),

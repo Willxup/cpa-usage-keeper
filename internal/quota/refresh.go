@@ -45,15 +45,16 @@ type CacheResponse struct {
 }
 
 type CachedQuotaItem struct {
-	AuthIndex         string             `json:"auth_index"`
-	FileName          *string            `json:"file_name,omitempty"`
-	Status            RefreshTaskStatus  `json:"status"`
-	Quota             *CheckResponse     `json:"quota,omitempty"`
-	Error             string             `json:"error,omitempty"`
-	HTTPStatusCode    *int               `json:"http_status_code,omitempty"`
-	ExpiresAt         *time.Time         `json:"expires_at,omitempty"`
-	RefreshedAt       *time.Time         `json:"refreshed_at,omitempty"`
-	UpstreamResponses []UpstreamResponse `json:"upstream_responses,omitempty"`
+	AuthIndex         string                   `json:"auth_index"`
+	FileName          *string                  `json:"file_name,omitempty"`
+	Status            RefreshTaskStatus        `json:"status"`
+	Quota             *CheckResponse           `json:"quota,omitempty"`
+	Observation       *SubscriptionObservation `json:"observation,omitempty"`
+	Error             string                   `json:"error,omitempty"`
+	HTTPStatusCode    *int                     `json:"http_status_code,omitempty"`
+	ExpiresAt         *time.Time               `json:"expires_at,omitempty"`
+	RefreshedAt       *time.Time               `json:"refreshed_at,omitempty"`
+	UpstreamResponses []UpstreamResponse       `json:"upstream_responses,omitempty"`
 }
 
 type RefreshRequest struct {
@@ -79,14 +80,15 @@ type RefreshRejectedAuthIndex struct {
 }
 
 type RefreshTaskResponse struct {
-	AuthIndex         string             `json:"authIndex"`
-	FileName          *string            `json:"file_name,omitempty"`
-	Status            RefreshTaskStatus  `json:"status"`
-	Quota             *CheckResponse     `json:"quota,omitempty"`
-	Error             string             `json:"error,omitempty"`
-	HTTPStatusCode    *int               `json:"http_status_code,omitempty"`
-	RefreshedAt       *time.Time         `json:"refreshed_at,omitempty"`
-	ExpiresAt         *time.Time         `json:"expiresAt,omitempty"`
+	AuthIndex         string                   `json:"authIndex"`
+	FileName          *string                  `json:"file_name,omitempty"`
+	Status            RefreshTaskStatus        `json:"status"`
+	Quota             *CheckResponse           `json:"quota,omitempty"`
+	Observation       *SubscriptionObservation `json:"observation,omitempty"`
+	Error             string                   `json:"error,omitempty"`
+	HTTPStatusCode    *int                     `json:"http_status_code,omitempty"`
+	RefreshedAt       *time.Time               `json:"refreshed_at,omitempty"`
+	ExpiresAt         *time.Time               `json:"expiresAt,omitempty"`
 	UpstreamResponses []UpstreamResponse `json:"upstream_responses,omitempty"`
 }
 
@@ -141,7 +143,15 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		case task.Status == RefreshTaskStatusCompleted && task.Quota != nil:
 			quota := *task.Quota
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
+			response.Items = append(response.Items, CachedQuotaItem{
+				AuthIndex:         authIndex,
+				FileName:          task.FileName,
+				Status:            RefreshTaskStatusCompleted,
+				Quota:             &quota,
+				Observation:       quota.Observation,
+				RefreshedAt:       &refreshedAt,
+				UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses),
+			})
 		case task.Status == RefreshTaskStatusFailed && task.HTTPStatusCode != nil && isRefreshCacheableHTTPStatus(*task.HTTPStatusCode):
 			expiresAt := task.ExpiresAt
 			refreshedAt := task.RefreshedAt
@@ -634,6 +644,7 @@ func (t *RefreshTaskRecord) response() RefreshTaskResponse {
 	if t.Quota != nil {
 		quota := *t.Quota
 		response.Quota = &quota
+		response.Observation = quota.Observation
 	}
 	if !t.RefreshedAt.IsZero() {
 		refreshedAt := t.RefreshedAt

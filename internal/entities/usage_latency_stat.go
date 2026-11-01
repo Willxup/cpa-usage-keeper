@@ -22,9 +22,9 @@ type UsageLatencyStat struct {
 	MaxTTFTMS     int64                  `gorm:"column:max_ttft_ms;not null;default:0"`
 	MaxLatencyMS  int64                  `gorm:"not null;default:0"`
 	FormatVersion int                    `gorm:"not null;default:1"`
-	TTFTSketch    []byte                 `gorm:"type:blob;not null"`
-	LatencySketch []byte                 `gorm:"type:blob;not null"`
-	SamplePoints  []byte                 `gorm:"type:blob;not null"`
+	TTFTSketch    []byte                 `gorm:"not null"`
+	LatencySketch []byte                 `gorm:"not null"`
+	SamplePoints  []byte                 `gorm:"not null"`
 	CreatedAt     time.Time              `gorm:"serializer:storageTime;not null"`
 	UpdatedAt     time.Time              `gorm:"serializer:storageTime;not null"`
 }

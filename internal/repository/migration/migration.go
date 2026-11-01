@@ -215,7 +215,13 @@ func MarkAllAsApplied(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		now := timeutil.NormalizeStorageTime(time.Now())
 		for _, migration := range orderedMigrations() {
-			if err := tx.Exec("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)", migration.version, now).Error; err != nil {
+			var insertSQL string
+			if tx.Dialector != nil && tx.Dialector.Name() == "postgres" {
+				insertSQL = "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?) ON CONFLICT (version) DO NOTHING"
+			} else {
+				insertSQL = "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)"
+			}
+			if err := tx.Exec(insertSQL, migration.version, now).Error; err != nil {
 				return fmt.Errorf("mark schema migration %s applied: %w", migration.version, err)
 			}
 		}
@@ -224,6 +230,12 @@ func MarkAllAsApplied(db *gorm.DB) error {
 }
 
 func createSchemaMigrationsTable(db *gorm.DB) error {
+	if db.Dialector != nil && db.Dialector.Name() == "postgres" {
+		if err := db.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL)").Error; err != nil {
+			return fmt.Errorf("create schema_migrations table: %w", err)
+		}
+		return nil
+	}
 	if err := db.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at DATETIME NOT NULL)").Error; err != nil {
 		return fmt.Errorf("create schema_migrations table: %w", err)
 	}

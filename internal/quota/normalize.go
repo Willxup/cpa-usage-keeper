@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/timeutil"
 )
 
@@ -704,4 +705,130 @@ func intPtr(value int64) *int64 {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+// ClassifyResetSemantics classifies reset timing behavior into canonical categories.
+func ClassifyResetSemantics(resetAt string, resetAfterSeconds *int64) ResetSemantics {
+	trimmed := strings.TrimSpace(resetAt)
+	if trimmed != "" {
+		lower := strings.ToLower(trimmed)
+		if strings.Contains(lower, "continuous") || strings.Contains(lower, "rolling") {
+			return ResetSemanticsContinuous
+		}
+		if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
+			return ResetSemanticsAbsolute
+		}
+		if _, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+			return ResetSemanticsAbsolute
+		}
+		if resetAfterSeconds != nil && *resetAfterSeconds > 0 {
+			return ResetSemanticsRelative
+		}
+		return ResetSemanticsUnknown
+	}
+	if resetAfterSeconds != nil && *resetAfterSeconds > 0 {
+		return ResetSemanticsRelative
+	}
+	return ResetSemanticsUnknown
+}
+
+func parseObservationResetTime(resetAt string, resetAfterSeconds *int64, observedAt time.Time) *time.Time {
+	trimmed := strings.TrimSpace(resetAt)
+	if trimmed != "" {
+		if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
+			utc := t.UTC()
+			return &utc
+		}
+		if t, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+			utc := t.UTC()
+			return &utc
+		}
+	}
+	if resetAfterSeconds != nil && *resetAfterSeconds > 0 {
+		t := observedAt.Add(time.Duration(*resetAfterSeconds) * time.Second).UTC()
+		return &t
+	}
+	return nil
+}
+
+// NormalizeSubscriptionObservation builds a provider-neutral observation envelope.
+func NormalizeSubscriptionObservation(output ProviderOutput, authIndex string, identity entities.UsageIdentity, observedAt time.Time, lastSuccessAt *time.Time, fetchErr error) *SubscriptionObservation {
+	provider := normalizeIdentityType(output.Provider)
+	if provider == "" && identity.Provider != "" {
+		provider = normalizeIdentityType(identity.Provider)
+	}
+	identityType := normalizeIdentityType(identity.Type)
+	if identityType == "" {
+		identityType = provider
+	}
+
+	obs := &SubscriptionObservation{
+		Provider:       provider,
+		IdentityType:   identityType,
+		AuthIndex:      authIndex,
+		AccountID:      identity.AccountID,
+		Source:         "adapter",
+		ObservedAt:     observedAt.UTC(),
+		LastSuccessAt:  lastSuccessAt,
+		ResetSemantics: ResetSemanticsUnknown,
+		Freshness:      FreshnessFresh,
+		Confidence:     1.0,
+		Status:         ObservationStatusComplete,
+		Windows:        make([]QuotaWindowItem, 0),
+	}
+
+	if fetchErr != nil {
+		obs.Status = ObservationStatusFailed
+		obs.Confidence = 0.0
+		obs.Error = &ObservationError{
+			Code:        "quota_fetch_failed",
+			Message:     fetchErr.Error(),
+			SafeMessage: "Unable to refresh subscription quota from provider",
+			Retryable:   true,
+		}
+		if lastSuccessAt != nil {
+			obs.Freshness = FreshnessStale
+		} else {
+			obs.Freshness = FreshnessUnknown
+		}
+		return obs
+	}
+
+	rows := NormalizeQuotaRows(output)
+	// Check partial degradation for known providers
+	switch res := output.Result.(type) {
+	case ClaudeResult:
+		if res.Profile == nil {
+			obs.Status = ObservationStatusPartial
+			obs.Confidence = 0.85
+		}
+	case *ClaudeResult:
+		if res != nil && res.Profile == nil {
+			obs.Status = ObservationStatusPartial
+			obs.Confidence = 0.85
+		}
+	}
+
+	for _, row := range rows {
+		semantics := ClassifyResetSemantics(row.ResetAt, row.ResetAfterSeconds)
+		resetTime := parseObservationResetTime(row.ResetAt, row.ResetAfterSeconds, observedAt)
+		item := QuotaWindowItem{
+			Key:            row.Key,
+			Label:          row.Label,
+			Used:           row.Used,
+			Remaining:      row.Remaining,
+			Limit:          row.Limit,
+			Unit:           row.Metric,
+			Percent:        row.UsedPercent,
+			ResetAt:        resetTime,
+			ResetSemantics: semantics,
+		}
+		obs.Windows = append(obs.Windows, item)
+		if obs.ResetAt == nil && resetTime != nil {
+			obs.ResetAt = resetTime
+			obs.ResetSemantics = semantics
+		}
+	}
+
+	return obs
 }

@@ -3,6 +3,8 @@
 .agents/
 .claude/
 .codex/
+.atl/
+.codegraph/
 .worktrees/
 plans/
 AGENTS.md
