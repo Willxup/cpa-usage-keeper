@@ -48,7 +48,7 @@ type PortalTooltipTarget = {
   anchor: HTMLElement
 }
 
-export function usePortalTooltip() {
+export function usePortalTooltip({ trackAnchor = false }: { trackAnchor?: boolean } = {}) {
   const [tooltip, setTooltip] = useState<PortalTooltipState | null>(null)
   const hoverTargetRef = useRef<PortalTooltipTarget | null>(null)
   const focusTargetRef = useRef<PortalTooltipTarget | null>(null)
@@ -123,6 +123,31 @@ export function usePortalTooltip() {
     setTooltip(null)
     return dismissed
   }, [])
+
+  const isOpen = tooltip !== null
+  useEffect(() => {
+    if (!trackAnchor || !isOpen) return
+
+    // 卡片轮询换位不会触发 resize/scroll；仅在提示打开时跟踪位置，避免空闲轮询。
+    let frame: number
+    let previousRect: DOMRect | null = null
+    const trackPosition = () => {
+      const target = hoverTargetRef.current ?? focusTargetRef.current
+      if (!target?.anchor.isConnected) {
+        dismiss()
+        return
+      }
+      const rect = target.anchor.getBoundingClientRect()
+      if (!previousRect || rect.left !== previousRect.left || rect.top !== previousRect.top
+        || rect.width !== previousRect.width || rect.height !== previousRect.height) {
+        previousRect = rect
+        syncTooltip()
+      }
+      frame = window.requestAnimationFrame(trackPosition)
+    }
+    frame = window.requestAnimationFrame(trackPosition)
+    return () => window.cancelAnimationFrame(frame)
+  }, [trackAnchor, isOpen, dismiss, syncTooltip])
 
   useEffect(() => {
     const repositionTooltip = () => {

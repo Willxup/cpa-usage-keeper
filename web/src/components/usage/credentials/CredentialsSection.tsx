@@ -2042,7 +2042,7 @@ function QuotaResetCountdown({ duration, resetLabel }: { duration: string; reset
   const { t } = useTranslation()
   const tooltipId = useId()
   const anchorRef = useRef<HTMLButtonElement>(null)
-  const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip()
+  const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip({ trackAnchor: true })
   const label = t('usage_stats.credentials_quota_resets_at', { time: resetLabel.replace('/', '-') })
   const lines = [label]
 
