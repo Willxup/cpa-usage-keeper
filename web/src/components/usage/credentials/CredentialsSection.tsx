@@ -209,6 +209,7 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
                 <span className={styles.credentialActiveOnlyThumb} />
               </span>
             </label>
+            {total !== 0 && <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
           </div>
         )}
         actions={(
@@ -366,7 +367,6 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
       })}
       </CredentialCardGrid>
       <CredentialsPagination
-        leadingControls={<QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
         page={page}
         total={total}
         totalPages={totalPages}
