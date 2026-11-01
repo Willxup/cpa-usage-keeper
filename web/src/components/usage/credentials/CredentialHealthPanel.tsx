@@ -63,7 +63,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
   const buckets = useMemo(() => buildHealthBuckets(health), [health])
   const score = resolveCredentialHealthScore(health, buckets)
   const summary = resolveCredentialHealthSummary(buckets, health, t)
-  const lastUsed = formatCredentialHealthDate(lastUsedAt)
+  const lastUsed = formatCredentialHealthDate(lastUsedAt, variant === 'compact' ? '-' : '/')
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
   const showWindowCacheReadRate = windowCacheReadRate !== undefined
   const compact = variant === 'compact'
@@ -429,13 +429,13 @@ function formatClockMinutes(value: number): string {
   return `${hours}:${minutes}`
 }
 
-function formatCredentialHealthDate(value: string | undefined): string {
+function formatCredentialHealthDate(value: string | undefined, dateSeparator: '-' | '/' = '/'): string {
   if (!value) {
     return ''
   }
   const apiDateTime = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
   if (apiDateTime) {
-    return `${apiDateTime[2]}/${apiDateTime[3]} ${apiDateTime[4]}:${apiDateTime[5]}`
+    return `${apiDateTime[2]}${dateSeparator}${apiDateTime[3]} ${apiDateTime[4]}:${apiDateTime[5]}`
   }
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -445,5 +445,5 @@ function formatCredentialHealthDate(value: string | undefined): string {
   const day = String(date.getDate()).padStart(2, '0')
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${month}/${day} ${hours}:${minutes}`
+  return `${month}${dateSeparator}${day} ${hours}:${minutes}`
 }

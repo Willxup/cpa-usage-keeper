@@ -67,7 +67,7 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).toContain('usage_stats.credentials_health_cache_short')
     expect(html).toContain('61.75%')
     expect(html).toContain('usage_stats.credentials_last_used')
-    expect(html).toContain('05/10 10:00')
+    expect(html).toContain('05-10 10:00')
     expect(html).not.toContain('05/10 10:02')
     expect(html).toContain('data-provider-brand-icon="claude"')
     // 品牌图标只展示供应商，卡片开关单独表达 enabled 状态。
