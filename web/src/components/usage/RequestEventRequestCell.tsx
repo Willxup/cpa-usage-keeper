@@ -41,7 +41,7 @@ export function RequestEventRequestCell({
     label: t(label),
     value,
   })
-  // 浮层使用原始端点，保留列表简写掉的 HTTP 方法、/v1 前缀和完整路径。
+  // 浮层使用原始端点，保留 HTTP 方法和归一化前的完整路径。
   const responseModeKey = event.stream === true
     ? 'usage_stats.request_events_streaming'
     : event.stream === false

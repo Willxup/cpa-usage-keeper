@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,12 +76,16 @@ func TestCredentialPriorityRoutesMapUpstreamRejectionWithoutLeakingDetails(t *te
 	}{
 		{service.ErrCredentialPriorityNotFound, http.StatusNotFound},
 		{service.ErrCredentialPriorityConflict, http.StatusConflict},
+		{fmt.Errorf("%w: upstream secret-xyz", service.ErrCredentialConfigChanged), http.StatusPreconditionFailed},
 		{service.ErrCredentialPriorityUnsupported, http.StatusConflict},
 		{errors.New("upstream secret-xyz"), http.StatusInternalServerError},
 	} {
 		response := priorityRouteRequest(t, &priorityProviderStub{err: tc.err}, "/api/v1/ai-providers/ai-1/priority", `{"priority":1}`)
 		if response.Code != tc.want || strings.Contains(response.Body.String(), "secret-xyz") {
 			t.Fatalf("err=%v status=%d body=%s", tc.err, response.Code, response.Body.String())
+		}
+		if tc.want == http.StatusPreconditionFailed && !strings.Contains(response.Body.String(), "credential configuration changed") {
+			t.Fatalf("unexpected configuration conflict response: %s", response.Body.String())
 		}
 	}
 }

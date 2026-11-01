@@ -42,6 +42,9 @@ export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error
   if (error instanceof ApiError && error.status === 404) {
     return { authRequired: false, noticeKey: 'usage_stats.credentials_status_stale_target', refresh: true }
   }
+  if (error instanceof ApiError && error.status === 412) {
+    return { authRequired: false, noticeKey: 'usage_stats.credentials_config_changed', refresh: false }
+  }
   if (error instanceof ApiError && error.status === 409) {
     return {
       authRequired: false,
@@ -242,9 +245,11 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
       }
       const key = error instanceof ApiError && error.status === 404
         ? 'usage_stats.credentials_priority_stale_target'
-        : error instanceof ApiError && error.status === 409 && kind === 'credential'
-          ? 'usage_stats.credentials_priority_conflict_credential'
-          : 'usage_stats.credentials_priority_save_failed'
+        : error instanceof ApiError && error.status === 412
+          ? 'usage_stats.credentials_config_changed'
+          : error instanceof ApiError && error.status === 409 && kind === 'credential'
+            ? 'usage_stats.credentials_priority_conflict_credential'
+            : 'usage_stats.credentials_priority_save_failed'
       onNotice?.('error', i18n.t(key))
       throw error
     }

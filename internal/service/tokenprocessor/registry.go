@@ -37,6 +37,7 @@ var handlerDefinitions = []HandlerID{
 	HandlerResponsesInclusive,
 	HandlerStrictPassThrough,
 	HandlerOpenAICompatibility,
+	HandlerTokenBreakdown,
 }
 
 // tokenHandlers 是协议实现的唯一 registry；executor 与 identity registry 只能引用这里的 HandlerID。
@@ -46,6 +47,7 @@ var tokenHandlers = map[HandlerID]tokenHandler{
 	HandlerResponsesInclusive:  responsesInclusiveHandler{},
 	HandlerStrictPassThrough:   strictPassThroughHandler{},
 	HandlerOpenAICompatibility: openAICompatibilityHandler{},
+	HandlerTokenBreakdown:      tokenBreakdownHandler{},
 }
 
 // executorDefinitions 是中央静态引用表；新增 executor 必须同时拥有独立文件、此处一条引用和黑盒测试。

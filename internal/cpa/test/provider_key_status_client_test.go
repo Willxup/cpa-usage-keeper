@@ -131,7 +131,7 @@ func TestProviderConfigClientKeepsRawFieldsAndWritesEmptyMemberOverride(t *testi
 		}
 	}))
 	defer server.Close()
-	if _, err := cpa.NewClient(server.URL, "management-secret", time.Second, false).UpdateProviderConfig(context.Background(), "codex", &document); err != nil {
+	if _, err := cpa.NewClient(server.URL, "management-secret", time.Second, false).UpdateProviderConfig(context.Background(), "codex", &document, ""); err != nil {
 		t.Fatal(err)
 	}
 	if string(document.Groups[0].Keys[0].Fields["auth_index"]) != `"target"` {
@@ -140,11 +140,11 @@ func TestProviderConfigClientKeepsRawFieldsAndWritesEmptyMemberOverride(t *testi
 }
 
 func TestProviderConfigClientReturnsFailedPUTStatus(t *testing.T) {
-	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusUnauthorized, http.StatusBadGateway} {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict, http.StatusPreconditionFailed, http.StatusUnauthorized, http.StatusBadGateway} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
 			defer server.Close()
-			got, err := cpa.NewClient(server.URL, "management-secret", time.Second, false).UpdateProviderConfig(context.Background(), "gemini", &providerconfig.Document{})
+			got, err := cpa.NewClient(server.URL, "management-secret", time.Second, false).UpdateProviderConfig(context.Background(), "gemini", &providerconfig.Document{}, "")
 			if got != status || err == nil {
 				t.Fatalf("status = %d, err = %v", got, err)
 			}

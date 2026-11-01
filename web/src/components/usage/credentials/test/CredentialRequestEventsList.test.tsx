@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from 'react'
+import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Modal } from '@/components/ui/Modal'
@@ -29,6 +29,7 @@ const event: UsageEvent = {
   model_alias: 'keeper-gpt',
   reasoning_effort: 'high',
   service_tier: 'priority',
+  effective_service_tier: 'ultrafast',
   response_service_tier: 'flex',
   executor_type: 'OpenAIResponsesExecutor',
   endpoint: 'POST /v1/responses',
@@ -139,6 +140,27 @@ describe('CredentialRequestEventsList', () => {
   let container: HTMLDivElement
   let root: Root
 
+  const list = (props: Partial<ComponentProps<typeof CredentialRequestEventsList>> = {}) => (
+    <CredentialRequestEventsList {...credentialEventListDefaults} events={[event]} {...props} />
+  )
+  const renderList = async (props: Partial<ComponentProps<typeof CredentialRequestEventsList>> = {}) => {
+    await act(async () => root.render(list(props)))
+  }
+  const renderVirtualList = async (events: UsageEvent[]) => {
+    await act(async () => {
+      root.render(list({ events }))
+      await Promise.resolve()
+    })
+  }
+  const scrollList = async (scroller: HTMLElement, top: number) => {
+    scroller.scrollTop = top
+    await act(async () => {
+      scroller.dispatchEvent(new Event('scroll'))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+  }
+  const tooltip = () => document.body.querySelector('[role="tooltip"]')
+
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
@@ -176,20 +198,21 @@ describe('CredentialRequestEventsList', () => {
     vi.useRealTimers()
   })
 
+  it('normalizes a Codex endpoint alias in credential events', async () => {
+    await renderList({ events: [{ ...event, endpoint: 'POST /backend-api/codex/responses' }] })
+    expect(container.textContent).toContain('usage_stats.request_endpoint: /v1/responses')
+  })
+
   it('renders the compact credential event columns with stacked request metadata', async () => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[event]}
-      />,
-    ))
+    await renderList()
 
     expect(container.querySelector('[data-credential-request-events-list="true"]')).not.toBeNull()
     const apiKeyCell = container.querySelector('tbody tr:first-child td:nth-child(2)')
     expect(apiKeyCell?.textContent).toBe('Team Alpha')
     expect(container.textContent).toContain('SSE')
-    expect(container.textContent).not.toContain('usage_stats.speed_mode_fast')
-    expect(container.textContent).not.toContain('usage_stats.speed_mode_flex')
+    expect(container.textContent).not.toContain('priority')
+    expect(container.textContent).not.toContain('ultrafast')
+    expect(container.textContent).not.toContain('flex')
     expect(container.textContent).toContain('1.30K')
     expect(container.textContent).toContain('1.00K')
     expect(container.textContent).toContain('300')
@@ -209,7 +232,7 @@ describe('CredentialRequestEventsList', () => {
       .toBe('gpt-5.6keeper-gpt')
     expect(container.querySelector('[data-credential-request-model="1"]')?.textContent)
       .not.toContain('usage_stats.reasoning_effort')
-    expect(container.textContent).toContain('usage_stats.request_endpoint: /responses')
+    expect(container.textContent).toContain('usage_stats.request_endpoint: /v1/responses')
     expect(container.textContent).toContain('usage_stats.reasoning_effort: high')
     expect(container.textContent).not.toContain('usage_stats.model_alias')
     expect(container.querySelector('[data-credential-request-model="1"]')?.getAttribute('title')).toBeNull()
@@ -247,12 +270,7 @@ describe('CredentialRequestEventsList', () => {
   })
 
   it('stacks a distinct response model between the requested model and alias', async () => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[{ ...event, response_model: 'gpt-5.6-luna' }]}
-      />,
-    ))
+    await renderList({ events: [{ ...event, response_model: 'gpt-5.6-luna' }] })
 
     const modelCell = container.querySelector<HTMLElement>('[data-credential-request-model="1"]')
     expect(modelCell?.textContent).toBe('gpt-5.6↳ usage_stats.upstream_response_model: gpt-5.6-lunakeeper-gpt')
@@ -262,12 +280,7 @@ describe('CredentialRequestEventsList', () => {
   })
 
   it('keeps matching response and alias values in the whole-field model tooltip', async () => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[{ ...event, response_model: 'gpt-5.6', model_alias: 'GPT-5.6' }]}
-      />,
-    ))
+    await renderList({ events: [{ ...event, response_model: 'gpt-5.6', model_alias: 'GPT-5.6' }] })
 
     const modelCell = container.querySelector<HTMLElement>('[data-credential-request-model="1"]')
     expect(modelCell?.textContent).toBe('gpt-5.6')
@@ -276,19 +289,14 @@ describe('CredentialRequestEventsList', () => {
     )
 
     await act(async () => modelCell?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    const tooltipText = document.body.querySelector('[role="tooltip"]')?.textContent
+    const tooltipText = tooltip()?.textContent
     expect(tooltipText).toContain('usage_stats.model_name: gpt-5.6')
     expect(tooltipText).toContain('usage_stats.upstream_response_model: gpt-5.6')
     expect(tooltipText).toContain('usage_stats.model_alias: GPT-5.6')
   })
 
   it.each([undefined, 0, 3000])('shows the API speed independently of TTFT %s', async (ttft) => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[{ ...event, ttft_ms: ttft }]}
-      />,
-    ))
+    await renderList({ events: [{ ...event, ttft_ms: ttft }] })
 
     expect(container.textContent).toContain('42.5 t/s')
   })
@@ -306,12 +314,7 @@ describe('CredentialRequestEventsList', () => {
       },
     }
 
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[largeEvent]}
-      />,
-    ))
+    await renderList({ events: [largeEvent] })
 
     const cells = container.querySelectorAll<HTMLTableCellElement>('tbody tr:first-child td')
     const tokenCell = cells[5]
@@ -346,12 +349,7 @@ describe('CredentialRequestEventsList', () => {
   })
 
   it('expands only metadata that is absent from the compact row', async () => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[event]}
-      />,
-    ))
+    await renderList()
 
     const toggle = container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')
     expect(toggle!.getAttribute('aria-expanded')).toBe('false')
@@ -362,12 +360,19 @@ describe('CredentialRequestEventsList', () => {
     const details = container.querySelector('[data-credential-request-event-details="1"]')
     expect(toggle!.getAttribute('aria-expanded')).toBe('true')
     expect(details?.querySelectorAll('[data-credential-request-detail-group]')).toHaveLength(2)
-    expect(details?.querySelectorAll('[data-credential-request-detail-item]')).toHaveLength(6)
+    expect(details?.querySelectorAll('[data-credential-request-detail-item]')).toHaveLength(7)
     expect(details?.textContent).toContain('usage_stats.credentials_detail_request_context')
     expect(details?.textContent).toContain('usage_stats.credentials_detail_client_context')
     expect(details?.textContent).not.toContain('Team Alpha')
-    expect(details?.textContent).toContain('usage_stats.speed_mode_fast (priority)')
-    expect(details?.textContent).toContain('usage_stats.speed_mode_flex (flex)')
+    expect(Array.from(details!.querySelectorAll('[data-credential-request-detail-group="request"] strong'), (node) => node.textContent))
+      .toEqual(['usage_stats.speed_mode_ultrafast (ultrafast)', 'usage_stats.speed_mode_fast (priority)', 'usage_stats.speed_mode_flex (flex)', 'OpenAIResponsesExecutor'])
+    expect(Array.from(details!.querySelectorAll('[data-credential-request-detail-group="request"] [data-credential-request-detail-item] > span'), (node) => node.textContent))
+      .toEqual([
+        'usage_stats.credentials_detail_effective_tier',
+        'usage_stats.credentials_detail_request_tier',
+        'usage_stats.credentials_detail_response_tier',
+        'usage_stats.credentials_detail_executor',
+      ])
     expect(details?.textContent).toContain('OpenAIResponsesExecutor')
     expect(details?.textContent).toContain('192.0.2.10')
     expect(details?.textContent).toContain('198.51.100.7, 192.0.2.10')
@@ -378,36 +383,61 @@ describe('CredentialRequestEventsList', () => {
   })
 
   it('does not expand a row when API Key is the only extra value', async () => {
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[{
-          ...event,
-          service_tier: '',
-          response_service_tier: '',
-          executor_type: '',
-          client_ip: '',
-          x_forwarded_for: '',
-          user_agent: '',
-        }]}
-      />,
-    ))
+    await renderList({ events: [{
+      ...event,
+      service_tier: '',
+      effective_service_tier: '',
+      response_service_tier: '',
+      executor_type: '',
+      client_ip: '',
+      x_forwarded_for: '',
+      user_agent: '',
+    }] })
 
     expect(container.textContent).toContain('Team Alpha')
     expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
     expect(container.querySelector('[data-credential-request-event-details="1"]')).toBeNull()
   })
 
+  it.each([
+    ['CustomTier', 'CustomTier (CustomTier)'],
+    ['ultrafast', 'usage_stats.speed_mode_ultrafast (ultrafast)'],
+    ['', '-'], [undefined, '-'],
+  ])(
+    'shows the mapped effective tier %j with its raw value and dashes without parentheses', async (effectiveTier, expected) => {
+      await act(async () => root.render(
+        <CredentialRequestEventsList {...credentialEventListDefaults} events={[{
+          ...event, service_tier: '', effective_service_tier: effectiveTier, response_service_tier: undefined,
+        }]} />,
+      ))
+      await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')!.click())
+      const values = Array.from(container.querySelectorAll('[data-credential-request-detail-group="request"] strong'), (node) => node.textContent)
+      expect(values).toEqual([expected, '-', '-', 'OpenAIResponsesExecutor'])
+    },
+  )
+
+  it.each([
+    ['ultrafast', 'usage_stats.speed_mode_ultrafast (ultrafast)'],
+    ['-', '- (-)'],
+    [' - ', '- (-)'],
+  ])('allows expansion when only the outbound tier %j is present', async (effectiveTier, expected) => {
+    await act(async () => root.render(
+      <CredentialRequestEventsList {...credentialEventListDefaults} events={[{
+        ...event, service_tier: '', effective_service_tier: effectiveTier, response_service_tier: '', executor_type: '',
+        client_ip: '', x_forwarded_for: '', user_agent: '',
+      }]} />,
+    ))
+    const toggle = container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')!
+    expect(toggle).not.toBeNull()
+    await act(async () => toggle.click())
+    expect(container.querySelector('[data-credential-request-event-details="1"]')?.textContent).toContain(expected)
+  })
+
   it('shows the shared tooltip only when compact or detail text is actually truncated', async () => {
     const longUserAgent = 'codex-cli/0.42.0 (linux; x86_64) long-user-agent-preview-with-extra-runtime-metadata'
     mockOverflow(longUserAgent)
 
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[{ ...event, api_key: longApiKey, user_agent: longUserAgent }]}
-      />,
-    ))
+    await renderList({ events: [{ ...event, api_key: longApiKey, user_agent: longUserAgent }] })
 
     const findValue = (value: string) => Array.from(
       container.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
@@ -417,10 +447,10 @@ describe('CredentialRequestEventsList', () => {
     expect(apiKeyTarget!.tabIndex).toBe(0)
 
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
+    expect(tooltip()?.textContent).toBe(longApiKey)
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
 
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')!.click())
     const userAgentTarget = findValue(longUserAgent)
@@ -429,11 +459,11 @@ describe('CredentialRequestEventsList', () => {
     expect(clientIPTarget!.tabIndex).toBe(-1)
 
     await act(async () => userAgentTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longUserAgent)
+    expect(tooltip()?.textContent).toBe(longUserAgent)
     await act(async () => userAgentTarget!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
 
     await act(async () => clientIPTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
   })
 
   it('dismisses focused and hovered overflow tooltips before Escape reaches the drawer', async () => {
@@ -456,19 +486,19 @@ describe('CredentialRequestEventsList', () => {
       document.body.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
     ).find((element) => element.textContent === longApiKey)
     await act(async () => apiKeyTarget!.focus())
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
+    expect(tooltip()?.textContent).toBe(longApiKey)
 
     await act(async () => apiKeyTarget!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
 
     const rowToggle = document.body.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')
     await act(async () => rowToggle!.focus())
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
+    expect(tooltip()?.textContent).toBe(longApiKey)
 
     await act(async () => rowToggle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
 
     await act(async () => rowToggle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
@@ -479,41 +509,24 @@ describe('CredentialRequestEventsList', () => {
     const logEvent = { ...event, api_key: longApiKey }
     const onRequestLogOpen = vi.fn()
     mockOverflow()
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={[logEvent]}
-        requestLogAccessEnabled
-        onRequestLogOpen={onRequestLogOpen}
-      />,
-    ))
+    await renderList({ events: [logEvent], requestLogAccessEnabled: true, onRequestLogOpen })
 
     const apiKeyTarget = Array.from(
       container.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
     ).find((element) => element.textContent === longApiKey)
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
+    expect(tooltip()?.textContent).toBe(longApiKey)
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-log="1"]')!.click())
     expect(onRequestLogOpen).toHaveBeenCalledWith(logEvent)
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
     expect(container.querySelector('[data-credential-request-event-details="1"]')).toBeNull()
   })
 
   it('keeps the first full cursor page virtualized while appending the next page', async () => {
     const firstPage = Array.from({ length: 50 }, (_, index) => buildEvent(index))
     const secondPage = Array.from({ length: 100 }, (_, index) => buildEvent(index))
-    const renderList = (events: UsageEvent[]) => (
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={events}
-      />
-    )
-
-    await act(async () => {
-      root.render(renderList(firstPage))
-      await Promise.resolve()
-    })
+    await renderVirtualList(firstPage)
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
     expect(scroller.dataset.virtualized).toBe('true')
@@ -523,33 +536,18 @@ describe('CredentialRequestEventsList', () => {
     await act(async () => TestResizeObserver.flush())
     expect(readVirtualContentHeight(scroller)).toBe(4_140)
 
-    scroller.scrollTop = 2_800
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await scrollList(scroller, 2_800)
     expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
     const scrollTopBeforeAppend = scroller.scrollTop
 
-    await act(async () => {
-      root.render(renderList(secondPage))
-      await Promise.resolve()
-    })
+    await renderVirtualList(secondPage)
     expect(readVirtualContentHeight(scroller)).toBe(8_140)
     expect(scroller.scrollTop).toBe(scrollTopBeforeAppend)
   })
 
   it('keeps a large loaded history bounded in the DOM and advances the virtual window', async () => {
     const events = Array.from({ length: 1000 }, (_, index) => buildEvent(index))
-    await act(async () => {
-      root.render(
-        <CredentialRequestEventsList
-          {...credentialEventListDefaults}
-          events={events}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderVirtualList(events)
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
     expect(scroller.dataset.virtualized).toBe('true')
@@ -559,11 +557,7 @@ describe('CredentialRequestEventsList', () => {
     expect(initialRows.length).toBeGreaterThan(0)
     expect(initialRows.length).toBeLessThan(100)
 
-    scroller.scrollTop = 26_000
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await scrollList(scroller, 26_000)
 
     const scrolledRows = Array.from(scroller.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]'))
     const scrolledIndexes = scrolledRows.map((row) => Number(row.dataset.index))
@@ -595,89 +589,39 @@ describe('CredentialRequestEventsList', () => {
       document.body.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
     ).find((element) => element.textContent === longApiKey)
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
+    expect(tooltip()?.textContent).toBe(longApiKey)
 
     const scroller = document.body.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
-    scroller.scrollTop = 3_500
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await scrollList(scroller, 3_500)
     expect(apiKeyTarget!.isConnected).toBe(false)
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(tooltip()).toBeNull()
 
     const visibleToggle = document.body.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle]')
     await act(async () => visibleToggle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('clears a model tooltip when its virtual row leaves the window', async () => {
+  it.each([
+    ['model', '[data-credential-request-model="1"]'],
+    ['token', '[data-token-direction="input"]'],
+  ])('clears a %s tooltip when its virtual row leaves the window', async (_kind, selector) => {
     const events = Array.from({ length: 100 }, (_, index) => buildEvent(index))
+    await renderVirtualList(events)
 
-    await act(async () => {
-      root.render(
-        <CredentialRequestEventsList
-          {...credentialEventListDefaults}
-          events={events}
-        />,
-      )
-      await Promise.resolve()
-    })
-
-    const modelCell = container.querySelector<HTMLElement>('[data-credential-request-model="1"]')
-    await act(async () => modelCell?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull()
+    const cell = container.querySelector(selector)!.closest('td')!
+    await act(async () => cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(tooltip()).not.toBeNull()
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
-    scroller.scrollTop = 3_500
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await scrollList(scroller, 3_500)
 
-    expect(modelCell?.isConnected).toBe(false)
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
-  })
-
-  it('clears a token or cache tooltip when its virtual row leaves the window', async () => {
-    const events = Array.from({ length: 100 }, (_, index) => buildEvent(index))
-
-    await act(async () => {
-      root.render(
-        <CredentialRequestEventsList
-          {...credentialEventListDefaults}
-          events={events}
-        />,
-      )
-      await Promise.resolve()
-    })
-
-    const tokenCell = container.querySelector('[data-token-direction="input"]')!.closest('td')!
-    await act(async () => tokenCell!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull()
-
-    const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
-    scroller.scrollTop = 3_500
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
-
-    expect(tokenCell!.isConnected).toBe(false)
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(cell.isConnected).toBe(false)
+    expect(tooltip()).toBeNull()
   })
 
   it('drops the stale height of an expanded row after it leaves the virtual window', async () => {
     const events = Array.from({ length: 100 }, (_, index) => buildEvent(index))
-    await act(async () => {
-      root.render(
-        <CredentialRequestEventsList
-          {...credentialEventListDefaults}
-          events={events}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderVirtualList(events)
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
     scroller.scrollTo = ((options: ScrollToOptions) => {
@@ -691,11 +635,7 @@ describe('CredentialRequestEventsList', () => {
     })
     expect(readVirtualContentHeight(scroller)).toBe(8_140)
 
-    scroller.scrollTop = 3_500
-    await act(async () => {
-      scroller.dispatchEvent(new Event('scroll'))
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await scrollList(scroller, 3_500)
     expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
 
     const nextToggle = container.querySelector<HTMLButtonElement>(
@@ -714,12 +654,7 @@ describe('CredentialRequestEventsList', () => {
 
   it('fully renders a small event page without virtual spacer rows', async () => {
     const events = Array.from({ length: 3 }, (_, index) => buildEvent(index))
-    await act(async () => root.render(
-      <CredentialRequestEventsList
-        {...credentialEventListDefaults}
-        events={events}
-      />,
-    ))
+    await renderList({ events })
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
     expect(scroller.dataset.virtualized).toBe('false')

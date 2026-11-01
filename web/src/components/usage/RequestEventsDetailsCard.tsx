@@ -26,12 +26,15 @@ import {
   IconDatabaseArrowDown,
   IconDatabaseArrowUp,
   IconDownload,
+  IconInfo,
   IconSettings,
 } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { compareModelNames } from '@/utils/modelSort';
+import { parseRequestEndpoint } from '@/utils/usage/requestEndpoint';
+import { formatServiceTier, formatServiceTierDetail } from '@/utils/usage/serviceTier';
 import {
   buildUsageModelTooltipLines,
   getUsageModelDisplay,
@@ -165,9 +168,10 @@ type RequestEventRow = {
   modelTooltip: UsageModelTooltip;
   reasoningEffort: string;
   speedMode: string;
-  speedModeRaw: string;
-  responseSpeedMode: string;
-  responseSpeedModeRaw: string;
+  requestTier: string;
+  effectiveTier: string;
+  responseTier: string;
+  tierMismatch: boolean;
   requestType: string;
   endpoint: string;
   sourceRaw: string;
@@ -449,45 +453,17 @@ const truncateRequestEventMetadata = (value: string, maxLength: number): string 
     : `${characters.slice(0, maxLength).join('')}...`;
 };
 
-const REQUEST_SPEED_MODE_LABEL_KEYS: Record<string, string> = {
-  auto: 'usage_stats.speed_mode_auto',
-  default: 'usage_stats.speed_mode_standard',
-  standard: 'usage_stats.speed_mode_standard',
-  priority: 'usage_stats.speed_mode_fast',
-  fast: 'usage_stats.speed_mode_fast',
-  flex: 'usage_stats.speed_mode_flex',
-};
-
-const formatSpeedMode = (rawMode: unknown, t: (key: string) => string): string => {
-  const value = String(rawMode ?? '').trim();
-  if (!value) return '-';
-
-  const labelKey = REQUEST_SPEED_MODE_LABEL_KEYS[value.toLowerCase()];
-  return labelKey ? t(labelKey) : value;
-};
-
-const formatSpeedModeTooltipLine = (
-  label: string,
-  value: string,
-  rawValue: string,
-  t: (key: string, options: Record<string, string>) => string,
-): string => t(
-  rawValue === '-' ? 'usage_stats.speed_mode_tooltip_empty' : 'usage_stats.speed_mode_tooltip_value',
-  { label, value, raw: rawValue },
-);
-
-const buildSpeedModeTooltipLines = (
+const buildServiceTierTooltipLines = (
   row: RequestEventRow,
   t: (key: string, options?: Record<string, string>) => string,
 ): string[] => [
-  formatSpeedModeTooltipLine(t('usage_stats.speed_mode'), row.speedMode, row.speedModeRaw, t),
-  formatSpeedModeTooltipLine(
-    t('usage_stats.response_speed_mode'),
-    row.responseSpeedMode,
-    row.responseSpeedModeRaw,
-    t,
-  ),
-];
+  ['usage_stats.effective_speed_mode', row.effectiveTier],
+  ['usage_stats.speed_mode', row.requestTier],
+  ['usage_stats.response_speed_mode', row.responseTier],
+].map(([labelKey, value]) => t('usage_stats.service_tier_tooltip', {
+  label: t(labelKey),
+  value: formatServiceTierDetail(value, t),
+}));
 
 const formatRequestEventMetricTooltipLine = (
   label: string,
@@ -526,20 +502,6 @@ const buildModelTooltipLines = (
   },
   (label, value) => formatRequestEventMetricTooltipLine(label, value, t),
 );
-
-const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
-  const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ');
-  if (!raw) {
-    return { requestType: '-', endpoint: '-' };
-  }
-  const [first, ...rest] = raw.split(' ');
-  const upperMethod = first.toUpperCase();
-  const hasMethod = ['GET', 'POST'].includes(upperMethod);
-  const requestType = upperMethod === 'POST' ? 'SSE' : upperMethod === 'GET' ? 'WS' : '-';
-  const path = hasMethod ? rest.join(' ').trim() : raw;
-  const normalizedPath = path.startsWith('/v1/') ? path.slice(3) : path === '/v1' ? '/' : path;
-  return { requestType, endpoint: normalizedPath || '-' };
-};
 
 function RequestEventsExportMenu({
   label,
@@ -681,10 +643,9 @@ export function RequestEventsDetailsCard({
       const modelTooltip = getUsageModelTooltip(event.model, event.response_model, event.model_alias);
       const model = modelDisplay.model;
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
-      const speedModeRaw = String(event.service_tier ?? '').trim() || '-';
-      const responseSpeedModeRaw = String(event.response_service_tier ?? '').trim() || '-';
-      const speedMode = formatSpeedMode(speedModeRaw, t);
-      const responseSpeedMode = formatSpeedMode(responseSpeedModeRaw, t);
+      const requestTier = String(event.service_tier ?? '').trim();
+      const effectiveTier = String(event.effective_service_tier ?? '').trim();
+      const responseTier = String(event.response_service_tier ?? '').trim();
       const endpointFields = parseRequestEndpoint(event.endpoint);
       const timestampLabels = formatRequestEventTimestamp(timestamp);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
@@ -723,10 +684,13 @@ export function RequestEventsDetailsCard({
         modelAlias: modelDisplay.modelAlias,
         modelTooltip,
         reasoningEffort,
-        speedMode,
-        speedModeRaw,
-        responseSpeedMode,
-        responseSpeedModeRaw,
+        speedMode: effectiveTier
+          ? formatServiceTier(effectiveTier, t)
+          : `${formatServiceTier(requestTier, t)} / ${formatServiceTier(responseTier, t)}`,
+        requestTier,
+        effectiveTier,
+        responseTier,
+        tierMismatch: !!effectiveTier && !!responseTier && effectiveTier !== responseTier,
         requestType: endpointFields.requestType,
         endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
@@ -854,7 +818,7 @@ export function RequestEventsDetailsCard({
     const tooltipLines = [value];
     return (
       <td
-        className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`}
+        className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsTooltipCell}`}
         tabIndex={hasValue ? 0 : undefined}
         aria-label={hasValue ? value : undefined}
         onMouseEnter={hasValue
@@ -999,14 +963,15 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>{row.reasoningEffort}</td>,
       },
       {
+        // 列 ID 是浏览器偏好的持久化键，沿用以保留用户的显示与排序设置。
         id: 'service_tier',
         label: t('usage_stats.speed_mode'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
         renderCell: (row) => {
-          const tooltipLines = buildSpeedModeTooltipLines(row, t);
+          const tooltipLines = buildServiceTierTooltipLines(row, t);
           return (
             <td
-              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell} ${styles.requestEventsPrimaryCell}`}
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsTooltipCell} ${styles.requestEventsPrimaryCell}`}
               tabIndex={0}
               aria-label={tooltipLines.join('; ')}
               onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
@@ -1014,7 +979,8 @@ export function RequestEventsDetailsCard({
               onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
               onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
             >
-              {`${row.speedMode} / ${row.responseSpeedMode}`}
+              {row.speedMode}
+              {row.tierMismatch && <IconInfo className={styles.requestEventsTierMismatch} size={14} role="img" aria-hidden={false} aria-label={t('usage_stats.service_tier_mismatch')} />}
             </td>
           );
         },
@@ -1082,7 +1048,7 @@ export function RequestEventsDetailsCard({
           const tooltipLines = buildTokenTooltipLines(row, t);
           return (
             <td
-              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsTooltipCell}`}
               tabIndex={0}
               aria-label={tooltipLines.join('; ')}
               onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
@@ -1124,7 +1090,7 @@ export function RequestEventsDetailsCard({
           const tooltipLines = buildCacheTooltipLines(row, t);
           return (
             <td
-              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsTooltipCell}`}
               tabIndex={0}
               aria-label={tooltipLines.join('; ')}
               onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}

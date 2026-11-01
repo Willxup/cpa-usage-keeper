@@ -291,6 +291,7 @@ export interface UsageEvent {
   response_model?: string
   reasoning_effort?: string
   service_tier?: string
+  effective_service_tier?: string
   response_service_tier?: string
   executor_type?: string
   endpoint?: string

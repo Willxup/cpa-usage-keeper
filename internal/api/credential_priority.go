@@ -68,6 +68,8 @@ func bindCredentialPriorityRequest(c *gin.Context) (int, bool) {
 
 func writeCredentialPriorityError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrCredentialConfigChanged):
+		c.JSON(http.StatusPreconditionFailed, gin.H{"error": "credential configuration changed"})
 	case errors.Is(err, service.ErrCredentialPriorityValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid credential priority request"})
 	case errors.Is(err, service.ErrCredentialPriorityNotFound):

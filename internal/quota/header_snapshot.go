@@ -41,6 +41,8 @@ type UsageHeaderSnapshot struct {
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。
 	pendingMainObservedAt time.Time
+	// pendingMainLimitReachedObservedAt 单独记录明确限流标记的时间，缺字段的 Header 不刷新它。
+	pendingMainLimitReachedObservedAt time.Time
 	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
 	pendingAdditionalObservedAt map[string]time.Time
 	// pendingClaudeObservedAt 保留各 Claude 主窗口的观察时间，避免部分 Header 相互覆盖或被刷新为新时间。
@@ -129,7 +131,7 @@ func codexQuotaSnapshotHeaders(headers http.Header) http.Header {
 }
 
 func isCodexQuotaHeaderKey(key string) bool {
-	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" {
+	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" || key == "X-Codex-Limit-Reached" {
 		return true
 	}
 	if !strings.HasPrefix(key, codexHeaderPrefix) {

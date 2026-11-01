@@ -67,9 +67,11 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
       setPartial((current) => current || completed > 0)
       const key = cause instanceof ApiError && cause.status === 404
         ? 'usage_stats.credentials_priority_stale_target'
-        : cause instanceof ApiError && cause.status === 409
-          ? selection.kind === 'credential' ? 'usage_stats.credentials_priority_conflict_credential' : 'usage_stats.credentials_edit_unsupported'
-          : 'usage_stats.credentials_edit_failed'
+        : cause instanceof ApiError && cause.status === 412
+          ? 'usage_stats.credentials_config_changed'
+          : cause instanceof ApiError && cause.status === 409
+            ? selection.kind === 'credential' ? 'usage_stats.credentials_priority_conflict_credential' : 'usage_stats.credentials_edit_unsupported'
+            : 'usage_stats.credentials_edit_failed'
       setError(t(key))
     } finally {
       busyRef.current = false

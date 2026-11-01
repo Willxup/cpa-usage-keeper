@@ -41,6 +41,7 @@ type UsageQueueResult struct {
 // Payload 用于同步与有效状态判断；Document 保留完整配置用于写回，不能用 Payload 代替。
 type ProviderKeyConfigResult struct {
 	StatusCode int
+	ETag       string
 	Body       []byte
 	Payload    []providerconfig.ProviderKeyConfig
 	Document   *providerconfig.Document
@@ -50,6 +51,7 @@ type ProviderKeyConfigResult struct {
 // 编辑通过 Document 定位组，并用 Payload 中该组的成员标识更新本地优先级。
 type OpenAICompatibilityResult struct {
 	StatusCode int
+	ETag       string
 	Body       []byte
 	Payload    []providerconfig.OpenAICompatibilityConfig
 	Document   *providerconfig.Document

@@ -105,6 +105,7 @@ func TestCredentialStatusRoutesMapServiceErrors(t *testing.T) {
 		{name: "not found", err: fmt.Errorf("%w: credential identity", service.ErrCredentialStatusNotFound), wantStatus: http.StatusNotFound, wantBody: "credential not found"},
 		{name: "unsupported", err: fmt.Errorf("%w: provider type %q", service.ErrCredentialStatusUnsupported, "openai"), wantStatus: http.StatusConflict, wantBody: "credential status is not supported"},
 		{name: "conflict", err: fmt.Errorf("%w: credential", service.ErrCredentialStatusConflict), wantStatus: http.StatusConflict, wantBody: "credential status target cannot be changed on its own"},
+		{name: "configuration changed", err: fmt.Errorf("%w: upstream secret-xyz", service.ErrCredentialConfigChanged), wantStatus: http.StatusPreconditionFailed, wantBody: "credential configuration changed"},
 		{name: "internal", err: fmt.Errorf("update credential status: %w", errors.New("upstream failed with api-key secret-xyz")), wantStatus: http.StatusInternalServerError, wantBody: "internal server error"},
 	}
 	for _, tc := range cases {

@@ -59,7 +59,7 @@ func TestCredentialsManagementServiceBoundsConcurrentStatusUpdates(t *testing.T)
 	// 虚拟时间等到全部 worker 阻塞后再推进，避免真实 sleep 和调度运气。
 	synctest.Test(t, func(t *testing.T) {
 		client := &credentialsManagementClientStub{delay: 10 * time.Millisecond}
-		service := keeperservice.NewCredentialsManagementService(client, &keeperservice.CredentialMutationLocks{})
+		service := keeperservice.NewCredentialsManagementService(client, nil, &keeperservice.CredentialMutationLocks{}, nil)
 		names := make([]string, 20)
 		for i := range names {
 			names[i] = fmt.Sprintf("auth-%d.json", i)
@@ -89,7 +89,7 @@ func TestCredentialsManagementServiceBoundsConcurrentStatusUpdates(t *testing.T)
 
 func TestCredentialsManagementServiceTrimsAndDedupesNames(t *testing.T) {
 	client := &credentialsManagementClientStub{}
-	service := keeperservice.NewCredentialsManagementService(client, &keeperservice.CredentialMutationLocks{})
+	service := keeperservice.NewCredentialsManagementService(client, nil, &keeperservice.CredentialMutationLocks{}, nil)
 
 	response, err := service.DeleteCredentials(context.Background(), []string{" a.json ", "a.json", "b.json"})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestCredentialsManagementServiceTrimsAndDedupesNames(t *testing.T) {
 
 func TestCredentialsManagementServiceRejectsEmptyNames(t *testing.T) {
 	client := &credentialsManagementClientStub{}
-	service := keeperservice.NewCredentialsManagementService(client, &keeperservice.CredentialMutationLocks{})
+	service := keeperservice.NewCredentialsManagementService(client, nil, &keeperservice.CredentialMutationLocks{}, nil)
 
 	_, err := service.DeleteCredentials(context.Background(), []string{" "})
 	if !errors.Is(err, keeperservice.ErrCredentialsManagementValidation) {
@@ -118,7 +118,7 @@ func TestCredentialsManagementServiceRejectsEmptyNames(t *testing.T) {
 
 func TestCredentialsManagementServiceReturnsStatusUpdateErrors(t *testing.T) {
 	client := &credentialsManagementClientStub{statusErrByName: map[string]error{"b.json": errors.New("upstream rejected")}}
-	service := keeperservice.NewCredentialsManagementService(client, &keeperservice.CredentialMutationLocks{})
+	service := keeperservice.NewCredentialsManagementService(client, nil, &keeperservice.CredentialMutationLocks{}, nil)
 
 	_, err := service.SetCredentialsDisabled(context.Background(), []string{"a.json", "b.json"}, true)
 	if err == nil || !strings.Contains(err.Error(), "b.json") {

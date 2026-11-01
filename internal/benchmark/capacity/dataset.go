@@ -556,7 +556,7 @@ func eventInsertArgs(event generatedEvent) []any {
 	return []any{
 		event.ID, event.EventKey, event.APIGroupKey, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
 		nil, nil, "", "", nil, nil, nil,
-		nil, nil, nil, event.Model, event.ModelAlias, "", event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
+		nil, nil, nil, event.Model, event.ModelAlias, "", event.ReasoningEffort, event.ServiceTier, "", event.ResponseServiceTier,
 		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, event.StatusCode, true, event.Stream, event.LatencyMS, event.TTFTMS,
 		event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
 		event.CacheCreationTokens, event.TotalTokens, event.CostUSD, event.CostAvailable, timestamp,

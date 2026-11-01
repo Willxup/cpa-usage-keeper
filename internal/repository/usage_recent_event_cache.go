@@ -523,6 +523,33 @@ func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, ap
 	return result, true
 }
 
+// UsedAPIKeys 在读锁内收集窗口内的 Key，不复制事件，也不暴露缓存内部切片。
+// openEnd 仅供 Overview 当前右边界使用；Realtime 始终尊重明确的 end。
+func (c *UsageRecentEventCache) UsedAPIKeys(start, end time.Time, includeEnd, openEnd bool) (map[string]struct{}, bool) {
+	if c == nil {
+		return nil, false
+	}
+	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.eventReadsValid {
+		return nil, false
+	}
+	keys := make(map[string]struct{})
+	for _, event := range c.events {
+		if event.Timestamp.Before(start) {
+			continue
+		}
+		if !openEnd && (event.Timestamp.After(end) || (!includeEnd && event.Timestamp.Equal(end))) {
+			continue
+		}
+		if event.APIGroupKey != "" {
+			keys[event.APIGroupKey] = struct{}{}
+		}
+	}
+	return keys, true
+}
+
 // EventsSince 返回从 start 起的缓存事件，供 Overview 当前右边界规避 now/end 轻微漂移。
 func (c *UsageRecentEventCache) EventsSince(start time.Time, apiGroupKey string) ([]RecentUsageEvent, bool) {
 	// nil cache 表示缓存对象不可用，Overview 当前右边界可回到 DB 旧路径。

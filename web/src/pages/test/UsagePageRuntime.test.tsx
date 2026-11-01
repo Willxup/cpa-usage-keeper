@@ -28,6 +28,11 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   }),
   fetchVersion: async () => ({ version: 'test' }),
   fetchCpaApiKeyOptions: async () => ({ options: [] }),
+  fetchCpaApiKeySettings: async () => ({ items: [] }),
+  fetchAuthSessions: async () => ({ items: [] }),
+  fetchPricingModels: async () => ({ models: [], config_revision: 0 }),
+  fetchPricingModelOptions: async () => ({ models: [] }),
+  fetchCurrentPricingRecalculation: async () => null,
   fetchUsageEventModelFilterOptions: async () => ({ models: [] }),
   fetchUsageEventSourceFilterOptions: async () => ({ sources: [] }),
   fetchUsageEvents: async (): Promise<UsageEventsResponse> => ({
@@ -91,6 +96,7 @@ describe('UsagePage runtime behavior', () => {
   };
 
   it('preserves Safari menu clicks when native mouse focus falls back to an ancestor', async () => {
+    const networkFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected unmocked network request'));
     await render();
     const trigger = container.querySelector<HTMLButtonElement>('[data-dashboard-page-trigger]')!;
     await act(async () => trigger.click());
@@ -107,6 +113,7 @@ describe('UsagePage runtime behavior', () => {
     await act(async () => next.click());
     expect(window.location.pathname).toBe('/settings');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(networkFetch).not.toHaveBeenCalled();
   });
 
   const openPendingRequestLog = async () => {

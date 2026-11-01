@@ -33,6 +33,14 @@ describe('resolveCredentialStatusFailure', () => {
     })
   })
 
+  it('explains a changed configuration without retrying or refreshing automatically', () => {
+    expect(resolveCredentialStatusFailure('ai-provider', new ApiError('credential configuration changed', 412))).toEqual({
+      authRequired: false,
+      noticeKey: 'usage_stats.credentials_config_changed',
+      refresh: false,
+    })
+  })
+
   it('keeps retry wording for unexpected failures', () => {
     expect(resolveCredentialStatusFailure('credential', new Error('boom'))).toEqual({
       authRequired: false,

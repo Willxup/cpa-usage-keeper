@@ -2899,7 +2899,12 @@
   vertical-align: middle;
 }
 
-.requestEventsSpeedModeCell {
+.requestEventsTierMismatch {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.requestEventsTooltipCell {
   cursor: default;
 
   &:focus-visible {

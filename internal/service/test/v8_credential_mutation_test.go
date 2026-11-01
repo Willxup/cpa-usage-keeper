@@ -130,8 +130,8 @@ func TestV8ProviderMutationsSerializeWholeListAcrossServicesAndGroups(t *testing
 			seedProviderCredential(t, db, scenario.provider, "b", "b-key")
 			client := cpa.NewClient(server.URL, "management-secret", 3*time.Second, false)
 			locks := &service.CredentialMutationLocks{}
-			status := service.NewCredentialStatusService(db, client, nil, locks)
-			priority := service.NewCredentialPriorityService(db, client, nil, locks)
+			status := service.NewCredentialStatusService(db, client, nil, locks, nil)
+			priority := service.NewCredentialPriorityService(db, client, nil, locks, nil)
 			action := func(kind, authIndex string, value int) error {
 				if kind == "status" {
 					_, err := status.SetAIProviderDisabled(context.Background(), authIndex, true)
@@ -206,7 +206,7 @@ func TestV8StatusWritesInheritedExclusionsToFirstMemberOnly(t *testing.T) {
 	state, server := newV8ProviderServer(t, raw, false)
 	db := openMetadataTestDatabase(t, "v8-first-status.db")
 	seedProviderCredential(t, db, "codex", "target", "first")
-	provider := service.NewCredentialStatusService(db, cpa.NewClient(server.URL, "management-secret", time.Second, false), nil, &service.CredentialMutationLocks{})
+	provider := service.NewCredentialStatusService(db, cpa.NewClient(server.URL, "management-secret", time.Second, false), nil, &service.CredentialMutationLocks{}, nil)
 	if _, err := provider.SetAIProviderDisabled(context.Background(), "target", false); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestV8PriorityUpdatesFirstDuplicateAndOpenAIGroupScope(t *testing.T) {
 				seedProviderCredential(t, db, providerType, index, index+"-key")
 			}
 			refresher := &credentialStatusRefresherStub{}
-			provider := service.NewCredentialPriorityService(db, cpa.NewClient(server.URL, "management-secret", time.Second, false), refresher, &service.CredentialMutationLocks{})
+			provider := service.NewCredentialPriorityService(db, cpa.NewClient(server.URL, "management-secret", time.Second, false), refresher, &service.CredentialMutationLocks{}, nil)
 			if _, err := provider.SetAIProviderPriority(context.Background(), "target", 0); err != nil {
 				t.Fatal(err)
 			}
@@ -284,9 +284,9 @@ func TestV8FailedPUTPreservesUpstreamAndLocalState(t *testing.T) {
 			refresh := &credentialStatusRefresherStub{}
 			var err error
 			if kind == "status" {
-				_, err = service.NewCredentialStatusService(db, client, refresh, locks).SetAIProviderDisabled(context.Background(), "target", true)
+				_, err = service.NewCredentialStatusService(db, client, refresh, locks, nil).SetAIProviderDisabled(context.Background(), "target", true)
 			} else {
-				_, err = service.NewCredentialPriorityService(db, client, refresh, locks).SetAIProviderPriority(context.Background(), "target", 9)
+				_, err = service.NewCredentialPriorityService(db, client, refresh, locks, nil).SetAIProviderPriority(context.Background(), "target", 9)
 			}
 			if err == nil {
 				t.Fatal("PUT failure returned success")

@@ -37,7 +37,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
           check-latest: true
           cache: true
 
@@ -45,6 +45,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          check-latest: true
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -73,6 +74,7 @@ jobs:
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w -X cpa-usage-keeper/internal/version.Version=${VERSION}" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
+          cp -R docs "${package_dir}/"
           cp deploy/cpa-usage-keeper.example.service "${package_dir}/cpa-usage-keeper.service"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
@@ -105,7 +107,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
           check-latest: true
           cache: true
 
@@ -113,6 +115,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          check-latest: true
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -137,6 +140,7 @@ jobs:
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" \
             go build -trimpath -ldflags="-s -w -X cpa-usage-keeper/internal/version.Version=${VERSION}" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
+          cp -R docs "${package_dir}/"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
       - name: Upload binary package artifact
@@ -172,7 +176,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
           check-latest: true
           cache: true
 
@@ -180,6 +184,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          check-latest: true
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -216,6 +221,7 @@ jobs:
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w -X cpa-usage-keeper/internal/version.Version=${VERSION}" -o "${package_dir}/cpa-usage-keeper.exe" ./cmd/server/main.go
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
+          cp -R docs "${package_dir}/"
 
       - name: Archive binary package
         shell: pwsh

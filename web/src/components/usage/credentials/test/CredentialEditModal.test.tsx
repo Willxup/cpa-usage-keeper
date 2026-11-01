@@ -84,6 +84,18 @@ describe('credential unified editor', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('usage_stats.credentials_edit_failed')
   })
 
+  it('keeps a conflicting provider draft open and asks the user to refresh', async () => {
+    const save = vi.fn(async () => { throw new ApiError('credential configuration changed', 412) })
+    await render(save, 'openai')
+    await change(field('priority'), '6')
+    await act(async () => button('save').click())
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('usage_stats.credentials_config_changed')
+    expect(field('priority').value).toBe('6')
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
   it('rejects invalid priority before saving any field and permits an explicit zero', async () => {
     const save = vi.fn(async () => undefined)
     await render(save)

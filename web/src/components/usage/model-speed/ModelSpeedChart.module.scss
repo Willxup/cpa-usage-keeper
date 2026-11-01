@@ -49,6 +49,32 @@
   }
 }
 
+.interactiveLegendItem { min-width: 0; }
+
+.legend .legendButton {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease, opacity 180ms ease;
+
+  > span:first-child { transition: transform 180ms ease; }
+
+  &[data-highlighted] {
+    background-color: color-mix(in srgb, var(--text-primary) 7%, var(--bg-primary));
+    border-color: var(--text-secondary);
+    > span:first-child { transform: scale(1.2); }
+  }
+
+  &[data-muted] { opacity: 0.45; }
+  &:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+    > span:first-child { transition: none; }
+  }
+}
+
 .legendValue { color: var(--text-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 @container model-speed (min-width: 420px) {

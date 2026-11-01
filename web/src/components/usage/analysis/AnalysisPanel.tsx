@@ -991,12 +991,8 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
   }), [chartTheme, external, isMobile, t, view.bucketTotals]);
 
   return (
-    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} ${styles.topModelsCard} keeper-card-surface`}>
       <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} subtitle={t('usage_stats.analysis_top_models_subtitle')} showPricingHint={false} hint="" />
-      <div className={styles.pairedChartToolbar}>
-        <span className={styles.chartSummaryCount}>{t('usage_stats.analysis_models_count', { count: view.series.length })}</span>
-        <span className={styles.chartSummaryTotal}>{t('usage_stats.total_tokens')} <strong>{formatCompactNumber(view.rangeTotal)}</strong></span>
-      </div>
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
           <div className={styles.analysisChartSurface}>

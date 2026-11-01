@@ -33,10 +33,12 @@ export function getAnalysisRankingColor(identity: string, index: number, palette
   return { base: hex(0.68, 0.44), light: hex(0.78, 0.7) };
 }
 
-export function useAnalysisHighlight(scope: string) {
+export function useAnalysisHighlight(scope: string, { resetOnScopeChange = false }: { resetOnScopeChange?: boolean } = {}) {
   const [state, setState] = useState({ scope, hovered: null as string | null, focused: null as string | null, selected: null as string | null });
   const pointerFocus = useRef(false);
   const current = state.scope === scope ? state : { scope, hovered: null, focused: null, selected: null };
+  // Opt-in reset prevents old selections reviving on A → B → A without changing existing cards.
+  if (resetOnScopeChange && state.scope !== scope) setState(current);
   const update = (change: Partial<typeof current>) => setState((previous) => ({
     ...(previous.scope === scope ? previous : { scope, hovered: null, focused: null, selected: null }), ...change,
   }));

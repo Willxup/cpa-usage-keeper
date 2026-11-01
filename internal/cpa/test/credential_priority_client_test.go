@@ -52,7 +52,7 @@ func TestProviderConfigClientPUTsEachSupplierList(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer server.Close()
-			status, err := cpa.NewClient(server.URL, "management-secret", 2*time.Second, false).UpdateProviderConfig(context.Background(), providerType, &document)
+			status, err := cpa.NewClient(server.URL, "management-secret", 2*time.Second, false).UpdateProviderConfig(context.Background(), providerType, &document, "")
 			if err != nil || status != http.StatusOK {
 				t.Fatalf("PUT status = %d, err = %v", status, err)
 			}
