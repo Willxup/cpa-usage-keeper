@@ -147,21 +147,21 @@ describe('credential compact card data', () => {
     }
     await renderReset('2026-05-12T03:15:00-07:00')
     const countdown = container.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!
-    expect(countdown.getAttribute('aria-label')).toBe('Resets at 05/12 18:15 (Asia/Shanghai)')
+    expect(countdown.getAttribute('aria-label')).toBe('Resets at 05-12 18:15')
     await act(async () => countdown.focus())
     const tooltip = () => document.getElementById(countdown.getAttribute('aria-describedby')!)
-    expect(tooltip()?.textContent).toBe('Resets at 05/12 18:15 (Asia/Shanghai)')
+    expect(tooltip()?.textContent).toBe('Resets at 05-12 18:15')
 
     await renderReset('2026-05-13T03:15:00-07:00')
 
     expect(container.querySelector('[data-quota-reset-countdown="true"]')).toBe(countdown)
-    expect(countdown.getAttribute('aria-label')).toBe('Resets at 05/13 18:15 (Asia/Shanghai)')
-    expect(tooltip()?.textContent).toBe('Resets at 05/13 18:15 (Asia/Shanghai)')
-    expect(tooltip()?.textContent).not.toContain('05/12')
+    expect(countdown.getAttribute('aria-label')).toBe('Resets at 05-13 18:15')
+    expect(tooltip()?.textContent).toBe('Resets at 05-13 18:15')
+    expect(tooltip()?.textContent).not.toContain('05-12')
 
     await renderReset('2026-05-13T03:15:00-07:00', 'Local')
 
     expect(container.querySelector('[data-quota-reset-countdown="true"]')).toBeNull()
-    expect(container.textContent).not.toContain('05/13 18:15')
+    expect(container.textContent).not.toContain('05-13 18:15')
   })
 })

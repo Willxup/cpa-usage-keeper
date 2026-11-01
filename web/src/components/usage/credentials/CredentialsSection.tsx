@@ -1999,7 +1999,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
         {(resetDuration || percentLabel) && (
           <span className={styles.credentialQuotaValueGroup}>
             {resetDuration && (compact && resetLabel
-              ? <QuotaResetCountdown duration={resetDuration} resetLabel={resetLabel} timeZone={timeZone} />
+              ? <QuotaResetCountdown duration={resetDuration} resetLabel={resetLabel} />
               : <span className={styles.credentialQuotaResetDuration}>{resetDuration}</span>)}
             {percentLabel && <strong>{percentLabel}</strong>}
           </span>
@@ -2038,12 +2038,12 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
   )
 }
 
-function QuotaResetCountdown({ duration, resetLabel, timeZone }: { duration: string; resetLabel: string; timeZone?: string }) {
+function QuotaResetCountdown({ duration, resetLabel }: { duration: string; resetLabel: string }) {
   const { t } = useTranslation()
   const tooltipId = useId()
   const anchorRef = useRef<HTMLButtonElement>(null)
   const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip()
-  const label = t('usage_stats.credentials_quota_resets_at', { time: resetLabel, timeZone: timeZone ?? '' })
+  const label = t('usage_stats.credentials_quota_resets_at', { time: resetLabel.replace('/', '-') })
   const lines = [label]
 
   useEffect(() => {
