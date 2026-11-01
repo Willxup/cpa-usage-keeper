@@ -137,11 +137,13 @@ describe('CredentialHealthPanel health semantics', () => {
     expect(html).not.toContain('usage_stats.credentials_health_summary_degraded')
   })
 
-  it('uses the same sample-aware policy for the 5-hour summary', () => {
+  it.each(['full', 'compact'] as const)('shows all four 5-hour summary states with the same sample-aware policy in %s panels', (variant) => {
     const renderSummary = (success: number, failure: number) => renderToStaticMarkup(
       <CredentialHealthPanel
         displayName="Provider Key"
         health={healthWithBuckets([bucket(0, success, failure)])}
+        variant={variant}
+        showCompactMeta
       />,
     )
 
@@ -150,6 +152,7 @@ describe('CredentialHealthPanel health semantics', () => {
     expect(renderSummary(95, 5)).toContain('usage_stats.credentials_health_summary_healthy')
     expect(renderSummary(1, 1)).toContain('usage_stats.credentials_health_summary_degraded')
     expect(renderSummary(1, 2)).toContain('usage_stats.credentials_health_summary_unhealthy')
+    expect(renderSummary(0, 0)).toContain('usage_stats.credentials_health_summary_quiet')
   })
 
   it('keeps the same ordered buckets and tooltip details in compact cards and the default full panel', () => {

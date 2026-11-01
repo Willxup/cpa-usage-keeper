@@ -123,7 +123,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
       </div>
       {compact ? showCompactMeta && (
         <div className={`${styles.credentialHealthCompactMeta} ${healthMetaToneClassName[summary.tone]}`.trim()}>
-          {summary.tone !== 'healthy' && <span className={styles.credentialHealthMetaStatus}>{summary.label}</span>}
+          <span className={styles.credentialHealthMetaStatus}>{summary.label}</span>
           {showWindowCacheReadRate && (
             <span className={styles.credentialHealthCompactCache}>
               <span>{t('usage_stats.credentials_health_cache_short')}</span>
