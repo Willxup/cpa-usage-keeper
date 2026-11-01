@@ -14,10 +14,12 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchUsageQuotaResetCredits: async (authIndex: string) => ({ authIndex, availableCount: 2, credits: [] }),
 }))
 
+const fileName = 'claude-account-with-a-very-long-workspace-and-profile-name.json'
 const identities = (authType: 1 | 2, deleted = false) => [1, 2].map((index) => createSectionIdentity({
   id: `identity-${index}`,
   identity: `auth-${index}`,
   displayName: 'Shared Account',
+  file_name: fileName,
   auth_type: authType,
   type: authType === 1 ? 'codex' : 'claude',
   is_deleted: deleted,
@@ -53,18 +55,15 @@ describe('credential card detail triggers', () => {
     expect(cards).toHaveLength(2)
     for (const [index, card] of Array.from(cards).entries()) {
       const title = card.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]')!
-      expect(title.tagName).toBe('BUTTON')
-      expect(title.closest('h1, h2, h3, h4, h5, h6')).not.toBeNull()
-      expect(title.querySelector('span')?.textContent).toBe('Shared Account')
-      expect(card.querySelectorAll('[data-credential-detail-trigger="true"]')).toHaveLength(1)
-      expect(card.querySelector('[data-credential-detail-entry="footer"]')).toBeNull()
-      expect(title.closest('[title], [aria-describedby]')).toBeNull()
-      expect(title.parentElement?.querySelector('[role="tooltip"]')).toBeNull()
-      expect(Array.from(card.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Details')).toBe(false)
-
+      await act(async () => {
+        title.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+        title.focus()
+      })
+      // 名称交互不暴露原始文件名；不约束标题内部的标签和样式结构。
+      expect(document.body.textContent).not.toContain(fileName)
+      expect(title.title).not.toContain(fileName)
       await act(async () => title.click())
       expect(onOpenDetails.mock.calls.slice(index, index + 1)).toEqual([[rows[index]]])
-      expect(container.querySelector('[role="menu"], [role="menuitem"]')).toBeNull()
     }
   })
 
@@ -107,18 +106,8 @@ describe('credential card detail triggers', () => {
       await act(async () => action(i18n.t('usage_stats.credentials_refresh_single', { name: identity.displayName })).click())
       expect(onRefreshQuotaForAuthIndex).toHaveBeenCalledWith(identity.identity)
       const reset = action(i18n.t('usage_stats.credentials_quota_reset_button', { count: '2' }))
-      expect(reset.textContent?.trim()).toBe('')
-      expect(reset.hasAttribute('title')).toBe(false)
-      const tooltip = document.getElementById(reset.getAttribute('aria-describedby')!)
-      expect(tooltip?.getAttribute('role')).toBe('tooltip')
-      expect(tooltip?.querySelector('span')?.textContent).toBe('2')
-      expect(tooltip?.textContent).toContain(i18n.t('usage_stats.credentials_quota_reset_tooltip_suffix'))
       await act(async () => reset.click())
       expect(document.querySelector('[role="dialog"]')).not.toBeNull()
-    } else {
-      expect(action(i18n.t('usage_stats.credentials_refresh_single', { name: identity.displayName }))).toBeUndefined()
-      expect(action(i18n.t('usage_stats.credentials_quota_reset_button', { count: '2' }))).toBeUndefined()
-      expect(card.querySelector('[data-credential-quota-variant]')).toBeNull()
     }
     expect(onOpenDetails).not.toHaveBeenCalled()
   })

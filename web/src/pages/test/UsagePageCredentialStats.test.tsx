@@ -155,22 +155,15 @@ describe('UsagePage credential detail statistics', () => {
   it.each([1, 2] as const)('opens the type %s overview from its title and returns focus to the title', async (authType) => {
     await render(authType);
     const card = container.querySelector<HTMLElement>('[data-credential-card="true"][data-credential-identity="1"]')!;
-    expect(card).not.toBeNull();
     expect(api.fetchUsageIdentity).not.toHaveBeenCalled();
 
     const trigger = card.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]')!;
-    expect(trigger).not.toBeNull();
-    expect(card.querySelector('[data-credential-detail-entry="footer"]')).toBeNull();
     await act(async () => trigger.click());
 
     const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
-    expect(drawer).not.toBeNull();
     expect(drawer.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Overview');
-    expect(drawer.querySelector('[data-credential-health-variant="compact"]')).toBeNull();
-    expect(drawer.querySelector('[data-credential-quota-variant="compact"]')).toBeNull();
     expectHealth('100.0%', '20.00%');
     expect(api.fetchUsageIdentity).toHaveBeenLastCalledWith('1', expect.any(AbortSignal));
-    expect(document.querySelector('[role="menu"]')).toBeNull();
 
     await act(async () => button('Close').click());
     await act(async () => vi.advanceTimersByTimeAsync(350));

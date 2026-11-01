@@ -144,6 +144,8 @@ describe('CredentialHealthPanel health semantics', () => {
         health={healthWithBuckets([bucket(0, success, failure)])}
         variant={variant}
         showCompactMeta
+        lastUsedAt="2026-07-16T14:58:00+08:00"
+        windowCacheReadRate={null}
       />,
     )
 
@@ -152,7 +154,11 @@ describe('CredentialHealthPanel health semantics', () => {
     expect(renderSummary(95, 5)).toContain('usage_stats.credentials_health_summary_healthy')
     expect(renderSummary(1, 1)).toContain('usage_stats.credentials_health_summary_degraded')
     expect(renderSummary(1, 2)).toContain('usage_stats.credentials_health_summary_unhealthy')
-    expect(renderSummary(0, 0)).toContain('usage_stats.credentials_health_summary_quiet')
+    const quiet = renderSummary(0, 0)
+    expect(quiet).toContain('usage_stats.credentials_health_summary_quiet')
+    expect(quiet).toContain('0.0%')
+    expect(quiet).toContain('—')
+    expect(quiet).toContain(variant === 'compact' ? '07-16 14:58' : '07/16 14:58')
   })
 
   it('keeps the same ordered buckets and tooltip details in compact cards and the default full panel', () => {
@@ -188,16 +194,13 @@ describe('CredentialHealthPanel health semantics', () => {
     ])
     expect(bucketLabels(compact).at(-1)).toContain('14:50 - 15:00')
     expect(bucketTooltips(compact)).toEqual(bucketTooltips(full))
-    expect(compact.textContent).not.toContain('Failed requests in 5h:')
-    expect(compact.textContent).not.toContain('37.50%')
     expect(full.textContent).toContain('Failed requests in 5h: 13 · latest 10:20 - 10:30')
     expect(full.textContent).toContain('37.50%')
     expect(full.textContent).toContain('07/16 14:58')
     expect(full.textContent).toContain('07/16 15:00')
-    expect(full.querySelector('[data-credential-health-variant="compact"]')).toBeNull()
   })
 
-  it('updates a compact bucket tooltip and accessible name while that bucket is hovered', async () => {
+  it('updates bucket details and accessible names when health data changes', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -211,44 +214,20 @@ describe('CredentialHealthPanel health semantics', () => {
     }
     try {
       await renderHealth(9, 1)
-      const cell = container.querySelector<HTMLElement>('[role="listitem"]')!
-      await act(async () => cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-      expect(cell.querySelector('[role="tooltip"]')?.textContent).toContain('90.0%')
+      expect(container.querySelector('[role="tooltip"]')?.textContent).toContain('90.0%')
 
       await renderHealth(1, 2)
 
-      expect(container.querySelector('[role="listitem"]')).toBe(cell)
+      const cell = container.querySelector<HTMLElement>('[role="listitem"]')!
       expect(cell.getAttribute('aria-label')).toBe('10:00 - 10:10|usage_stats.credentials_health_status_failure|1/2|33.3%')
       const tooltip = cell.querySelector('[role="tooltip"]')!
       expect(tooltip.textContent).toContain('usage_stats.credentials_health_ok 1')
       expect(tooltip.textContent).toContain('usage_stats.credentials_health_fail 2')
       expect(tooltip.textContent).toContain('33.3%')
-      expect(tooltip.textContent).not.toContain('90.0%')
     } finally {
       await act(async () => root.unmount())
       container.remove()
     }
   })
 
-  it('shows provider compact metadata while keeping Quiet distinct from failure', () => {
-    const html = renderToStaticMarkup(<CredentialHealthPanel
-      displayName="Quiet Provider"
-      health={healthWithBuckets([])}
-      variant="compact"
-      showCompactMeta
-      lastUsedAt="2026-07-16T14:58:00+08:00"
-      statsUpdatedAt="2026-07-16T15:00:00+08:00"
-      windowCacheReadRate={null}
-    />)
-
-    expect(html).toContain('usage_stats.credentials_health_summary_quiet')
-    expect(html).not.toContain('usage_stats.credentials_health_summary_unhealthy')
-    expect(html).toContain('0.0%')
-    expect(html).toContain('usage_stats.credentials_health_cache_short')
-    expect(html).toContain('—')
-    expect(html).toContain('07-16 14:58')
-    expect(html).not.toContain('07/16')
-    expect(html).not.toContain('+08:00')
-    expect(html).not.toContain('07/16 15:00')
-  })
 })

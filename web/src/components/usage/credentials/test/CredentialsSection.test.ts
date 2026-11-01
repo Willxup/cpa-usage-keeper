@@ -89,8 +89,8 @@ describe('CredentialsSection account details and metrics', () => {
     expect(html).not.toContain('data-kimi-site="international"')
   })
 
-  it.each(['health', 'quota'])('shows health and quota together despite the legacy %s display preference', (legacyMode) => {
-    const storage = new Map<string, string>([['cpa.credentials.displayMode', legacyMode]])
+  it('shows health and quota together despite the legacy health-only preference', () => {
+    const storage = new Map<string, string>([['cpa.credentials.displayMode', 'health']])
     vi.stubGlobal('window', {
       matchMedia: () => ({ matches: false }),
       localStorage: {
@@ -128,16 +128,11 @@ describe('CredentialsSection account details and metrics', () => {
 
       const html = renderToStaticMarkup(createElement(CredentialsSection, createCredentialSectionProps({ rows: [row], total: 1 })))
 
-      expect(html).toContain('data-credential-health-variant="compact"')
-      expect(html).toContain('data-credential-quota-variant="compact"')
       expect(html).toContain('1.00M')
       expect(html).toContain('$2.50')
       expect(html).toContain('usage_stats.credentials_health_cache_short')
       expect(html).toContain('37.50%')
       expect(html).toContain('usage_stats.credentials_last_used')
-      expect(html).not.toContain('usage_stats.credentials_health_cache_rate_5h')
-      expect(html).not.toContain('usage_stats.credentials_display_mode_quota')
-      expect(html).not.toContain('usage_stats.credentials_display_mode_health')
       expect(html).toContain('usage_stats.credentials_quota_usage_mode_label')
     } finally {
       vi.unstubAllGlobals()

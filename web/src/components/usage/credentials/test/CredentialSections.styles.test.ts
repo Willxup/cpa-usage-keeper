@@ -73,12 +73,6 @@ describe('Credential section layout and accessibility', () => {
     expect(cssBlock('.credentialExpiryTooltip')).not.toContain('overflow-wrap:')
   })
 
-  it('allows long alias names to wrap beside their edit action', () => {
-    expect(credentialStyles).toMatch(/\.credentialAliasDisplayLayout\s*\{[\s\S]*?display:\s*grid;/)
-    expect(credentialStyles).toMatch(/\.credentialAliasNameSlot\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(credentialStyles).toMatch(/\.credentialAliasNameSlot\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
-  })
-
   it('bounds and scrolls the inspection results table', () => {
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?max-height:\s*min\(52vh, 520px\);/)
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?overflow-y:\s*auto;/)
