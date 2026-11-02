@@ -18,6 +18,7 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import { updateCredentialDetailStats } from '@/components/usage/credentials/credentialViewModels';
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
 import { PricingSettings, type PricingSettingsHandle } from '@/components/usage/pricing/PricingSettings';
+import { ModelCatalog, type ModelCatalogHandle } from '@/components/usage/models/ModelCatalog';
 import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -745,6 +746,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
   const pricingSettingsRef = useRef<PricingSettingsHandle | null>(null);
+  const modelCatalogRef = useRef<ModelCatalogHandle | null>(null);
   const [loadedTimeRange] = useState(loadTimeRange);
   const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
@@ -1766,7 +1768,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (activeTab === 'models') {
-      await pricingSettingsRef.current?.refresh();
+      await Promise.all([modelCatalogRef.current?.refresh(), pricingSettingsRef.current?.refresh()]);
       return;
     }
     if (activeTab === 'settings') {
@@ -2408,6 +2410,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'models' && (
               <div className={styles.settingsSections}>
+                <ModelCatalog ref={modelCatalogRef} onAuthRequired={onAuthRequired} />
                 <PricingSettings ref={pricingSettingsRef} timezone={status?.timezone} onAuthRequired={onAuthRequired}
                   onRecalculationSettled={() => { void credentialsData.refreshAfterRecalculation() }} />
               </div>
