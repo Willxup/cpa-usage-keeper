@@ -21,7 +21,7 @@ describe('model catalog', () => {
     localStorage.clear()
     mocks.copy.mockReset().mockResolvedValue(undefined)
     mocks.fetch.mockReset().mockResolvedValue({ data: [
-      { id: 'claude-model', owned_by: 'anthropic' }, { id: 'gpt-model', owned_by: 'openai' }, { id: 'alias', owned_by: 'custom' },
+      { id: 'claude-model', owned_by: 'openai' }, { id: 'gpt-model', owned_by: 'anthropic' }, { id: 'alias', owned_by: 'custom' },
     ] })
     container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
   })
@@ -29,7 +29,7 @@ describe('model catalog', () => {
   const button = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(label))!
   const ids = () => [...container.querySelectorAll('h3')].map((node) => node.textContent)
 
-  it('defaults to All, filters by real owner, copies the exact ID and remembers only its own filter', async () => {
+  it('defaults to All, filters by model prefix, copies the exact ID and remembers only its own filter', async () => {
     await act(async () => root.render(<ModelCatalog ref={ref} />))
     expect(button('All').getAttribute('aria-pressed')).toBe('true')
     expect(ids()).toEqual(['alias', 'claude-model', 'gpt-model'])
@@ -58,6 +58,18 @@ describe('model catalog', () => {
     expect(container.textContent).toContain('No matching models')
     await act(async () => button('Clear filters').click())
     expect(ids()).toHaveLength(3)
+  })
+
+  it('searches the resolved provider instead of conflicting owner metadata', async () => {
+    await act(async () => root.render(<ModelCatalog />))
+    const input = container.querySelector('input')!
+    for (const [query, expected] of [['openai', ['gpt-model']], ['claude', ['claude-model']], ['custom', ['alias']]] as const) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, query)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(ids()).toEqual(expected)
+    }
   })
 
   it('retains the last catalog and saved filter on refresh failure', async () => {
@@ -105,14 +117,14 @@ describe('model catalog', () => {
     expect(viewport.scrollTop).toBe(0)
   })
 
-  it('validates local storage and never guesses owners from model names', () => {
+  it('validates local storage and falls back to owned_by for unknown model names', () => {
     localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, '{bad')
     expect(loadModelProviderFilter()).toBe('all')
     localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, JSON.stringify({ version: 99, providerFilter: 'provider:claude' }))
     expect(loadModelProviderFilter()).toBe('all')
-    expect(modelProvider('google').icon).toBe('gemini')
-    expect(normalizeCatalog([{ id: 'gpt-alias', owned_by: 'custom' }, { id: 'gpt-alias' }, { id: '' }])).toEqual([
-      { id: 'gpt-alias', owned_by: 'custom', provider: { key: 'owner:custom', label: 'custom' } },
+    expect(modelProvider('custom-model', 'google').icon).toBe('gemini')
+    expect(normalizeCatalog([{ id: 'custom-alias', owned_by: 'custom' }, { id: 'custom-alias' }, { id: '' }])).toEqual([
+      { id: 'custom-alias', owned_by: 'custom', provider: { key: 'owner:custom', label: 'custom' } },
     ])
   })
 })

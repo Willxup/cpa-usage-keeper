@@ -64,7 +64,7 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
     return models.filter((model) => (provider === 'all' || model.provider.key === provider) &&
-      (!query || `${model.id} ${model.owned_by ?? ''} ${model.provider.label}`.toLowerCase().includes(query)))
+      (!query || `${model.id} ${model.provider.label}`.toLowerCase().includes(query)))
   }, [models, provider, search])
   const resetScroll = () => { if (listViewport.current) listViewport.current.scrollTop = 0 }
   const selectProvider = (value: string) => { setProvider(value); persistModelProviderFilter(value); resetScroll() }
