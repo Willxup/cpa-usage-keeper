@@ -27,7 +27,9 @@
 
 Keep usage history for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI), understand model costs, and track request performance and credential quotas. CPA Usage Keeper brings overviews, realtime diagnostics, request details, and quota history into one independently deployed dashboard.
 
-**[Add Keeper to an existing CPA](#keeper-only) · [Deploy CPA + Keeper](#cpa--keeper) · [Configuration](#configuration)**
+<p align="center">
+  <strong><a href="#keeper-only">Deploy Keeper</a>&emsp;|&emsp;<a href="#cpa--keeper">Deploy CPA + Keeper</a>&emsp;|&emsp;<a href="#configuration">Configuration</a></strong>
+</p>
 
 ## Screenshots
 
@@ -106,13 +108,10 @@ CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Hom
 
 ## Quick Start
 
-> Keeper supports CPA v8.0.12+. Enable CPA usage statistics by setting `observability.usage.usage-statistics-enabled` to `true`.
+> Keeper supports CPA v8.0.12+. Enable usage statistics by setting `observability.usage.usage-statistics-enabled` to `true`.<br>
+> When multiple collectors share one CPA instance, all must use subscription mode to avoid interrupted collection or missing data.
 
-> When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
-
-Docker Compose is the recommended deployment method. Use the full stack when deploying CPA and Keeper together, or the Keeper-only stack when CPA already exists.
-
-Docker deployment requires Docker and Docker Compose; you do not need Go, Node.js, or a source build. For an existing CPA, have its address and management key ready, and choose a Keeper login password.
+Docker Compose is recommended; no Go, Node.js, or source build is needed. Choose a deployment below. For an existing CPA, have its address and management key ready, and choose a Keeper login password.
 
 | Setup | Recommended path | Architectures |
 | --- | --- | --- |
@@ -129,10 +128,12 @@ Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starti
 
 Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/reports/capacity/README.md).
 
-<details>
-<summary>Developer reference: project structure, local setup, and tests</summary>
+## Developer Reference
 
-## Project Structure
+<details>
+<summary>Project structure, local setup, and tests</summary>
+
+### Project Structure
 
 ```text
 cmd/server/              Application entry point
@@ -148,9 +149,9 @@ deploy/                  Deployment templates
 web/                     React + TypeScript frontend
 ```
 
-## Local Development
+### Local Development
 
-### Prerequisites
+#### Prerequisites
 
 - Go 1.26.10+
 - Node.js 24.22.1+
@@ -159,7 +160,7 @@ web/                     React + TypeScript frontend
 
 If you use nvm, run `nvm install` and `nvm use` in the repository root to select the version in `.nvmrc`.
 
-### Run Locally
+#### Run Locally
 
 1. Copy `.env.example` to `.env`, then set at least `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD`.
 
@@ -183,7 +184,7 @@ npm --prefix ./web run dev -- --host 127.0.0.1
 
 Open `http://127.0.0.1:5173`. The frontend proxies `/api` to `http://127.0.0.1:8080`; override it with `VITE_API_PROXY_TARGET` when the backend uses another port.
 
-### Tests
+#### Tests
 
 Run the full verification baseline:
 
@@ -191,24 +192,7 @@ Run the full verification baseline:
 make verify
 ```
 
-Or run checks individually:
-
-```bash
-go test ./cmd/... ./internal/...
-npm --prefix ./web run test
-npm --prefix ./web run lint
-npm --prefix ./web run typecheck
-npm --prefix ./web run build
-```
-
-### Chart time handling
-
-- Use the response/configured timezone. Calendar days use `internal/timeutil.CivilDate` and `DayBounds`; rolling windows use elapsed durations. A calendar day is not always 24 hours.
-- Read existing rollups through the repository bucket adapters. Overview and Latency have different hourly anchors; Activity retains its existing 364-block grid and stored ends. Query fixes must not change write buckets or repartition stored aggregates.
-- Reuse `internal/repository/usage_event_time_read.go` for raw-event time predicates and instant filtering. Use bounded segments for queries and the open-ended reader for recent-cache startup/reload; keep projections and lifecycle logic in callers.
-- Keep bucket identity as an instant or full date, never a formatted clock label. Sort timestamps by instant; use actual full-day minutes for day-bucket rates.
-- Reuse `web/src/utils/usage/timeLabels.ts` for timezone parts and repeated-clock disambiguation. Preserve each chart's locale, precision, fallback and empty-point rules; add offsets only to ambiguous local clocks.
-- Test ordinary Shanghai dates alongside DST gaps/folds, including a browser timezone different from the response. Preserve existing chart styles and lifecycle behavior.
+See the [development guide](./docs/development.md) for individual test commands and chart time-handling conventions.
 
 </details>
 
@@ -217,8 +201,6 @@ npm --prefix ./web run build
 After startup, open `http://your-server-address:8080` (`http://127.0.0.1:8080` for a local deployment) and sign in with your Keeper login password. Adjust the URL if you configure a different port, HTTPS, or a base path.
 
 ### Docker Compose (Recommended)
-
-Docker Compose is recommended for both a complete CPA + Keeper stack and a Keeper-only deployment.
 
 #### CPA + Keeper
 
@@ -259,7 +241,7 @@ Edit the downloaded `docker-compose.yml` and fill in two values under Keeper's `
 - `CPA_MANAGEMENT_KEY`: use the same original management key configured in CPA.
 - `LOGIN_PASSWORD`: replace the empty string `""` with your own Keeper login password.
 
-Alternatively, put the settings in `./keeper/.env`; the template loads it through an optional `env_file` entry and accepts a missing file. Values in `environment` take precedence, so remove the corresponding entries, including empty placeholders, to use values from the file.
+For optional environment-file setup, see [advanced configuration](./docs/configuration.md#optional-compose-environment-file).
 
 **3. Start and open Keeper**
 
@@ -267,7 +249,7 @@ Alternatively, put the settings in `./keeper/.env`; the template loads it throug
 docker compose up -d
 ```
 
-Open `http://your-server-address:8080` and sign in with your Keeper password. Run `docker compose down` to stop the stack.
+Open `http://your-server-address:8080` and sign in with your Keeper login password.
 
 For a new deployment, add model credentials in CPA and make a model request to generate usage records.
 
@@ -311,13 +293,11 @@ For other network layouts, set `CPA_BASE_URL` to a CPA address reachable from th
 docker compose up -d
 ```
 
-Open `http://your-server-address:8080` and sign in with your Keeper password. Run `docker compose down` to stop the stack.
-
 Keeper data is stored under `./data` by the provided template.
 
-#### Logs and Updates
+#### Access And Routine Management
 
-For either Compose setup, view Keeper logs from the deployment directory:
+For either Compose setup, sign in at `http://your-server-address:8080` with your Keeper password and run `docker compose down` to stop it. View logs from the deployment directory:
 
 ```bash
 docker compose logs --tail=100 -f cpa-usage-keeper
@@ -427,15 +407,11 @@ notepad .env
 .\cpa-usage-keeper.exe
 ```
 
-Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting. Authentication is enabled by default; set `AUTH_ENABLED=false` explicitly only for an isolated deployment.
+Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting.
 
 ## Configuration
 
-Copy the example config:
-
-```bash
-cp .env.example .env
-```
+Edit your existing `.env` or Compose `environment`, depending on the deployment method; do not overwrite existing settings with a fresh template.
 
 For a first deployment, set the CPA address, CPA management key, and Keeper login password. Most other settings can keep their defaults. Read the relevant sections when you need a domain, HTTPS, or a base path.
 
@@ -456,14 +432,7 @@ For a first deployment, set the CPA address, CPA management key, and Keeper logi
 | `CPA_PUBLIC_URL` | No | current browser origin root | Public CPA URL for the "Back to CPA" link and CPAMC frame trust |
 | `TRUSTED_PROXY_CIDRS` | No | local loopback only | Additional reverse-proxy CIDRs allowed to provide `X-Forwarded-For`, separated by commas |
 
-- The `--host` startup flag overrides `APP_HOST`. When neither is set, Keeper preserves its existing behavior and listens on all available network interfaces.
-- For Docker/Compose, keep `APP_HOST` empty. To restrict access to the Docker host, publish the port as `127.0.0.1:8080:8080`.
-- `APP_BASE_PATH` must be empty or start with `/`; `/cpa/` is normalized to `/cpa`.
-- `CPA_BASE_URL` is the server-side CPA address and may use a private host or Docker service name.
-- `CPA_PUBLIC_URL` controls browser navigation and cross-origin CPAMC frame trust. Leave it empty for same-origin `/management.html`, or set an explicit public CPA URL when domains, ports, or paths differ.
-- Keeper trusts `X-Forwarded-For` only from local loopback and `TRUSTED_PROXY_CIDRS`. Direct clients cannot change their login-rate-limit source with this header. Configure only the exact proxy address or network; universal CIDRs are rejected.
-
-For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` or `https://` URL with a host. Relative paths affect navigation only.
+For Docker/Compose, keep `APP_HOST` empty; publish `127.0.0.1:8080:8080` for host-only access. Set a browser-accessible `CPA_PUBLIC_URL` when CPA and Keeper use different domains, ports, or paths. See [advanced configuration](./docs/configuration.md#web-access-and-reverse-proxy) for details and the reverse-proxy example below.
 
 ### Login Protection
 
@@ -474,42 +443,6 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | `CPA_REQUEST_LOG_ACCESS_ENABLED` | No | `false` | Allow administrators to view and download CPA request logs through Keeper; corresponding logs must exist in CPA and may contain request or response data |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
 
-### OIDC Administrator Login
-
-Keeper can sign administrators in through one OpenID Connect identity provider. Register a confidential client with a client secret, enable Authorization Code Flow with PKCE S256, and register the exact public callback URL:
-
-```text
-https://keeper.example.com/<APP_BASE_PATH>/api/v1/auth/oidc/callback
-```
-
-Omit `<APP_BASE_PATH>/` for a root deployment. Keep `AUTH_ENABLED=true` and a private `LOGIN_PASSWORD`; password login remains available when the identity provider is unavailable.
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `AUTH_OIDC_ENABLED` | `false` | Enable OIDC on the standalone administrator login tab |
-| `AUTH_OIDC_PROMPT_LOGIN` | `true` | Send `prompt=login` to request reauthentication; set to `false` to omit it and allow the provider to reuse its login session |
-| `AUTH_OIDC_ISSUER` | Empty | Exact HTTP/HTTPS issuer, including any tenant path |
-| `AUTH_OIDC_CLIENT_ID` | Empty | Registered server-side client ID |
-| `AUTH_OIDC_CLIENT_SECRET` | Empty | Registered client secret |
-| `AUTH_OIDC_REDIRECT_URL` | Empty | Exact public Keeper callback URL, including the configured base path |
-| `AUTH_OIDC_ALLOWED_SUBJECTS` | `[]` | Optional JSON array of exact, case-sensitive `sub` values |
-
-For example, `AUTH_OIDC_ALLOWED_SUBJECTS='["user-123","user,456"]'`. Use the actual `sub` issued to this client; do not substitute an email, display name, or assumed platform user ID. An omitted or empty list delegates application access to the identity provider: **everyone who authenticates for this client becomes a Keeper administrator**. Configure the provider's application access policy accordingly. Email and profile claims are used only for display. A nonempty legacy `AUTH_OIDC_ALLOWED_USERS` causes a startup error with migration guidance; convert its intended users to exact subjects or enforce that access policy at the provider before removing it.
-
-By default, each new OIDC login requests reauthentication with `prompt=login`; the identity provider chooses the authentication method. Set `AUTH_OIDC_PROMPT_LOGIN=false` to allow reuse of its existing login session. This setting does not revoke existing Keeper sessions or log out the identity provider.
-
-Keeper uses standard Discovery and JWKS, `openid profile email`, signed ID Tokens, nonce, browser binding, and PKCE S256. Client secret authentication automatically handles `client_secret_basic` and `client_secret_post`. Metadata may point to different hosts and explicit HTTP/HTTPS endpoints, including endpoints with existing query parameters. Public clients, `form_post`, JWE, JWT client authentication, multi-issuer selection, and global single logout are outside this feature's scope.
-
-HTTPS is recommended for the issuer, discovered endpoints, and Keeper. Explicit HTTP URLs are accepted without an extra switch, including non-localhost addresses; HTTP Discovery/JWKS have no protected trust channel, and HTTP Keeper cookies have no transport encryption. HTTPS failures never trigger an HTTP fallback or bypass certificate checks. Install internal CA certificates into the service's trusted certificate chain when needed. Keeper logs a warning for configured or discovered HTTP links. HTTP compatibility is an extension to Discovery's HTTPS requirements; it does not make plaintext links secure.
-
-Use the issuer advertised by the provider, exactly matching Discovery and the ID Token `iss`. Keeper must be able to reach Discovery, Token, and JWKS endpoints; the browser must be able to reach the authorization endpoint. These endpoints need not share a host, and an internal container address cannot replace the issuer unless the provider actually advertises that identity.
-
-Open Keeper at the same public origin as the callback. Behind HTTPS proxies, preserve the public `Host` and `X-Forwarded-Proto` (or supply `X-Forwarded-Host`) and configure actual proxy networks in `TRUSTED_PROXY_CIDRS`. OIDC does not appear in the API Key tab or CPAMC embed mode. Login restores a valid in-app page and its query parameters. Pending logins expire after five minutes and are held only by the current Keeper process; restart an interrupted attempt by clicking the button again. Exclude callback query parameters from reverse-proxy access logs, because they contain short-lived authorization codes and state.
-
-Canceled authorization and identity-provider outages do not consume the per-source OIDC authentication failure allowance; the existing global login request rate limit still applies.
-
-Completed logins use the existing `AUTH_SESSION_TTL` and show **OIDC login** in Session Management. Signing out revokes only the local Keeper session; when `AUTH_OIDC_PROMPT_LOGIN=false`, the identity provider may sign you in automatically next time. Disabling OIDC, changing issuer/client ID, or tightening the subject list permanently revokes affected sessions during startup, before business routes become ready; this does not require a visit from the old browser or the Session Management page. Changing only the client secret does not revoke them. Provider-side account removal or access changes do not automatically revoke existing Keeper sessions: revoke them in Session Management or wait for their TTL. Before downgrading to a Keeper version without OIDC support, revoke every OIDC session using the new version, then stop Keeper and replace the binary; the added nullable database columns may remain.
-
 ### Timezone And Request Behavior
 
 | Variable | Required | Default | Description |
@@ -517,24 +450,6 @@ Completed logins use the existing `AUTH_SESSION_TTL` and show **OIDC login** in 
 | `TZ` | No | `Asia/Shanghai` | Timezone used for statistics and display; Today, daily totals, page timestamps, log timestamps, and daily cleanup are calculated in this timezone |
 | `REQUEST_TIMEOUT` | No | `30s` | Timeout for CPA HTTP requests and Redis queue operations |
 | `TLS_SKIP_VERIFY` | No | `false` | Skip TLS certificate verification for CPA HTTPS and Redis queue TLS; enable only with self-signed certificates |
-
-### Credentials Quota Refresh
-
-Scheduled Credentials quota refresh is configured from the gear button in the Credentials inspection dialog. The setting is stored in the local SQLite database and does not require the page to stay open.
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `QUOTA_REFRESH_WORKER_LIMIT` | No | `10` | Maximum Credentials quota refresh concurrency for manual and scheduled refresh, capped at `100` |
-| `QUOTA_UPSTREAM_RESPONSES_ENABLED` | No | `false` | Cache each credential's latest raw upstream quota responses and return them through quota task/cache APIs for browser Network debugging; responses may contain account data |
-
-### Redis Queue Advanced Settings
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `REDIS_QUEUE_ADDR` | No | Derived from `CPA_BASE_URL` | An explicit value takes precedence. When empty, use the hostname and explicit port from `CPA_BASE_URL`, or `8317` if no port is specified. Set `host:port` for a separate address |
-| `REDIS_QUEUE_TLS` | No | `false` | Set to `true` to force TLS for the Redis queue; when no queue address is specified, TLS follows the protocol of `CPA_BASE_URL` by default. `false` does not override automatically inferred TLS settings. |
-| `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
-| `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
 
 ### Storage, Logs, And Backups
 
@@ -549,38 +464,23 @@ Scheduled Credentials quota refresh is configured from the gear button in the Cr
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 | `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever; `>=90` enables cleanup. Negative values and `1–89` fall back to `0` with a warning without preventing startup |
 
-Keeper archives raw request records older than 90 local calendar days daily at 04:30 in the configured timezone. Archives are retained permanently by default. With `USAGE_RAW_RETENTION_DAYS>=90`, daily maintenance deletes expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. The 90-day hot-table window remains unchanged. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation. Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the existing conditional compaction policy.
-
-When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
+Raw requests are archived after 90 days and retained indefinitely by default; set `USAGE_RAW_RETENTION_DAYS>=90` to remove expired archives. Deleted records cannot support historical recalculation, and deletion may not immediately shrink the database file. See [storage and log details](./docs/configuration.md#storage-and-log-details).
 
 ### Rolling Back A Failed v1-to-v2 Upgrade
 
-Keeper creates a database backup before migrating v1 data. If migration fails and that backup is verified, the logs include English rollback instructions and its `backup_path`.
+Keeper backs up the database before migration. If it fails, follow the [failed migration rollback guide](./docs/upgrading.md). **Do not open a partially migrated database with v1.**
 
-1. Stop Keeper v2 and preserve the failed database together with any `-wal` and `-shm` files.
-2. Copy the pre-upgrade backup to `<new WORK_DIR>/app.db` in a separate data directory, renaming the backup copy to `app.db`. Keep the original backup intact; do not mix the copy with files from the failed database.
-3. Install Keeper v1 and set `WORK_DIR` to that new directory. With the default Docker setup, mount the new directory at `/data`, so the restored file is `/data/app.db` inside the container. Do not open the partially migrated database with v1.
+### Optional Features And Advanced Configuration
 
-This returns data to the backup point. Usage received afterward is not included. If no verified backup is available, locate and validate a known pre-upgrade backup before attempting rollback.
+- [OIDC administrator login](./docs/oidc.md): disabled by default; keep password login configured. **Without subject restrictions, all users authenticated for the client become administrators; restrict application access at the provider.**
+- [Quota refresh](./docs/configuration.md#credentials-quota-refresh): configure schedules from the gear button in the Credentials inspection dialog; the page need not stay open after saving. The guide covers concurrency and debugging settings.
+- [Redis queue](./docs/configuration.md#redis-queue-advanced-settings): separate addresses, TLS, and polling settings; defaults usually suffice.
+- [Built-in HTTPS](./docs/configuration.md#built-in-https): for Keeper to serve HTTPS directly; usually, use nginx, Caddy, or another reverse proxy instead.
 
-### Built-In HTTPS
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `TLS_ENABLED` | No | `false` | Let Keeper serve HTTPS/TLS directly |
-| `TLS_CERT_FILE` | Required when TLS is enabled | - | HTTPS certificate file path |
-| `TLS_KEY_FILE` | Required when TLS is enabled | - | HTTPS private key file path |
-
-Usually, HTTPS should be terminated at nginx, Caddy, or another reverse proxy. Set `TLS_ENABLED=true` only when the Keeper process must serve HTTPS directly, and provide `TLS_CERT_FILE` and `TLS_KEY_FILE`; relative paths are resolved against the `.env` file directory.
-
-Security and data notes:
+### Security Notes
 
 - Browser APIs redact key-like fields, but the SQLite database and its unencrypted backups contain original data.
 - Authentication is enabled by default. If it is explicitly disabled, restrict Keeper access at the deployment boundary; terminate public HTTPS at a reverse proxy.
-- Login session hashes persist in SQLite until logout or `AUTH_SESSION_TTL` expiry.
-- CPAMC uses a separate embed session: an `HttpOnly` cookie when available, or a per-tab header token in browser session storage as a fallback.
-- Same-origin embedding works by default. For cross-origin embedding, set `CPA_PUBLIC_URL` to the public CPA/CPAMC origin used for `frame-ancestors`.
-- Redis inbox messages are retained through the current day after success or for 7 days after failure.
 
 ## Nginx Reverse Proxy
 
@@ -595,13 +495,7 @@ location /cpa/ {
 }
 ```
 
-The loopback Nginx configuration above works without additional Keeper settings. If the reverse proxy reaches Keeper from a container or another host, or a CDN such as Cloudflare sits in front of the reverse proxy, add the exact proxy networks, for example `TRUSTED_PROXY_CIDRS=172.18.0.0/16`.
-
-When CPA and Keeper share a browser origin, `CPA_PUBLIC_URL` can be omitted and "Back to CPA" uses `/management.html`. For another domain, port, or path, set the public CPA URL:
-
-```env
-CPA_PUBLIC_URL=https://cpa.example.com
-```
+Local Nginx needs no extra proxy trust settings. For containers, remote proxies, or CDNs, configure only the actual proxy networks in `TRUSTED_PROXY_CIDRS`; never trust all sources.
 
 ## License
 

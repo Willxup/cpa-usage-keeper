@@ -199,7 +199,6 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
       <CredentialSectionShell
         title={t('usage_stats.credentials_title')}
         subtitle={t('usage_stats.credentials_subtitle')}
-        countLabel={t('usage_stats.credentials_count', { count: total })}
         titleExtra={(
           <div className={styles.credentialsTitleControls}>
             <label className={styles.credentialActiveOnlySwitch}>

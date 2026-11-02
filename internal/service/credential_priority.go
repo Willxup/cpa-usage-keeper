@@ -26,7 +26,7 @@ var (
 type CredentialPriorityClient interface {
 	UpdateCredentialPriority(context.Context, string, int) (int, error)
 	FetchPriorityProviderConfig(context.Context, string) (*response.ProviderKeyConfigResult, error)
-	UpdateProviderConfig(context.Context, string, *providerconfig.Document) (int, error)
+	UpdateProviderConfig(context.Context, string, *providerconfig.Document, string) (int, error)
 	FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error)
 }
 
@@ -41,14 +41,15 @@ type CredentialPriorityResponse struct {
 }
 
 type credentialPriorityService struct {
-	db      *gorm.DB
-	client  CredentialPriorityClient
-	refresh MetadataRefresher
-	locks   *CredentialMutationLocks
+	db       *gorm.DB
+	client   CredentialPriorityClient
+	refresh  MetadataRefresher
+	locks    *CredentialMutationLocks
+	metadata *CredentialMetadataCoordinator
 }
 
-func NewCredentialPriorityService(db *gorm.DB, client CredentialPriorityClient, refresh MetadataRefresher, locks *CredentialMutationLocks) CredentialPriorityProvider {
-	return &credentialPriorityService{db: db, client: client, refresh: refresh, locks: locks}
+func NewCredentialPriorityService(db *gorm.DB, client CredentialPriorityClient, refresh MetadataRefresher, locks *CredentialMutationLocks, metadata *CredentialMetadataCoordinator) CredentialPriorityProvider {
+	return &credentialPriorityService{db: db, client: client, refresh: refresh, locks: locks, metadata: metadata}
 }
 
 func (s *credentialPriorityService) SetCredentialPriority(ctx context.Context, authIndex string, priority int) (CredentialPriorityResponse, error) {
@@ -76,7 +77,9 @@ func (s *credentialPriorityService) SetCredentialPriority(ctx context.Context, a
 	}
 	// 远端成功后更新本地并请求刷新；本地落库失败时也保留刷新机会，不回滚远端。
 	defer s.requestRefresh()
-	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeCredential, authIndex, priority); err != nil {
+	if err := s.metadata.completeMutation(func() error {
+		return repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeCredential, authIndex, priority)
+	}); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist credential priority: %w", err)
 	}
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
@@ -112,13 +115,15 @@ func (s *credentialPriorityService) SetAIProviderPriority(ctx context.Context, a
 	}
 	// 显式写入成员优先级，即使值为 0 也覆盖组默认值，不影响同组其他 Key。
 	result.Document.SetKeyPriority(location, priority)
-	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document)
+	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document, result.ETag)
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
 	// 远端成功后更新本地并请求刷新；本地落库失败时也保留刷新机会，不回滚远端。
 	defer s.requestRefresh()
-	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAIProvider, authIndex, priority); err != nil {
+	if err := s.metadata.completeMutation(func() error {
+		return repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAIProvider, authIndex, priority)
+	}); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist %s priority: %w", providerType, err)
 	}
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
@@ -136,7 +141,7 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 		return CredentialPriorityResponse{}, fmt.Errorf("%w: openai credential", ErrCredentialPriorityNotFound)
 	}
 	current.Document.SetGroupPriority(location, priority)
-	statusCode, err := s.client.UpdateProviderConfig(ctx, "openai", current.Document)
+	statusCode, err := s.client.UpdateProviderConfig(ctx, "openai", current.Document, current.ETag)
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
@@ -145,7 +150,9 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 	// 远端只修改首个匹配组；本地按该组成员的 auth_index 更新。
 	// 跨组同标识仍共用一条身份记录，本地没有独立的组隔离。
 	indexes := openAIProviderAuthIndexes(current.Payload[location.Group])
-	if err := repository.UpdateOpenAIProviderPriority(ctx, s.db, indexes, priority); err != nil {
+	if err := s.metadata.completeMutation(func() error {
+		return repository.UpdateOpenAIProviderPriority(ctx, s.db, indexes, priority)
+	}); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist openai priority: %w", err)
 	}
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
@@ -195,6 +202,8 @@ func (s *credentialPriorityService) requestRefresh() {
 
 func priorityWriteError(statusCode int, err error) error {
 	switch statusCode {
+	case http.StatusPreconditionFailed:
+		return fmt.Errorf("%w: upstream configuration", ErrCredentialConfigChanged)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: upstream target", ErrCredentialPriorityNotFound)
 	case http.StatusConflict:

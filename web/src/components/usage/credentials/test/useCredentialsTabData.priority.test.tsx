@@ -81,6 +81,20 @@ describe('credential priority save data flow', () => {
     expect(onPrioritySaved).not.toHaveBeenCalled()
   })
 
+  it('shows a configuration conflict and leaves the saved state unchanged on HTTP 412', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes('/priority')) return Response.json({ error: 'credential configuration changed' }, { status: 412 })
+      return Response.json({ identities: [], total_count: 0, total_pages: 1, type_counts: [] })
+    })
+    await act(async () => root.render(<Harness onNotice={onNotice} onPrioritySaved={onPrioritySaved} />))
+    const beforePages = fetchMock.mock.calls.filter(([input]) => String(input).includes('/usage/identities/page')).length
+    await act(async () => { await expect(latest!.saveAiProviderPriority('local-id', 'idx/one', 3)).rejects.toThrow() })
+    expect(onNotice).toHaveBeenCalledWith('error', i18n.t('usage_stats.credentials_config_changed'))
+    expect(onPrioritySaved).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/priority'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/usage/identities/page'))).toHaveLength(beforePages)
+  })
+
   it('routes modal fields to their own endpoints and refreshes after each successful field', async () => {
     await act(async () => root.render(<Harness onNotice={onNotice} onPrioritySaved={onPrioritySaved} />))
     await act(async () => {

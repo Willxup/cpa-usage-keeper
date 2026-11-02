@@ -68,11 +68,15 @@
   flex-shrink: 0;
   white-space: nowrap;
   align-items: center;
-  padding: 3px 9px;
-  border-radius: $radius-full;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
-  color: color-mix(in srgb, var(--text-primary) 80%, var(--primary-color));
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 9px;
+  border: 0;
+  background: color-mix(in srgb, var(--text-primary) 9%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--text-primary) 82%, var(--text-secondary));
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
 }

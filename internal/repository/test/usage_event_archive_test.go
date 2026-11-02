@@ -68,6 +68,8 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	parentSessionID := "session-root"
 	executionID, traceID, nodeKind := "execution-a", "trace-a", "compaction"
 	isFork, isCompaction := false, true
+	isNativeKey := false
+	accessProvider := "plugin:archive:auth"
 	ttft := int64(321)
 	costUSD := 1.2345
 	costAvailable := true
@@ -77,11 +79,12 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 		{
 			EventKey: "archive-me", APIGroupKey: "group-a", Provider: "openai", Endpoint: "/v1/responses",
 			AuthType: "oauth", RequestID: "request-a", SessionID: "session-child", ParentSessionID: &parentSessionID, ClientIP: &clientIP, Model: "gpt-5", ResponseModel: "gpt-5.6-luna", ReasoningEffort: "high",
-			ServiceTier: "priority", ResponseServiceTier: "priority", ExecutorType: "codex", Timestamp: now.AddDate(0, 0, -91),
+			ServiceTier: "auto", EffectiveServiceTier: "priority", ResponseServiceTier: "default", ExecutorType: "codex", Timestamp: now.AddDate(0, 0, -91),
 			Source: "auth-a", AuthIndex: "auth-a", Failed: true, StatusCode: &statusCode, Generate: &generate, Stream: &stream, LatencyMS: 999, TTFTMS: &ttft,
 			InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, CacheReadTokens: 3, CacheCreationTokens: 2, TotalTokens: 35,
 			CostUSD: &costUSD, CostAvailable: &costAvailable,
 			ExecutionID: &executionID, TraceID: &traceID, NodeKind: &nodeKind, IsFork: &isFork, IsCompaction: &isCompaction,
+			IsNativeKey: &isNativeKey, AccessProvider: &accessProvider,
 		},
 		{EventKey: "unavailable-zero", Model: "unpriced", Timestamp: now.AddDate(0, 0, -92), CostUSD: &zeroCost, CostAvailable: &unavailable},
 		{EventKey: "recent", Model: "gpt-5", Timestamp: now.Add(-time.Hour), TotalTokens: 1},

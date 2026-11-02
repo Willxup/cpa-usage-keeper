@@ -53,7 +53,7 @@ export function UsageComparisonCharts({ comparisons, loading, keyViewer = false,
         </div>
       </div>
     </div>
-    <Card title={t('usage_stats.comparison_token_trend')} subtitle={t('usage_stats.comparison_subtitle')} className={styles.card} extra={
+    <Card title={t('usage_stats.comparison_token_trend')} className={styles.card} extra={
       <span className={styles.total} data-comparison-total><strong>{items.length || !loading ? formatCompactNumber(total) : '—'}</strong><span>{t('usage_stats.comparison_tokens')}</span></span>
     }>
       <ComparisonArea key={dimension} dimension={dimension} comparisons={comparisons} loading={loading} isDark={isDark} isMobile={isMobile} />

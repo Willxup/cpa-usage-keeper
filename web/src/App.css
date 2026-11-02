@@ -22,6 +22,13 @@
   flex-direction: column;
 }
 
+/* 登录背景由包含页脚的外壳承载，保持整页连续。 */
+.app-frame[data-page='login'] {
+  --app-footer-background: transparent;
+  position: relative;
+  isolation: isolate;
+}
+
 .app-checking {
   min-height: 100%;
 }

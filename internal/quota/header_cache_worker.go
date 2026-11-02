@@ -256,6 +256,28 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 		mergedSnapshot.pendingMainObservedAt = time.Time{}
 	}
 
+	// 窗口仍整体选最新，限流标记则保留最近一次明确值，避免后续缺字段或乱序 Header 将其丢失/回滚。
+	if mergedUsage.RateLimit != nil {
+		rateLimit := *mergedUsage.RateLimit
+		rateLimit.LimitReached = nil
+		mergedSnapshot.pendingMainLimitReachedObservedAt = time.Time{}
+		for _, snapshot := range []*UsageHeaderSnapshot{existing, candidate} {
+			usage := codexUsagePayloadFromProviderOutput(snapshot.CacheOutput)
+			if usage.RateLimit == nil || usage.RateLimit.LimitReached == nil {
+				continue
+			}
+			observedAt := snapshot.pendingMainLimitReachedObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			if rateLimit.LimitReached == nil || !usageHeaderObservedAtBefore(observedAt, mergedSnapshot.pendingMainLimitReachedObservedAt) {
+				rateLimit.LimitReached = usage.RateLimit.LimitReached
+				mergedSnapshot.pendingMainLimitReachedObservedAt = observedAt
+			}
+		}
+		mergedUsage.RateLimit = &rateLimit
+	}
+
 	// Additional 按 LimitName 独立比较观察时间；同一 group 的 Primary/Secondary 同样保持整体更新。
 	mergedUsage.AdditionalRateLimits, mergedSnapshot.pendingAdditionalObservedAt = mergePendingCodexAdditionalRateLimits(
 		existing,
@@ -782,8 +804,13 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		// 单条路径没有共享 provider 时走现有 helper 自行构造窗口统计。
 		response = s.attachWindowUsageStats(ctx, authIndex, response, observedAt)
 	}
+	// 明确标记可能来自批次中的旧 Header，必须保留它自己的时间供最终锁内判定。
+	limitReachedObservedAt := timeutil.NormalizeStorageTime(snapshot.pendingMainLimitReachedObservedAt)
+	if limitReachedObservedAt.IsZero() {
+		limitReachedObservedAt = observedAt
+	}
 	// 最后把 header quota 与已有 cache 合并，并写回 refreshTasks。
-	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, identity, generation)
+	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, limitReachedObservedAt, identity, generation)
 }
 
 func usageHeaderIdentityIsCodex(identity entities.UsageIdentity) bool {
@@ -844,7 +871,7 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identi
 }
 
 // mergeUsageHeaderQuotaCache 将代数复验和缓存发布合并在 refreshMu 下，阻止查询中的旧结果晚到回写。
-func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
+func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, limitReachedObservedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
 	// 写 refreshTasks 前加锁，和主动刷新任务状态切换保持同一同步边界。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁。
@@ -868,6 +895,14 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 		// Credential 的真实 type 变化后，旧 provider 的 row、套餐和 credits 不能混进新 cache。
 		if normalizeIdentityType(existing.Type) == normalizeIdentityType(identity.Type) {
 			if existing.Quota != nil {
+				// 旧标记不能借较新窗口的时间覆盖缓存；只跳过主额度标记，进度仍正常合并。
+				if usageHeaderIdentityIsCodex(identity) && usageHeaderCompletedCacheIsCurrentOrNewer(existing, identity.Type, limitReachedObservedAt) {
+					for index := range response.Quota {
+						if strings.HasPrefix(response.Quota[index].Key, "rate_limit.") {
+							response.Quota[index].LimitReached = nil
+						}
+					}
+				}
 				response = mergeUsageHeaderQuotaResponse(*existing.Quota, response)
 			}
 			// Header 无 management api-call，同一 provider 才保留最近主动刷新响应，包括失败任务。
@@ -930,6 +965,7 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 	headerByKey := make(map[string]QuotaRow, len(header))
 	// headerOrder 保留 header 新行的顺序，方便最后追加旧 cache 没有的行。
 	headerOrder := make([]string, 0, len(header))
+	var mainLimitReached *bool
 	// 先遍历 header rows 建索引。
 	for _, row := range header {
 		// 空 key 无法稳定合并，直接丢弃。
@@ -942,6 +978,9 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 		}
 		// 同 key 多次出现时以后出现的 header row 为准。
 		headerByKey[row.Key] = row
+		if strings.HasPrefix(row.Key, "rate_limit.") && row.LimitReached != nil {
+			mainLimitReached = row.LimitReached
+		}
 	}
 	// merged 预分配旧行和 header 行容量，减少 append 扩容。
 	merged := make([]QuotaRow, 0, len(existing)+len(header))
@@ -970,6 +1009,14 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 		}
 		// 追加 header 新增的 quota row。
 		merged = append(merged, headerByKey[key])
+	}
+	// 主额度标记属于整组；缺失窗口只同步明确标记，保留用量，且不影响 Additional。
+	if mainLimitReached != nil {
+		for index := range merged {
+			if strings.HasPrefix(merged[index].Key, "rate_limit.") {
+				merged[index].LimitReached = mainLimitReached
+			}
+		}
 	}
 	// 返回稳定顺序的合并结果。
 	return merged

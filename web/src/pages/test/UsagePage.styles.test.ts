@@ -189,32 +189,17 @@ describe('UsagePage responsive layout and accessibility', () => {
     expect(styleRuleBlock(usagePageStyles, '.tabBarConnected .tabPill')).toContain('white-space: nowrap;')
   })
 
-  it('lets API Key Settings content scroll inside the card instead of being clipped', () => {
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?min-height:\s*0;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?padding-right:\s*4px;/)
-    const apiKeySettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
-      usagePageStyles.indexOf('.pricesList')
-    )
-
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*align-items:\s*stretch;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?width:\s*100%;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
-  })
-
-  it('reflows API Key settings from two columns to one on tablets', () => {
-    expect(styleRuleBlock(usagePageStyles, '.apiKeySettingsList')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
-    const tabletStyles = usagePageStyles.slice(usagePageStyles.indexOf('@include tablet {\n  .apiKeySettingsList'))
-    expect(tabletStyles).toMatch(/\.apiKeySettingsList\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(styleRuleBlock(usagePageStyles, '.apiKeySettingsNameRow')).toContain('grid-template-columns: minmax(0, 1fr) auto;')
+  it('keeps API Key cards scrollable and uses the card container for one, two, or three columns', () => {
+    const body = styleRuleBlock(usagePageStyles, '.apiKeySettingsBody {')
+    expect(body).toContain('container: api-key-settings / inline-size;')
+    expect(body).toContain('max-height: var(--settings-list-scroll-height);')
+    expect(body).toContain('overflow-y: auto;')
+    expect(body).toContain('overflow-x: hidden;')
+    expect(styleRuleBlock(usagePageStyles, '.apiKeySettingsList {')).toContain('grid-template-columns: minmax(0, 1fr);')
+    expect(usagePageStyles).toMatch(/@container api-key-settings \(min-width: 720px\)\s*\{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/@container api-key-settings \(min-width: 1100px\)\s*\{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/)
+    expect(styleRuleBlock(usagePageStyles, '.apiKeySettingsItem {')).toContain('min-width: 0;')
+    expect(styleRuleBlock(usagePageStyles, '.apiKeySettingsText {')).toContain('text-overflow: ellipsis;')
   })
 
   it('keeps session alias editing within the card and visibly focusable', () => {
@@ -232,7 +217,7 @@ describe('UsagePage responsive layout and accessibility', () => {
       usagePageStyles.indexOf('.sessionSettingsList')
     )
     const sessionSettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('@include mobile {\n  .sessionSettingsCard:global(.card)'),
       usagePageStyles.indexOf('.pricesList')
     )
     const sessionSettingsMobileBodyBlock = sessionSettingsMobileBlock.slice(
@@ -256,7 +241,7 @@ describe('UsagePage responsive layout and accessibility', () => {
       usagePageStyles.indexOf('.sessionSettingsClientLabel {'),
     )
     const sessionSettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('@include mobile {\n  .sessionSettingsCard:global(.card)'),
       usagePageStyles.indexOf('.pricesList'),
     )
 

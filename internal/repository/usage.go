@@ -17,7 +17,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, status_code, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, effective_service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, status_code, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available"
 
 // usageOverviewBoundaryEventProjectionColumns 只包含非 Custom Overview 边界卡片计算需要的字段。
 const usageOverviewBoundaryEventProjectionColumns = "id, api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available"
@@ -27,37 +27,38 @@ const usageOverviewRealtimeEventProjectionColumns = "id, api_group_key, provider
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
-	ID                  int64
-	APIGroupKey         string
-	Provider            string
-	AuthType            string
-	RequestID           string
-	ClientIP            *string
-	XForwardedFor       *string
-	UserAgent           *string
-	Model               string
-	ModelAlias          *string `gorm:"column:model_alias"`
-	ResponseModel       string  `gorm:"column:response_model"`
-	ReasoningEffort     string
-	ServiceTier         string
-	ResponseServiceTier string
-	ExecutorType        string
-	Endpoint            string
-	Timestamp           time.Time
-	Source              string
-	AuthIndex           string
-	Failed              bool
-	StatusCode          *int
-	Generate            *bool
-	Stream              *bool
-	LatencyMS           int64
-	TTFTMS              *int64 `gorm:"column:ttft_ms"`
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
+	ID                   int64
+	APIGroupKey          string
+	Provider             string
+	AuthType             string
+	RequestID            string
+	ClientIP             *string
+	XForwardedFor        *string
+	UserAgent            *string
+	Model                string
+	ModelAlias           *string `gorm:"column:model_alias"`
+	ResponseModel        string  `gorm:"column:response_model"`
+	ReasoningEffort      string
+	ServiceTier          string
+	EffectiveServiceTier string
+	ResponseServiceTier  string
+	ExecutorType         string
+	Endpoint             string
+	Timestamp            time.Time
+	Source               string
+	AuthIndex            string
+	Failed               bool
+	StatusCode           *int
+	Generate             *bool
+	Stream               *bool
+	LatencyMS            int64
+	TTFTMS               *int64 `gorm:"column:ttft_ms"`
+	InputTokens          int64
+	OutputTokens         int64
+	ReasoningTokens      int64
+	CacheReadTokens      int64
+	CacheCreationTokens  int64
+	TotalTokens          int64
 	// 保留 SQL NULL，读取时拒绝未完成费用，不能把它当作零价。
 	CostUSD       *float64
 	CostAvailable *bool
@@ -257,31 +258,32 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 			}
 			return strings.TrimSpace(*event.ModelAlias)
 		}(),
-		ResponseModel:       strings.TrimSpace(event.ResponseModel),
-		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
-		ServiceTier:         strings.TrimSpace(event.ServiceTier),
-		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
-		ClientIP:            event.ClientIP,
-		XForwardedFor:       event.XForwardedFor,
-		UserAgent:           event.UserAgent,
-		ExecutorType:        strings.TrimSpace(event.ExecutorType),
-		Endpoint:            strings.TrimSpace(event.Endpoint),
-		AuthType:            strings.TrimSpace(event.AuthType),
-		RequestID:           strings.TrimSpace(event.RequestID),
-		Provider:            strings.TrimSpace(event.Provider),
-		Source:              strings.TrimSpace(event.Source),
-		AuthIndex:           strings.TrimSpace(event.AuthIndex),
-		Failed:              event.Failed,
-		StatusCode:          event.StatusCode,
-		Stream:              event.Stream,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
+		ResponseModel:        strings.TrimSpace(event.ResponseModel),
+		ReasoningEffort:      strings.TrimSpace(event.ReasoningEffort),
+		ServiceTier:          strings.TrimSpace(event.ServiceTier),
+		EffectiveServiceTier: strings.TrimSpace(event.EffectiveServiceTier),
+		ResponseServiceTier:  strings.TrimSpace(event.ResponseServiceTier),
+		ClientIP:             event.ClientIP,
+		XForwardedFor:        event.XForwardedFor,
+		UserAgent:            event.UserAgent,
+		ExecutorType:         strings.TrimSpace(event.ExecutorType),
+		Endpoint:             strings.TrimSpace(event.Endpoint),
+		AuthType:             strings.TrimSpace(event.AuthType),
+		RequestID:            strings.TrimSpace(event.RequestID),
+		Provider:             strings.TrimSpace(event.Provider),
+		Source:               strings.TrimSpace(event.Source),
+		AuthIndex:            strings.TrimSpace(event.AuthIndex),
+		Failed:               event.Failed,
+		StatusCode:           event.StatusCode,
+		Stream:               event.Stream,
+		LatencyMS:            event.LatencyMS,
+		TTFTMS:               event.TTFTMS,
+		InputTokens:          event.InputTokens,
+		OutputTokens:         event.OutputTokens,
+		ReasoningTokens:      event.ReasoningTokens,
+		CacheReadTokens:      event.CacheReadTokens,
+		CacheCreationTokens:  event.CacheCreationTokens,
+		TotalTokens:          event.TotalTokens,
 	}
 }
 
@@ -289,34 +291,35 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEvent {
 	// 这里不 trim 原始维度，后续聚合入口会按各自语义统一 normalize。
 	return entities.UsageEvent{
-		ID:                  event.ID,
-		APIGroupKey:         event.APIGroupKey,
-		Provider:            event.Provider,
-		AuthType:            event.AuthType,
-		Model:               event.Model,
-		ModelAlias:          event.ModelAlias,
-		ReasoningEffort:     event.ReasoningEffort,
-		ServiceTier:         event.ServiceTier,
-		ResponseServiceTier: event.ResponseServiceTier,
-		ExecutorType:        event.ExecutorType,
-		Endpoint:            event.Endpoint,
-		Timestamp:           event.Timestamp,
-		Source:              event.Source,
-		AuthIndex:           event.AuthIndex,
-		Failed:              event.Failed,
-		StatusCode:          event.StatusCode,
-		Generate:            event.Generate,
-		Stream:              event.Stream,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
-		CostUSD:             event.CostUSD,
-		CostAvailable:       event.CostAvailable,
+		ID:                   event.ID,
+		APIGroupKey:          event.APIGroupKey,
+		Provider:             event.Provider,
+		AuthType:             event.AuthType,
+		Model:                event.Model,
+		ModelAlias:           event.ModelAlias,
+		ReasoningEffort:      event.ReasoningEffort,
+		ServiceTier:          event.ServiceTier,
+		EffectiveServiceTier: event.EffectiveServiceTier,
+		ResponseServiceTier:  event.ResponseServiceTier,
+		ExecutorType:         event.ExecutorType,
+		Endpoint:             event.Endpoint,
+		Timestamp:            event.Timestamp,
+		Source:               event.Source,
+		AuthIndex:            event.AuthIndex,
+		Failed:               event.Failed,
+		StatusCode:           event.StatusCode,
+		Generate:             event.Generate,
+		Stream:               event.Stream,
+		LatencyMS:            event.LatencyMS,
+		TTFTMS:               event.TTFTMS,
+		InputTokens:          event.InputTokens,
+		OutputTokens:         event.OutputTokens,
+		ReasoningTokens:      event.ReasoningTokens,
+		CacheReadTokens:      event.CacheReadTokens,
+		CacheCreationTokens:  event.CacheCreationTokens,
+		TotalTokens:          event.TotalTokens,
+		CostUSD:              event.CostUSD,
+		CostAvailable:        event.CostAvailable,
 	}
 }
 
@@ -386,26 +389,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
-	windowMinutes := computeWindowMinutes(filter)
-	bucketByDay := windowMinutes > 24*60
-	if bucketByDay && (filter.Range == "today" || filter.Range == "yesterday") {
-		localStart := timeutil.NormalizeStorageTime(*filter.StartTime)
-		day, exists := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
-		// Overview 小时桶按绝对整点聚合，无法拆分跨越自然日边界的半小时或四分之一小时。
-		// 长自然日仅在首尾均对齐时使用小时图，否则保留已有日汇总，避免漏算或混入相邻日。
-		if exists && day.Start.Equal(day.Start.Truncate(time.Hour)) && day.End.Equal(day.End.Truncate(time.Hour)) {
-			bucketByDay = false
-		}
-	}
-	if strings.TrimSpace(filter.Range) == "custom" {
-		// Custom 显式粒度与 Overview 保持一致，不能用单日跨度反推 hourly。
-		switch strings.TrimSpace(filter.CustomUnit) {
-		case "day":
-			bucketByDay = true
-		case "hour":
-			bucketByDay = false
-		}
-	}
+	bucketByDay := analysisUsesDailyStats(filter)
 	record := &dto.AnalysisRecord{
 		Granularity: func() dto.AnalysisGranularity {
 			if bucketByDay {

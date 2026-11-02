@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"fmt"
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
@@ -10,6 +11,9 @@ const sensitiveValueMask = "*********"
 
 // RedactSensitiveValue 使用统一格式隐藏前端展示中的敏感值：长值保留前 3 位和后 6 位，短值全隐藏。
 func RedactSensitiveValue(value string) string {
+	if IsPluginAPIKeyGroupKey(value) {
+		return "Third-party Identity"
+	}
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" || trimmed == "unknown" {
 		return "unknown"
@@ -23,6 +27,9 @@ func RedactSensitiveValue(value string) string {
 
 // CPAAPIKeyMaskedDisplayKey 返回 CPA API Key 的安全展示 key；优先基于原始 key 重新脱敏，避免历史 DisplayKey 格式不一致。
 func CPAAPIKeyMaskedDisplayKey(row entities.CPAAPIKey) string {
+	if row.SourceType == entities.CPAAPIKeySourcePlugin {
+		return fmt.Sprintf("Third-party Identity #%d", row.ID)
+	}
 	if strings.TrimSpace(row.APIKey) != "" {
 		return RedactSensitiveValue(row.APIKey)
 	}

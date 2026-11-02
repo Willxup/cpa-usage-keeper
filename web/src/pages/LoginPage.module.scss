@@ -3,6 +3,10 @@
 
 .pageShell {
   --login-form-gap: 18px;
+  --login-glass-bg: color-mix(in srgb, var(--bg-primary) 18%, transparent);
+  --login-glass-border: rgba(255, 255, 255, 0.55);
+  --login-glass-shadow: rgba(54, 41, 27, 0.05);
+  --login-input-bg: rgba(255, 255, 255, 0.32);
 
   flex: 1 1 auto;
   min-height: 0;
@@ -10,10 +14,119 @@
   align-items: center;
   justify-content: center;
   padding: 32px 20px;
+}
+
+// Logo 六色按冷色、绿黄、暖色分层交叠，裁剪只作用于装饰层。
+.backdrop {
+  --login-blue: rgba(37, 99, 235, 0.38);
+  --login-cyan: rgba(6, 182, 212, 0.36);
+  --login-green: rgba(16, 185, 129, 0.29);
+  --login-yellow: rgba(251, 191, 36, 0.27);
+  --login-coral: rgba(251, 90, 90, 0.28);
+  --login-rose: rgba(219, 39, 119, 0.26);
+
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.8;
+  background: linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px;
+
+  > span {
+    position: absolute;
+    width: 100%;
+    height: 115%;
+    animation: glowDrift 10s ease-in-out infinite alternate;
+  }
+
+  &[data-renderer='webgl'] > span {
+    visibility: hidden;
+    animation: none;
+  }
+
+  &[data-renderer='webgl'] > canvas {
+    visibility: visible;
+  }
+
+  &[data-paused='true'] > span {
+    animation-play-state: paused;
+  }
+
+  @include mobile {
+    > span {
+      animation-name: glowDriftMobile;
+    }
+
+    .greenGlow {
+      animation: none;
+    }
+  }
+}
+
+.flowCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+}
+
+.coolGlow {
+  left: -12%;
+  top: -20%;
   background:
-    linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px,
-    radial-gradient(900px 480px at 12% 0%, rgba($primary-color, 0.16), transparent 58%),
-    var(--bg-secondary);
+    radial-gradient(ellipse at 25% 58%, var(--login-blue), transparent 48%),
+    radial-gradient(ellipse at 45% 45%, var(--login-cyan), transparent 48%);
+}
+
+.backdrop > .greenGlow {
+  left: 0;
+  top: -25%;
+  background:
+    radial-gradient(ellipse at 48% 35%, var(--login-green), transparent 45%),
+    radial-gradient(ellipse at 70% 48%, var(--login-yellow), transparent 40%);
+  animation-duration: 13s;
+  animation-delay: -6s;
+  animation-direction: alternate-reverse;
+}
+
+.backdrop > .warmGlow {
+  left: 16%;
+  top: 8%;
+  background:
+    radial-gradient(ellipse at 68% 40%, var(--login-coral), transparent 45%),
+    radial-gradient(ellipse at 48% 65%, var(--login-rose), transparent 45%);
+  animation-duration: 16s;
+  animation-delay: -10s;
+}
+
+@keyframes glowDrift {
+  from { transform: translate(-5%, -5%) rotate(-8deg) scale(0.95, 1); }
+  to { transform: translate(9%, 9%) rotate(12deg) scale(1.12, 0.92); }
+}
+
+@keyframes glowDriftMobile {
+  from { transform: translate(-2%, -2%); }
+  to { transform: translate(3%, 3%); }
+}
+
+:global([data-theme='dark']) {
+  .pageShell {
+    --login-glass-border: rgba(255, 255, 255, 0.1);
+    --login-glass-shadow: rgba(0, 0, 0, 0.16);
+    --login-input-bg: rgba(12, 12, 14, 0.28);
+  }
+
+  .backdrop {
+    --login-blue: rgba(37, 99, 235, 0.62);
+    --login-cyan: rgba(6, 182, 212, 0.5);
+    --login-green: rgba(16, 185, 129, 0.42);
+    --login-yellow: rgba(251, 191, 36, 0.26);
+    --login-coral: rgba(251, 90, 90, 0.42);
+    --login-rose: rgba(219, 39, 119, 0.46);
+    opacity: 0.94;
+  }
 }
 
 .frame {
@@ -51,8 +164,6 @@
   padding: 4px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .themePill {
@@ -78,10 +189,11 @@
   }
 }
 
+.languageSwitcher > button[aria-pressed='true'],
 .themePillActive {
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
   color: var(--text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 20px var(--login-glass-shadow), inset 0 0 0 1px var(--login-glass-border);
 }
 
 .brandBlock {
@@ -141,11 +253,6 @@
   flex-direction: column;
   padding: 28px;
   border-radius: 28px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 96%, rgba($primary-color, 0.08)), color-mix(in srgb, var(--bg-primary) 88%, transparent)),
-    var(--bg-primary);
-  box-shadow: var(--floating-shadow);
-  border: 1px solid color-mix(in srgb, var(--border-color) 84%, rgba($primary-color, 0.28));
 
   @include mobile {
     padding: 20px;
@@ -155,6 +262,17 @@
 .loginCardOIDCSpace {
   // API Key 页签把 OIDC 按钮的空间留在卡片外，保留居中位置与卡片本身的高度。
   margin-bottom: calc(var(--keeper-control-height-md) + var(--login-form-gap));
+}
+
+// 登录卡片与顶部切换器共用玻璃材质，尺寸与排版仍沿用现有规则。
+.pageShell .loginCard,
+.pageShell .languageSwitcher,
+.pageShell .themeSwitcher {
+  background: var(--login-glass-bg);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 8px 32px var(--login-glass-shadow);
+  border-color: var(--login-glass-border);
 }
 
 .cardHeader {
@@ -189,7 +307,7 @@
   margin-bottom: 18px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 12%, transparent);
 }
 
 .tab {
@@ -215,7 +333,7 @@
 
 .tabActive {
   border-color: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  background: var(--floating-surface);
+  background: color-mix(in srgb, var(--floating-surface) 50%, transparent);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 3px 8px rgb(0 0 0 / 6%);
 }
@@ -225,6 +343,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--login-form-gap);
+
+  :global(.input:not(:disabled)) {
+    background-color: var(--login-input-bg);
+  }
 
   :global(.input::placeholder) {
     font-size: 12px;
@@ -240,4 +362,30 @@
 
 .form :global(.btn) {
   border-radius: $radius-full;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop > span {
+    animation: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pageShell .loginCard,
+  .pageShell .languageSwitcher,
+  .pageShell .themeSwitcher {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .pageShell .loginCard,
+  .pageShell .languageSwitcher,
+  .pageShell .themeSwitcher {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }

@@ -20,6 +20,7 @@ const events: UsageEvent[] = [
     model: 'claude-sonnet',
     reasoning_effort: 'medium',
     service_tier: 'auto',
+    effective_service_tier: 'priority',
     response_service_tier: 'priority',
     endpoint: 'POST /v1/messages',
     source: 'Provider A',
@@ -73,21 +74,19 @@ describe('RequestEventsDetailsCard', () => {
   });
 
   it.each([
-    ['auto', 'priority', 'Auto / Fast'],
-    ['default', 'priority', 'Standard / Fast'],
-    ['standard', 'priority', 'Standard / Fast'],
-    ['priority', 'default', 'Fast / Standard'],
-    ['fast', 'default', 'Fast / Standard'],
-    ['flex', 'default', 'Flex / Standard'],
-    ['', 'priority', '- / Fast'],
-    ['batch', 'default', 'batch / Standard'],
-  ])('maps request mode %j independently of response mode %j', (request, response, expected) => {
-    const html = renderCard({
-      visibleColumnIds: ['service_tier'],
-      events: [{ ...events[0], service_tier: request, response_service_tier: response }],
-    });
-    expect(tableValues(html)['Speed Mode']).toBe(expected);
-  });
+    ['auto', 'Auto'], ['default', 'Standard'], ['standard', 'Standard'],
+    ['priority', 'Fast'], ['fast', 'Fast'], ['flex', 'Flex'], ['ultrafast', 'Ultrafast'],
+    ['batch', 'batch'], ['CUSTOM', 'CUSTOM'], [' Priority ', 'Fast'],
+    ['', 'Auto / Fast'], ['  ', 'Auto / Fast'], [undefined, 'Auto / Fast'],
+  ])(
+    'maps effective mode %j and falls back to request / response when absent', (effective, expected) => {
+      const html = renderCard({
+        visibleColumnIds: ['service_tier'],
+        events: [{ ...events[0], effective_service_tier: effective }],
+      });
+      expect(tableValues(html)['Speed Mode']).toBe(expected);
+    },
+  );
 
   it('formats the API timestamp as compact numeric date and time', () => {
     const html = renderCard({ events: [{ ...events[0], timestamp: '2026-05-13T00:38:19+08:00' }] });
@@ -106,8 +105,10 @@ describe('RequestEventsDetailsCard', () => {
   });
 
   it.each([
-    ['GET /v1/responses', 'WS/responses'],
-    ['/v1/chat/completions', '-/chat/completions'],
+    ['POST /backend-api/codex/responses', 'SSE/v1/responses'],
+    ['POST /v1/tts', 'SSE/v1/audio/speech'],
+    ['GET /v1/responses', 'WS/v1/responses'],
+    ['/v1/chat/completions', '-/v1/chat/completions'],
   ])('formats endpoint %j', (endpoint, expected) => {
     const html = renderCard({ events: [{ ...events[0], endpoint }] });
     expect(tableValues(html).Request).toBe(expected);

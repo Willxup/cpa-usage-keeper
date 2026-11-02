@@ -20,7 +20,7 @@ import (
 const (
 	authSessionKindAdmin  = "admin"
 	authSessionKindAPIKey = "api_key"
-	authSessionTimeLayout = "2006/01/02 15:04:05"
+	authSessionTimeLayout = "2006-01-02 15:04:05"
 )
 
 type authSessionListResponse struct {

@@ -137,6 +137,16 @@
   }
 }
 
+.topModelsCard {
+  grid-template-rows: 68px auto minmax(0, 1fr);
+
+  .emptyState { grid-row: 2 / -1; }
+
+  @include mobile {
+    grid-template-rows: 80px auto minmax(0, 1fr);
+  }
+}
+
 .pairedChartFrame {
   position: relative;
   height: var(--paired-chart-height);
@@ -155,24 +165,6 @@
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
-}
-
-.chartSummaryCount {
-  flex-shrink: 0;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  font-size: 12px;
-  font-weight: 750;
-  color: var(--text-secondary);
-}
-
-.chartSummaryTotal {
-  min-width: 0;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  text-align: right;
-  strong { color: var(--text-primary); margin-left: 6px; font-size: 13px; }
 }
 
 .rankingList {

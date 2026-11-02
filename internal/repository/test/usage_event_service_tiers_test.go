@@ -9,18 +9,19 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestUsageEventsPersistAndListResponseServiceTier(t *testing.T) {
+func TestUsageEventsPersistAndListServiceTiers(t *testing.T) {
 	db := openTestDatabase(t)
 	events := []entities.UsageEvent{{
-		EventKey:            "event-response-service-tier",
-		APIGroupKey:         "provider-a",
-		Model:               "gpt-5.4",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		Timestamp:           time.Date(2026, 7, 15, 1, 0, 0, 0, time.UTC),
-		Source:              "source-a",
-		AuthIndex:           "auth-1",
-		TotalTokens:         10,
+		EventKey:             "event-response-service-tier",
+		APIGroupKey:          "provider-a",
+		Model:                "gpt-5.4",
+		ServiceTier:          "auto",
+		EffectiveServiceTier: "CustomTier",
+		ResponseServiceTier:  "default",
+		Timestamp:            time.Date(2026, 7, 15, 1, 0, 0, 0, time.UTC),
+		Source:               "source-a",
+		AuthIndex:            "auth-1",
+		TotalTokens:          10,
 	}}
 
 	inserted, deduped, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees(events))
@@ -38,7 +39,7 @@ func TestUsageEventsPersistAndListResponseServiceTier(t *testing.T) {
 	if len(page.Events) != 1 {
 		t.Fatalf("expected one usage event, got %d", len(page.Events))
 	}
-	if page.Events[0].ServiceTier != "auto" || page.Events[0].ResponseServiceTier != "default" {
-		t.Fatalf("expected separate request/response tiers, got %+v", page.Events[0])
+	if page.Events[0].ServiceTier != "auto" || page.Events[0].EffectiveServiceTier != "CustomTier" || page.Events[0].ResponseServiceTier != "default" {
+		t.Fatalf("expected separate client/outbound/response tiers, got %+v", page.Events[0])
 	}
 }

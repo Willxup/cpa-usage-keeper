@@ -10,6 +10,7 @@ describe('credential priority translations', () => {
       'credentials_priority_order_hint',
       'credentials_priority_save_success', 'credentials_priority_save_failed',
       'credentials_priority_stale_target', 'credentials_priority_conflict_credential',
+      'credentials_config_changed',
       'credentials_priority_openai_scope',
     ]) {
       expect(labels[key]).toEqual(expect.any(String))

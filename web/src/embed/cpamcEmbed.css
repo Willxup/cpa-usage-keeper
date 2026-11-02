@@ -14,7 +14,7 @@
 .app-frame[data-embed='cpamc'] .app-footer {
   padding: 12px 20px 14px;
   border-top: 1px solid color-mix(in srgb, var(--border-color) 68%, transparent);
-  background: var(--bg-secondary);
+  background: var(--app-footer-background, var(--bg-secondary));
 }
 
 @media (max-width: 640px) {

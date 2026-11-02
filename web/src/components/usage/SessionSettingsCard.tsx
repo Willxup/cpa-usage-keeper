@@ -186,7 +186,6 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
   return (
     <Card
       title={t('usage_stats.session_settings_title')}
-      subtitle={t('usage_stats.session_settings_subtitle')}
       className={`${styles.detailsFixedCard} ${styles.sessionSettingsCard}`}
     >
       <div ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}>

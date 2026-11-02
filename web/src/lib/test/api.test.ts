@@ -664,6 +664,20 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
   });
 
+  it.each(['overview', 'analysis', 'request-events'] as const)('loads %s candidates with the shared range', async (scope) => {
+    const fetchMock = mockJSON({ options: [] });
+    await fetchCpaApiKeyOptions(undefined, { scope, range: { range: '24h' } });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope, range: '24h' });
+  });
+
+  it.each(['15m', '30m', '60m'] as const)('loads realtime candidates for %s without the overview range', async (window) => {
+    const fetchMock = mockJSON({ options: [] });
+    await fetchCpaApiKeyOptions(undefined, { scope: 'realtime', window });
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: 'realtime', window });
+  });
+
   it('loads CPA API key options and updates aliases', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(Response.json({ options: [{ id: '123', keyAlias: 'Main', displayKey: 'sk-*********123456', label: 'Main', lastSyncedAt: '2026-05-13T00:00:00Z' }] }))

@@ -325,7 +325,7 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 			t.Fatalf("missing session metadata: %+v", item)
 		}
 		for _, value := range []string{item.LoginAt, item.ExpiresAt} {
-			if _, err := time.Parse("2006/01/02 15:04:05", value); err != nil {
+			if _, err := time.Parse("2006-01-02 15:04:05", value); err != nil {
 				t.Fatalf("invalid session time %q: %v", value, err)
 			}
 		}

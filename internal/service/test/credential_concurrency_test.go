@@ -73,9 +73,9 @@ func TestCredentialStatusAndPriorityShareMutationLock(t *testing.T) {
 			seedCredentialCredential(t, db, "auth.json", "auth-index")
 			client := &credentialReplacementClient{file: credentials.Credential{Name: "auth.json", AuthIndex: "auth-index"}, firstKind: firstKind, firstStarted: make(chan struct{}), releaseFirst: make(chan struct{}), secondStarted: make(chan struct{})}
 			locks := &service.CredentialMutationLocks{}
-			status := service.NewCredentialStatusService(db, client, nil, locks)
-			priority := service.NewCredentialPriorityService(db, client, nil, locks)
-			bulk := service.NewCredentialsManagementService(client, locks)
+			status := service.NewCredentialStatusService(db, client, nil, locks, nil)
+			priority := service.NewCredentialPriorityService(db, client, nil, locks, nil)
+			bulk := service.NewCredentialsManagementService(client, nil, locks, nil)
 			actions := map[string]func() error{
 				"status": func() error {
 					if scenario.bulk {

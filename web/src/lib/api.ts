@@ -936,8 +936,16 @@ export async function fetchAnalysisLatency(request: UsageRangeRequest, signal?: 
   return response.json()
 }
 
-export async function fetchCpaApiKeyOptions(signal?: AbortSignal): Promise<CpaApiKeyOptionsResponse> {
-  const response = await apiFetch(apiPath('/usage/api-keys/options'), { signal, cache: 'no-store' })
+export type CpaApiKeyOptionsRequest =
+  | { scope: 'overview' | 'analysis' | 'request-events'; range: UsageRangeRequest }
+  | { scope: 'realtime'; window: OverviewRealtimeWindow }
+
+export async function fetchCpaApiKeyOptions(signal?: AbortSignal, request?: CpaApiKeyOptionsRequest): Promise<CpaApiKeyOptionsResponse> {
+  const params = request && request.scope !== 'realtime' ? buildUsageRangeParams(request.range) : new URLSearchParams()
+  if (request) params.set('scope', request.scope)
+  if (request?.scope === 'realtime') params.set('window', request.window)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/api-keys/options')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to load CPA API key options: ${response.status}`)
   }

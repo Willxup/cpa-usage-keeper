@@ -26,6 +26,8 @@ var (
 	ErrCredentialStatusUnsupported = errors.New("credential status is not supported")
 	// ErrCredentialStatusConflict 表示 CPA 明确拒绝单独操作该凭证，例如插件多账号文件展开出的虚拟子账号。
 	ErrCredentialStatusConflict = errors.New("credential status target cannot be changed on its own")
+	// ErrCredentialConfigChanged 表示供应商 GET 后配置已变化，本次 PUT 未保存。
+	ErrCredentialConfigChanged = errors.New("credential configuration changed")
 )
 
 // MetadataRefresher 让本地操作后尽快与 CPA 对齐，不改变当前轮询/通知模式。
@@ -37,7 +39,7 @@ type MetadataRefresher interface {
 type CredentialStatusClient interface {
 	UpdateCredentialStatus(ctx context.Context, name string, authIndex string, disabled bool) (int, error)
 	FetchProviderKeyConfig(ctx context.Context, providerType string) (*response.ProviderKeyConfigResult, error)
-	UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document) (int, error)
+	UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document, etag string) (int, error)
 }
 
 // CredentialStatusProvider 暴露单条凭证开关，调用方只提供 CPA auth_index。
@@ -56,11 +58,12 @@ type credentialStatusService struct {
 	client  CredentialStatusClient
 	refresh MetadataRefresher
 	// locks 按凭证名或供应商配置路径串行化读改写，避免跨操作互相覆盖。
-	locks *CredentialMutationLocks
+	locks    *CredentialMutationLocks
+	metadata *CredentialMetadataCoordinator
 }
 
-func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher, locks *CredentialMutationLocks) CredentialStatusProvider {
-	return &credentialStatusService{db: db, client: client, refresh: refresh, locks: locks}
+func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher, locks *CredentialMutationLocks, metadata *CredentialMetadataCoordinator) CredentialStatusProvider {
+	return &credentialStatusService{db: db, client: client, refresh: refresh, locks: locks, metadata: metadata}
 }
 
 // SetCredentialDisabled 用列表里的 auth_index 反查文件名，再按 CPA 的 name + auth_index 定位唯一账号。
@@ -150,8 +153,11 @@ func (s *credentialStatusService) SetAIProviderDisabled(ctx context.Context, aut
 	if err := result.Document.SetKeyExcludedModels(location, nextExcludedModels); err != nil {
 		return CredentialStatusResponse{}, err
 	}
-	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document)
+	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document, result.ETag)
 	if err != nil {
+		if statusCode == http.StatusPreconditionFailed {
+			return CredentialStatusResponse{}, fmt.Errorf("%w: %s provider configuration", ErrCredentialConfigChanged, providerType)
+		}
 		if statusCode == http.StatusNotFound {
 			return CredentialStatusResponse{}, fmt.Errorf("%w: %s provider credential", ErrCredentialStatusNotFound, providerType)
 		}
@@ -192,15 +198,17 @@ func (s *credentialStatusService) validate(authIndex string) (string, error) {
 
 // persistDisabled 立即写回本地状态，让页面刷新前就看到一致结果；后续 metadata 同步会再对齐一次。
 func (s *credentialStatusService) persistDisabled(ctx context.Context, authType entities.UsageIdentityAuthType, authIndex string, disabled bool) error {
-	if err := repository.UpdateUsageIdentityDisabled(ctx, s.db, authType, authIndex, disabled); err != nil {
-		// CPA 已经成功时，本地写回失败也要排队一次 metadata 同步，让后台在数据库恢复后重新对齐状态。
+	// CPA 已成功时，本地失败也要失效旧快照并排队刷新；通知放在协调器短锁之外。
+	defer func() {
 		if s.refresh != nil {
 			s.refresh.RequestLocalMetadataRefresh()
 		}
+	}()
+	err := s.metadata.completeMutation(func() error {
+		return repository.UpdateUsageIdentityDisabled(ctx, s.db, authType, authIndex, disabled)
+	})
+	if err != nil {
 		return fmt.Errorf("update usage identity disabled state: %w", err)
-	}
-	if s.refresh != nil {
-		s.refresh.RequestLocalMetadataRefresh()
 	}
 	return nil
 }
