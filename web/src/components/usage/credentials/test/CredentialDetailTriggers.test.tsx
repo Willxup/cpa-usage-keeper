@@ -61,7 +61,9 @@ describe('credential card detail triggers', () => {
       })
       // 名称交互不暴露原始文件名；不约束标题内部的标签和样式结构。
       expect(document.body.textContent).not.toContain(fileName)
-      expect(title.title).not.toContain(fileName)
+      // 原生提示继承最近祖先的 title；空 title 会阻断继续继承。
+      const nativeTooltip = title.closest('[title]')?.getAttribute('title') ?? ''
+      expect(nativeTooltip).not.toContain(fileName)
       await act(async () => title.click())
       expect(onOpenDetails.mock.calls.slice(index, index + 1)).toEqual([[rows[index]]])
     }
