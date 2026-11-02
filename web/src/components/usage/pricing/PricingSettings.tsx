@@ -12,6 +12,7 @@ import { PricingRecalculationModal } from './PricingRecalculationModal'
 import { PricingRuleCounts } from './PricingRuleCounts'
 import { usePricingRecalculation } from './usePricingRecalculation'
 import styles from './PricingSettings.module.scss'
+import filterStyles from '../credentials/CredentialSections.module.scss'
 
 type PriceKey = keyof PricingBasePrices
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
@@ -103,7 +104,10 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
 
   return <section className={styles.settings} aria-label={t('usage_stats.model_price_settings_title')}>
     <div className={styles.listHeader}>
-      <h2>{t('usage_stats.model_price_settings_title')}</h2>
+      <div className={styles.titleGroup}>
+        <h2>{t('usage_stats.model_price_settings_title')}</h2>
+        <span className={filterStyles.credentialProviderFilterCount}>{pricing.models.length}</span>
+      </div>
       <div className={styles.headerActions}>
         <Button type="button" variant="secondary" appearance="action" disabled={pricingLocked || pricing.loading || Boolean(pricing.error)}
           onClick={() => { setNotice(''); setSyncOpen(true) }}><IconRefreshCw size={16} />{t('usage_stats.pricing_settings_sync_title')}</Button>
@@ -125,7 +129,6 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       <Button type="button" variant="secondary" appearance="action" onClick={() => void recalculation.refreshCurrent()}>{t('common.retry')}</Button>
     </div> : null}
     <div className={styles.listLabel}>
-      <strong>{t('usage_stats.saved_prices')} · {pricing.models.length}</strong>
       <span>{t('usage_stats.pricing_settings_price_unit')}</span>
     </div>
     {pricing.error ? <div className={styles.listError} role="status">

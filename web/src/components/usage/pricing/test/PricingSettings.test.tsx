@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricingConfig, PricingRecalculationTask } from '@/lib/types'
 import { PricingSettings } from '../PricingSettings'
+import filterStyles from '../../credentials/CredentialSections.module.scss'
 
 vi.mock('react-i18next', () => ({
   Trans: ({ i18nKey, values }: { i18nKey: string; values: Record<string, number> }) => `${i18nKey}:${JSON.stringify(values)}`,
@@ -104,6 +105,17 @@ describe('PricingSettings', () => {
     await act(async () => root.render(<PricingSettings {...props} />))
   }
 
+  const priceCount = () => container.querySelector('h2')?.nextElementSibling
+
+  it('places the saved price count beside the title using the provider filter badge style', async () => {
+    await renderSettings()
+    expect(container.querySelector('h2')?.textContent).toBe('usage_stats.model_price_settings_title')
+    expect(priceCount()?.textContent).toBe('1')
+    expect(priceCount()?.classList.contains(filterStyles.credentialProviderFilterCount)).toBe(true)
+    expect(container.textContent).not.toContain('usage_stats.saved_prices')
+    expect(container.textContent).toContain('usage_stats.pricing_settings_price_unit')
+  })
+
   it('loads complete saved prices and adds a model with free-text conditions in one save', async () => {
     await renderSettings()
     expect(document.body.textContent).toContain('provider/claude-sonnet')
@@ -132,6 +144,7 @@ describe('PricingSettings', () => {
       branches: [],
     })
     expect(document.body.textContent).toContain('openai/gpt-5')
+    expect(priceCount()?.textContent).toBe('2')
   })
 
   it('discards an edit draft and later saves the original branches and legal condition values', async () => {
@@ -440,11 +453,13 @@ describe('PricingSettings', () => {
     expect(writes[0].url.pathname).toBe('/api/v1/pricing/models')
     expect(writes[0].url.searchParams.get('model')).toBe('provider/claude-sonnet')
     expect(document.body.textContent).toContain('usage_stats.model_price_empty')
+    expect(priceCount()?.textContent).toBe('0')
   })
 
   it('keeps the all-model recalculation entry available after every price configuration is deleted', async () => {
     configs = []
     await renderSettings()
+    expect(priceCount()?.textContent).toBe('0')
     const recalculate = button('usage_stats.pricing_recalculation_title')
     expect(recalculate.disabled).toBe(false)
   })

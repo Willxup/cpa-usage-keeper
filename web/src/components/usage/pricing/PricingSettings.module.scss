@@ -32,6 +32,13 @@
   flex-wrap: wrap;
 }
 
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .listHeader h2 {
   margin: 0;
   font-size: 18px;
@@ -43,6 +50,7 @@
 }
 
 .listLabel {
+  justify-content: flex-end;
   margin: 18px 0 10px;
   color: var(--text-secondary);
   font-size: 12px;
@@ -59,10 +67,6 @@
   border-radius: 14px;
   background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
   font-size: 12px;
-}
-
-.listLabel strong {
-  color: var(--text-primary);
 }
 
 .modelList {
