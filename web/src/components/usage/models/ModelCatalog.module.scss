@@ -1,5 +1,4 @@
 .catalog {
-  --models-list-height: 280px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -41,9 +40,10 @@
   }
 }
 
-// 保持原分页列表的展示高度，只让模型区域滚动，筛选和下方价格设置不随数量移动。
+// 与会话管理共用列表高度上限；内容较少时自然收缩，超出后仅列表滚动。
 .listViewport {
-  height: var(--models-list-height);
+  flex: 0 0 auto;
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -96,15 +96,13 @@
 .skeleton { height: 84px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-secondary); }
 
 @media (max-width: 1200px) {
-  .catalog { --models-list-height: 376px; }
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
-  .catalog { --models-list-height: 568px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .catalog { --models-list-height: 540px; padding: 16px; gap: 16px; }
+  .catalog { padding: 16px; gap: 16px; }
   .tools { align-items: stretch; flex-direction: column; gap: 10px; }
   .search { width: auto; }
   .grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
