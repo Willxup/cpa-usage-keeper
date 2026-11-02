@@ -24,8 +24,8 @@ describe('unsupported credential status icon', () => {
 
   const icon = () => container.querySelector<HTMLElement>('[data-credential-status-unsupported="true"]')
 
-  it('explains the limitation on keyboard focus instead of relying on a native title', async () => {
-    await act(async () => root.render(<CredentialStatusUnsupportedIcon providerType="openai" displayName="OpenAI Compatibility" />))
+  it.each([undefined, 'info'] as const)('explains the limitation on keyboard focus for the %s variant instead of relying on a native title', async (variant) => {
+    await act(async () => root.render(<CredentialStatusUnsupportedIcon providerType="openai" displayName="OpenAI Compatibility" variant={variant} />))
 
     const target = icon()
     expect(target).not.toBeNull()
@@ -43,9 +43,10 @@ describe('unsupported credential status icon', () => {
     expect(container.querySelector('[data-credential-status-tooltip="true"]')).toBe(tooltip)
   })
 
-  it('never renders a clickable status toggle for the unsupported icon', async () => {
-    await act(async () => root.render(<CredentialStatusUnsupportedIcon providerType="openai" displayName="OpenAI Compatibility" />))
+  it.each([undefined, 'info'] as const)('never renders a clickable status toggle for the unsupported %s variant', async (variant) => {
+    await act(async () => root.render(<CredentialStatusUnsupportedIcon providerType="openai" displayName="OpenAI Compatibility" variant={variant} />))
 
     expect(container.querySelector('[data-credential-status-toggle="true"]')).toBeNull()
+    expect(container.querySelector('button')).toBeNull()
   })
 })

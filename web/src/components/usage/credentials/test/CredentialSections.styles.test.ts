@@ -37,15 +37,7 @@ describe('Credential section layout and accessibility', () => {
     expect(cssBlock('.credentialSectionTitleBlock')).toContain('min-width: 0;')
   })
 
-  it('stacks both credential row types on narrow screens', () => {
-    expect(credentialStyles).toMatch(/\.credentialsRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(credentialStyles).toMatch(/\.credentialsRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-  })
-
   it('bounds quota bars and reveals wrapped group tooltips on hover or keyboard focus', () => {
-    expect(credentialStyles).toMatch(/\.credentialQuotaSideWithAction\s*\{[\s\S]*?grid-template-columns:\s*minmax\(350px, 1fr\) 30px;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(150px, 1fr\)\);/)
     expect(credentialStyles).toMatch(/\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*150px;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaGroupBlock\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
@@ -69,13 +61,7 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).not.toMatch(/\.credentialHealthCell:focus-visible/)
   })
 
-  it('keeps shared credential table headers out of narrow row stacking', () => {
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.credentialsRow[\s\S]*?display:\s*none;/)
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.aiProviderCredentialRow[\s\S]*?display:\s*none;/)
-  })
-
   it('keeps Credentials quota actions inside the mobile card boundary', () => {
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaSideWithAction\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*0;/)
   })
@@ -87,20 +73,12 @@ describe('Credential section layout and accessibility', () => {
     expect(cssBlock('.credentialExpiryTooltip')).not.toContain('overflow-wrap:')
   })
 
-  it('allows long alias names to wrap beside their edit action', () => {
-    expect(credentialStyles).toMatch(/\.credentialAliasDisplayLayout\s*\{[\s\S]*?display:\s*grid;/)
-    expect(credentialStyles).toMatch(/\.credentialAliasDisplayLayout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) 28px;/)
-    expect(credentialStyles).toMatch(/\.credentialAliasNameSlot\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(credentialStyles).toMatch(/\.credentialAliasNameSlot\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
-  })
-
   it('bounds and scrolls the inspection results table', () => {
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?max-height:\s*min\(52vh, 520px\);/)
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?overflow-y:\s*auto;/)
   })
 
   it('keeps Credentials quota reset popovers visible outside the section card', () => {
-    expect(credentialStyles).toMatch(/\.credentialSectionCard\s*\{[\s\S]*?overflow:\s*hidden;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetAction\s*\{[\s\S]*?position:\s*relative;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?position:\s*fixed;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?max-height:\s*calc\(100vh - 24px\);/)
@@ -111,13 +89,10 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).toMatch(/\.credentialQuotaResetTooltip\s*\{[\s\S]*?position:\s*absolute;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetAction:hover \.credentialQuotaResetTooltip[\s\S]*?opacity:\s*1;/)
     expect(credentialStyles).not.toContain('.credentialQuotaResetAction:focus-within .credentialQuotaResetTooltip')
-    expect(cssBlock('.credentialSectionCard')).not.toContain('overflow: visible;')
   })
 
-  it('wraps credential names and request metrics within their cells', () => {
-    expect(cssBlock('.credentialQuotaErrorMessage')).toContain('white-space: normal;')
-    expect(credentialStyles).toMatch(/\.credentialDisplayName\s*\{[\s\S]*?white-space:\s*normal;/)
-    expect(credentialStyles).toMatch(/\.credentialDisplayName\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+  it('wraps quota errors and request metrics within their cells', () => {
+    expect(scssRule(credentialStyles, '\n.credentialQuotaErrorMessage')).toContain('white-space: normal;')
     expect(credentialStyles).toMatch(/\.credentialMetricValueCell\s*\{[\s\S]*?white-space:\s*normal;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?align-items:\s*baseline;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
@@ -126,14 +101,7 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?white-space:\s*nowrap;/)
   })
 
-  it('scrolls pagination controls on narrow screens and sizes sorting by its content', () => {
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
-    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialQuotaModeControl[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaModeControl[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+  it('sizes sorting by its content', () => {
     expect(scssRule(credentialStyles, '.credentialPaginationSortControl')).toContain('display: inline-grid')
     expect(scssRule(credentialStyles, '.credentialPaginationSortSizer', 1)).toContain('visibility: hidden')
     expect(scssRule(credentialStyles, '.credentialPaginationSortSizer', 1)).toContain('white-space: nowrap')
@@ -145,13 +113,6 @@ describe('Credential section layout and accessibility', () => {
     expect(cssBlock('.credentialAutoRefreshScheduleArea')).toContain('grid-template-rows: 0fr;')
     expect(cssBlock('.credentialAutoRefreshScheduleAreaActive')).toContain('grid-template-rows: 1fr;')
     expect(cssBlock('.credentialAutoRefreshIntervalField')).toContain('max-width: 100%;')
-  })
-
-  it('disables detail name and arrow motion for reduced-motion users', () => {
-    const reducedMotion = scssRule(credentialStyles, '@media (prefers-reduced-motion: reduce)')
-    expect(reducedMotion).toContain('.credentialDetailNameText')
-    expect(reducedMotion).toContain('.credentialsRow:hover .credentialDetailNameArrow')
-    expect(reducedMotion).toContain('animation: none')
   })
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {

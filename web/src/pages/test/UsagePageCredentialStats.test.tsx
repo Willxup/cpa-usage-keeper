@@ -11,6 +11,9 @@ const api = vi.hoisted(() => ({
   fetchUsageIdentitiesPage: vi.fn(),
   fetchUsageIdentity: vi.fn(),
   resetUsageIdentityStats: vi.fn(),
+  updateUsageIdentityAlias: vi.fn(),
+  setCredentialPriority: vi.fn(),
+  setCredentialDisabled: vi.fn(),
 }));
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -52,7 +55,7 @@ describe('UsagePage credential detail statistics', () => {
 
   beforeEach(async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
     await i18n.changeLanguage('en');
     localStorage.clear();
     Object.values(api).forEach((mock) => mock.mockReset());
@@ -94,6 +97,80 @@ describe('UsagePage credential detail statistics', () => {
     await act(async () => root.render(<UsagePage />));
   };
 
+  it('returns focus to Enabled only after a full edit saves and filters out the edited card', async () => {
+    let savedIdentity = {
+      ...identity(1, 10), type: 'gemini-cli', provider: 'google', alias: 'Gemini Pro 2',
+      displayName: 'Gemini Pro 2', priority: 10, disabled: false,
+    };
+    api.fetchUsageIdentitiesPage.mockImplementation(async (_signal, options) => {
+      const identities = options?.activeOnly && savedIdentity.disabled ? [] : [{ ...savedIdentity }];
+      return { identities, total_count: identities.length, total_pages: 1 };
+    });
+    api.updateUsageIdentityAlias.mockImplementation(async (_id, alias: string) => {
+      savedIdentity = { ...savedIdentity, alias, displayName: alias };
+      return { ...savedIdentity };
+    });
+    api.setCredentialPriority.mockImplementation(async (_kind, authIndex: string, priority: number) => {
+      savedIdentity = { ...savedIdentity, priority };
+      return { auth_index: authIndex, priority };
+    });
+    api.setCredentialDisabled.mockImplementation(async (_kind, authIndex: string, disabled: boolean) => {
+      savedIdentity = { ...savedIdentity, disabled };
+      return { auth_index: authIndex, disabled };
+    });
+    window.history.replaceState(null, '', '/credentials');
+    await act(async () => root.render(<UsagePage />));
+
+    const enabledOnly = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => enabledOnly.click());
+    expect(enabledOnly.checked).toBe(true);
+    const card = container.querySelector<HTMLElement>('[data-credential-card="true"][data-credential-identity="1"]')!;
+    const edit = card.querySelector<HTMLButtonElement>('[aria-label="Edit credential"]')!;
+    await act(async () => edit.click());
+    const editor = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const changeField = async (name: 'alias' | 'priority', value: string) => {
+      const label = Array.from(editor.querySelectorAll<HTMLLabelElement>('label')).find((node) => node.textContent === i18n.t(`usage_stats.credentials_edit_${name}`))!;
+      const input = document.getElementById(label.htmlFor)!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await changeField('alias', 'Gemini Pro 2 renamed');
+    await changeField('priority', '20');
+    await act(async () => editor.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    await act(async () => button('Save').click());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(api.updateUsageIdentityAlias).toHaveBeenCalledWith('1', 'Gemini Pro 2 renamed');
+    expect(api.setCredentialPriority).toHaveBeenCalledWith('credential', 'fixture-1', 20);
+    expect(api.setCredentialDisabled).toHaveBeenCalledWith('credential', 'fixture-1', true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[data-credential-card="true"]')).toBeNull();
+    expect(edit.isConnected).toBe(false);
+    expect(document.activeElement).toBe(enabledOnly);
+    expect(enabledOnly.checked).toBe(true);
+  });
+
+  it.each([1, 2] as const)('opens the type %s overview from its title and returns focus to the title', async (authType) => {
+    await render(authType);
+    const card = container.querySelector<HTMLElement>('[data-credential-card="true"][data-credential-identity="1"]')!;
+    expect(api.fetchUsageIdentity).not.toHaveBeenCalled();
+
+    const trigger = card.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]')!;
+    await act(async () => trigger.click());
+
+    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(drawer.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Overview');
+    expectHealth('100.0%', '20.00%');
+    expect(api.fetchUsageIdentity).toHaveBeenLastCalledWith('1', expect.any(AbortSignal));
+
+    await act(async () => button('Close').click());
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it.each([1, 2] as const)('keeps observing type %s after reset moves it off the list page and retains data on failure', async (authType) => {
     await render(authType);
     expect(api.fetchUsageIdentity).not.toHaveBeenCalled();
@@ -132,6 +209,9 @@ describe('UsagePage credential detail statistics', () => {
     expect(metric()).toBe('7');
     expectHealth('0.0%', '—');
     await act(async () => button('Close').click());
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('input[type="checkbox"]'));
     const calls = api.fetchUsageIdentity.mock.calls.length;
     await tick();
     expect(api.fetchUsageIdentity).toHaveBeenCalledTimes(calls);

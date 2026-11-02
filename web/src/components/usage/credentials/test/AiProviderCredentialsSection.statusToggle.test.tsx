@@ -79,6 +79,8 @@ describe('AiProviderCredentialsSection status toggle wiring', () => {
 
     const button = container.querySelector('[data-credential-status-toggle="true"]') as HTMLButtonElement
     expect(button).not.toBeNull()
+    expect(button.getAttribute('role')).toBe('switch')
+    expect(button.getAttribute('aria-checked')).toBe('true')
 
     await act(async () => button.click())
 
@@ -87,11 +89,16 @@ describe('AiProviderCredentialsSection status toggle wiring', () => {
   })
 
   it('keeps pending state keyed by the Keeper identity id', async () => {
-    await render([createRow({ id: '7', identity: 'idx-provider' })], { statusPendingIdentityIds: new Set(['7']) })
+    const onToggleStatus = vi.fn()
+    await render([createRow({ id: '7', identity: 'idx-provider' })], { statusPendingIdentityIds: new Set(['7']), onToggleStatus })
 
     const button = container.querySelector('[data-credential-status-toggle="true"]') as HTMLButtonElement
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.getAttribute('aria-describedby')).toBeTruthy()
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.disabled).toBe(false)
+    await act(async () => button.click())
+    expect(onToggleStatus).not.toHaveBeenCalled()
   })
 
   it('does not render a toggle for provider types without single-credential disable support', async () => {
@@ -99,5 +106,6 @@ describe('AiProviderCredentialsSection status toggle wiring', () => {
 
     expect(container.querySelector('[data-credential-status-toggle="true"]')).toBeNull()
     expect(container.querySelector('[data-credential-status-unsupported="true"]')).not.toBeNull()
+    expect(container.querySelector('button[role="switch"]')).toBeNull()
   })
 })

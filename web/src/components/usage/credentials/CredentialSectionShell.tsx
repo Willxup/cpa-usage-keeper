@@ -15,25 +15,17 @@ interface CredentialSectionShellProps {
   children: ReactNode
 }
 
-interface CredentialRowShellProps {
+interface CredentialCardShellProps {
+  identityId: string
   icon?: ReactNode
   title: ReactNode
-  subtitle?: ReactNode
-  badges: ReactNode
+  badges?: ReactNode
+  status?: ReactNode
   metrics: ReactNode
   metricsTitle?: string
-  side: ReactNode
-  rowClassName?: string
-}
-
-interface CredentialTableHeaderProps {
-  nameLabel: string
-  totalRequestsLabel: string
-  successRateLabel: string
-  totalTokensLabel: string
-  cacheReadRateLabel: string
-  sideLabel: string
-  rowClassName?: string
+  health: ReactNode
+  quota?: ReactNode
+  actions?: ReactNode
 }
 
 export function CredentialSectionShell({ title, subtitle, titleExtra, actions, style, children }: CredentialSectionShellProps) {
@@ -54,40 +46,31 @@ export function CredentialSectionShell({ title, subtitle, titleExtra, actions, s
   )
 }
 
-export function CredentialRowShell({ icon, title, subtitle, badges, metrics, metricsTitle, side, rowClassName }: CredentialRowShellProps) {
-  // 统一三段式行结构：左侧身份信息、中间指标、右侧 quota/状态区域。
-  return (
-    <article className={`${styles.credentialRow} ${rowClassName ?? ''}`.trim()}>
-      <div className={styles.credentialIdentityBlock}>
-        {icon}
-        <div className={styles.credentialIdentityContent}>
-          <div className={styles.credentialNameRow}>
-            <div className={styles.credentialNameMain}>
-              <span className={styles.credentialDisplayName}>{title}</span>
-            </div>
-            {badges && <div className={styles.credentialBadges}>{badges}</div>}
-          </div>
-          {subtitle && <span className={styles.credentialIdentityText}>{subtitle}</span>}
-        </div>
-      </div>
-      <div className={styles.credentialMetricGroup} title={metricsTitle}>{metrics}</div>
-      <div className={styles.credentialSidePanel}>{side}</div>
-    </article>
-  )
+export function CredentialCardGrid({ children }: { children: ReactNode }) {
+  return <div className={styles.credentialCardGrid}>{children}</div>
 }
 
-export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
+export function CredentialCardShell({ identityId, icon, title, badges, status, metrics, metricsTitle, health, quota, actions }: CredentialCardShellProps) {
+  // 两类身份共用卡片骨架；详情入口与编辑等操作独立，卡片留白不绑定点击。
   return (
-    <div className={`${styles.credentialTableHeader} ${rowClassName ?? ''}`.trim()}>
-      <span className={styles.credentialTableHeaderName}>{nameLabel}</span>
-      <div className={styles.credentialMetricHeaderGroup}>
-        <span className={styles.credentialMetricHeaderCell}>{totalRequestsLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{successRateLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{totalTokensLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{cacheReadRateLabel}</span>
+    <article className={styles.credentialCard} data-credential-card="true" data-credential-identity={identityId}>
+      <div className={styles.credentialCardHeader}>
+        <span className={styles.credentialCardBrand} aria-hidden="true">{icon}</span>
+        <div className={styles.credentialCardIdentity}>
+          <h4 className={styles.credentialCardTitle}>{title}</h4>
+          {badges && <div className={styles.credentialIdentityBadges}>{badges}</div>}
+        </div>
+        {status && <div className={styles.credentialCardStatus}>{status}</div>}
       </div>
-      <span className={styles.credentialTableHeaderSide}>{sideLabel}</span>
-    </div>
+      <div className={styles.credentialCardMetrics} title={metricsTitle} role="group" aria-label={metricsTitle}>{metrics}</div>
+      {health}
+      {quota && <div className={styles.credentialCardQuota}>{quota}</div>}
+      <div className={styles.credentialCardFooter}>
+        <div className={styles.credentialCardActions}>
+          {actions}
+        </div>
+      </div>
+    </article>
   )
 }
 
@@ -99,9 +82,12 @@ export function CredentialPriorityBadge({ children }: { children: ReactNode }) {
   return <span className={styles.credentialPriorityBadge}>{children}</span>
 }
 
-export function MetricPill({ value }: { value: ReactNode }) {
+export function MetricPill({ label, value }: { label?: string; value: ReactNode }) {
   return (
-    <span className={styles.credentialMetricValueCell}>{value}</span>
+    <span className={styles.credentialCardMetric}>
+      {label && <span className={styles.credentialCardMetricLabel}>{label}</span>}
+      <span className={styles.credentialMetricValueCell}>{value}</span>
+    </span>
   )
 }
 

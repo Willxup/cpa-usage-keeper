@@ -66,28 +66,28 @@ describe('CredentialsSection expiry tooltip', () => {
 
     expect(firstBadge.getAttribute('title')).toBeNull()
     await act(async () => firstBadge.focus())
-    let tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement
+    let tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])') as HTMLDivElement
     expect(tooltip.textContent).toBe('Expires at: 2026-08-01 00:00:00 UTC+08:00')
     expect(tooltip.style.left).toBe('162px')
 
     await act(async () => {
       secondBadge.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
-    expect(document.body.querySelectorAll('[role="tooltip"]')).toHaveLength(1)
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('2026-08-02')
+    expect(document.body.querySelectorAll('[role="tooltip"]:not([aria-hidden="true"])')).toHaveLength(1)
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')?.textContent).toContain('2026-08-02')
 
     await act(async () => {
       secondBadge.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
       await i18n.changeLanguage('zh')
     })
-    tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement
+    tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])') as HTMLDivElement
     expect(tooltip.textContent).toBe('过期时间：2026-08-01 00:00:00 UTC+08:00')
 
     await renderRows([
       row('auth-a', '13d', '2026-09-01 00:00:00 UTC+08:00'),
       defaultRows[1],
     ])
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')?.textContent).toBe(
       '过期时间：2026-09-01 00:00:00 UTC+08:00',
     )
   })

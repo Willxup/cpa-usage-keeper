@@ -40,7 +40,8 @@ describe('CredentialsSection status toggle gating', () => {
     const html = renderSection([createRow({ type: 'codex' })])
 
     expect(html).toContain('data-credential-status-toggle="true"')
-    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('role="switch"')
+    expect(html).toContain('aria-checked="true"')
   })
 
   it('omits the toggle for unknown credential types instead of rendering an invisible button', () => {
@@ -61,8 +62,8 @@ describe('CredentialsSection status toggle gating', () => {
     }
   })
 
-  it('reflects the upstream disabled state through aria-pressed', () => {
-    expect(renderSection([createRow({ type: 'codex', disabled: false })])).toContain('aria-pressed="true"')
-    expect(renderSection([createRow({ type: 'codex', disabled: true })])).toContain('aria-pressed="false"')
+  it('reflects the upstream disabled state through the enabled switch value', () => {
+    expect(renderSection([createRow({ type: 'codex', disabled: false })])).toContain('aria-checked="true"')
+    expect(renderSection([createRow({ type: 'codex', disabled: true })])).toContain('aria-checked="false"')
   })
 })

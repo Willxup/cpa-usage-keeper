@@ -44,15 +44,15 @@ const renderToggle = async (props: Partial<Parameters<typeof CredentialStatusTog
 }
 
 describe('CredentialStatusToggle', () => {
-  it('toggles an enabled credential and exposes an always-mounted description', async () => {
-    const view = await renderToggle()
+  it.each([undefined, 'switch'] as const)('toggles an enabled credential with the %s variant and exposes an always-mounted description', async (variant) => {
+    const view = await renderToggle({ variant })
 
     // 说明节点常驻 DOM，聚焦当刻就能作为可访问描述被计算，而不是聚焦后才插入。
     const tooltip = view.tooltip()
     expect(tooltip?.getAttribute('role')).toBe('tooltip')
     expect(view.button().getAttribute('aria-describedby')).toBe(tooltip?.id)
     expect(tooltip?.textContent).toBe('Click to disable this credential')
-    expect(view.button().getAttribute('aria-pressed')).toBe('true')
+    expect(view.button().getAttribute(variant === 'switch' ? 'aria-checked' : 'aria-pressed')).toBe('true')
     expect(view.button().getAttribute('aria-label')).toBe('Claude Team')
 
     await act(async () => view.button().click())
@@ -61,8 +61,8 @@ describe('CredentialStatusToggle', () => {
     await view.unmount()
   })
 
-  it('keeps the toggle focusable while pending and blocks repeated activation', async () => {
-    const view = await renderToggle({ providerType: 'gemini', displayName: 'Gemini Team', disabled: true })
+  it.each([undefined, 'switch'] as const)('keeps the %s toggle focusable while pending and blocks repeated activation', async (variant) => {
+    const view = await renderToggle({ providerType: 'gemini', displayName: 'Gemini Team', disabled: true, variant })
 
     await act(async () => view.button().focus())
     await view.rerender({ pending: true })
@@ -72,7 +72,8 @@ describe('CredentialStatusToggle', () => {
     expect(view.button().hasAttribute('disabled')).toBe(false)
     expect(view.button().getAttribute('aria-disabled')).toBe('true')
     expect(view.button().getAttribute('aria-busy')).toBe('true')
-    expect(view.button().getAttribute('aria-pressed')).toBe('false')
+    expect(view.button().getAttribute(variant === 'switch' ? 'aria-checked' : 'aria-pressed')).toBe('false')
+    expect(document.activeElement).toBe(view.button())
     expect(view.tooltip()?.textContent).toBe('Updating...')
 
     await act(async () => view.button().click())
@@ -92,6 +93,15 @@ describe('CredentialStatusToggle', () => {
 
     expect(view.button()).toBeNull()
     expect(view.container.querySelector('[data-provider-brand-icon="codex"]')).not.toBeNull()
+
+    await view.unmount()
+  })
+
+  it('does not expose an actionable switch for a read-only card', async () => {
+    const view = await renderToggle({ providerType: 'codex', displayName: 'Codex Team', readOnly: true, variant: 'switch' })
+
+    expect(view.button()).toBeNull()
+    expect(view.container.querySelector('button[role="switch"]')).toBeNull()
 
     await view.unmount()
   })

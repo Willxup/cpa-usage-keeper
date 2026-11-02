@@ -61,21 +61,20 @@ describe('AiProviderCredentialsSection', () => {
       />,
     )
 
-    expect(html).toContain('usage_stats.credentials_column_name')
-    expect(html).toContain('usage_stats.credentials_column_health')
-    expect(html).toContain('usage_stats.credentials_health_last_5h')
+    expect(html).toContain('data-credential-card="true"')
+    expect(html).toContain('data-credential-health-variant="compact"')
     // 5h 缓存率只是健康面板 meta 区的一行文字，不再额外画一条柱状图。
-    expect(html).toContain('usage_stats.credentials_health_cache_rate_5h')
+    expect(html).toContain('usage_stats.credentials_health_cache_short')
     expect(html).toContain('61.75%')
     expect(html).toContain('usage_stats.credentials_last_used')
-    expect(html).toContain('usage_stats.credentials_stats_updated')
-    expect(html).toContain('05/10 10:00')
-    expect(html).toContain('05/10 10:02')
+    expect(html).toContain('05-10 10:00')
+    expect(html).not.toContain('05/10 10:02')
     expect(html).toContain('data-provider-brand-icon="claude"')
-    // 图标本身交给按钮承载语义，按钮名称使用凭证 displayName，状态由 aria-pressed 表达。
+    // 品牌图标只展示供应商，卡片开关单独表达 enabled 状态。
     expect(html).toContain('data-credential-status-toggle="true"')
     expect(html).toContain('data-credential-status-disabled="false"')
-    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('role="switch"')
+    expect(html).toContain('aria-checked="true"')
     expect(html).toContain('aria-label="Provider Key"')
     expect(html).toContain('P5')
     expect(html).toContain('usage_stats.credentials_sort_priority')
