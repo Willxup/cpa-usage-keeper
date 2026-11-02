@@ -44,8 +44,15 @@ const apiKey: CpaApiKeySettingsItem = {
   label: 'Primary',
   lastSyncedAt: '2026-05-13T00:00:00Z',
 }
+const longAlias = 'Production API key for a very long customer and application name that exceeds the card width'
+const longApiKey: CpaApiKeySettingsItem = {
+  ...apiKey,
+  apiKey: `sk-${'abcdefghijklmnopqrstuvwxyz'.repeat(4)}123456`,
+  keyAlias: longAlias,
+  label: longAlias,
+}
 
-describe('ApiKeySettingsCard copy action', () => {
+describe('ApiKeySettingsCard interactions', () => {
   let container: HTMLDivElement
   let root: Root
   let clipboardDescriptor: PropertyDescriptor | undefined
@@ -101,6 +108,23 @@ describe('ApiKeySettingsCard copy action', () => {
   }
   const click = async (element: HTMLElement) => {
     await act(async () => { element.click(); await Promise.resolve() })
+  }
+  const textElements = (text: string) => Array.from(container.querySelectorAll<HTMLSpanElement>('span'))
+    .filter((element) => element.children.length === 0 && element.textContent === text)
+  const textElement = (text: string) => {
+    const elements = textElements(text)
+    expect(elements).toHaveLength(1)
+    return elements[0]
+  }
+  const expectNoTextTooltip = async (element: HTMLElement) => {
+    expect(element.closest('[title]')).toBeNull()
+    await act(async () => element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    await act(async () => element.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })))
+    await act(async () => element.focus())
+    expect(document.activeElement).toBe(element)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    await act(async () => element.blur())
   }
 
   it('copies the raw key and resets the accessible success label', async () => {
@@ -171,6 +195,70 @@ describe('ApiKeySettingsCard copy action', () => {
     const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
     return { opener, input }
   }
+
+  it('does not show a tooltip for a long native alias and still allows renaming', async () => {
+    const save = vi.fn(async () => undefined)
+    await renderCard(vi.fn(), [longApiKey], save)
+
+    await expectNoTextTooltip(textElement(longAlias))
+    const editButton = button('Edit credential')
+    expect(editButton.title).toBe('Edit credential')
+    await click(editButton)
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    expect(input.value).toBe(longAlias)
+    await changeAlias(input, 'Renamed key')
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(save).toHaveBeenCalledExactlyOnceWith(longApiKey.id, 'Renamed key')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(editButton)
+  })
+
+  it('does not show a tooltip for a masked or revealed long key and still toggles and copies it', async () => {
+    const writeText = vi.fn(async () => undefined)
+    const onNotice = vi.fn()
+    mockClipboard(writeText)
+    await renderCard(onNotice, [longApiKey])
+
+    expect(container.textContent).not.toContain(longApiKey.apiKey)
+    await expectNoTextTooltip(textElement(longApiKey.displayKey))
+    await click(button('Copy'))
+    expect(writeText).toHaveBeenNthCalledWith(1, longApiKey.apiKey)
+    expect(onNotice).toHaveBeenCalledWith('success', 'API Key copied.')
+
+    await click(button('Show API key'))
+    expect(button('Hide API key').getAttribute('aria-pressed')).toBe('true')
+    expect(container.textContent).not.toContain(longApiKey.displayKey)
+    await expectNoTextTooltip(textElement(longAlias))
+    await expectNoTextTooltip(textElement(longApiKey.apiKey!))
+    await click(button('Copied'))
+    expect(writeText).toHaveBeenNthCalledWith(2, longApiKey.apiKey)
+    expect(writeText).toHaveBeenCalledTimes(2)
+
+    await click(button('Hide API key'))
+    expect(button('Show API key').getAttribute('aria-pressed')).toBe('false')
+    expect(container.textContent).not.toContain(longApiKey.apiKey)
+    await expectNoTextTooltip(textElement(longAlias))
+    await expectNoTextTooltip(textElement(longApiKey.displayKey))
+  })
+
+  it('does not show a tooltip when the masked key is also used as the native name', async () => {
+    await renderCard(vi.fn(), [{ ...longApiKey, keyAlias: '', label: longApiKey.displayKey }])
+    const maskedTexts = textElements(longApiKey.displayKey)
+    expect(maskedTexts).toHaveLength(2)
+    for (const text of maskedTexts) await expectNoTextTooltip(text)
+  })
+
+  it('does not show a tooltip for a third-party name or identity while keeping the source tooltip', async () => {
+    await renderCard(vi.fn(), [{ ...pluginKey, keyAlias: longAlias, label: longAlias }])
+    await expectNoTextTooltip(textElement(longAlias))
+    await expectNoTextTooltip(textElement('Third-party Identity #7'))
+
+    const source = textElement('external-plugin:auth-provider')
+    await act(async () => source.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('external-plugin:auth-provider')
+    await act(async () => source.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+  })
 
   it('keeps third-party cards limited to alias editing and shows the complete safe source in a portal tooltip', async () => {
     await renderCard(vi.fn(), [pluginKey])
