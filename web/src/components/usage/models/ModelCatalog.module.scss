@@ -28,7 +28,7 @@
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
   &:focus-within { border-color: var(--primary-color); outline: 2px solid color-mix(in srgb, var(--primary-color) 18%, transparent); }
