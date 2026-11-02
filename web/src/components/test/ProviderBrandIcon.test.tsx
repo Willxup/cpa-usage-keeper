@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ProviderBrandIcon, providerBrandIconKey } from '../ProviderBrandIcon'
 
 describe('ProviderBrandIcon', () => {
-  it.each(['antigravity', 'claude', 'codex', 'devin', 'gemini', 'kimi', 'meta', 'openai', 'vertex', 'xai'])(
+  it.each(['antigravity', 'claude', 'codex', 'deepseek', 'devin', 'gemini', 'kimi', 'meta', 'muse', 'openai', 'qwen', 'vertex', 'xai', 'zai'])(
     'renders the shared avatar for %s', (providerType) => {
       expect(providerBrandIconKey(providerType)).toBe(providerType)
       const html = renderToStaticMarkup(<ProviderBrandIcon providerType={providerType} size={30} />)
@@ -25,10 +25,17 @@ describe('ProviderBrandIcon', () => {
     expect(html).toContain(`aria-label="${providerType}"`)
   })
 
+  it.each(['glm', 'chatglm', 'zai', 'z.ai', 'z-ai', 'zhipu'])('uses the Z.ai avatar for %s', (providerType) => {
+    expect(providerBrandIconKey(` ${providerType.toUpperCase()} `)).toBe('zai')
+    expect(renderToStaticMarkup(<ProviderBrandIcon providerType={providerType} size={30} />)).toContain('data-provider-brand-icon="zai"')
+  })
+
   it('does not assign logos to plugin-only or unsupported identity types', () => {
     expect(providerBrandIconKey('gemini-cli-code-assist')).toBeUndefined()
     expect(providerBrandIconKey('iflow')).toBeUndefined()
     expect(providerBrandIconKey('future-provider')).toBeUndefined()
+    expect(providerBrandIconKey('constructor')).toBeUndefined()
+    expect(providerBrandIconKey('__proto__')).toBeUndefined()
     expect(providerBrandIconKey('kimi-future')).toBeUndefined()
     expect(providerBrandIconKey(undefined)).toBeUndefined()
   })

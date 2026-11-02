@@ -21,12 +21,16 @@ describe('model provider prefix priority', () => {
     ['meta-llama/Llama-3.1-70B-Instruct', 'openai', 'provider:meta', 'Meta'],
     ['Meta-Llama-3.1-70B', 'openai', 'provider:meta', 'Meta'],
     ['llama3.1', 'openai', 'provider:meta', 'Meta'],
-    ['deepseek-chat', 'openai', 'owner:deepseek', 'DeepSeek'],
-    ['Qwen/Qwen3.5-Plus', 'openai', 'owner:qwen', 'Qwen'],
+    ['deepseek-chat', 'openai', 'provider:deepseek', 'DeepSeek'],
+    ['xxx/deepseek-reasoner', 'openai', 'provider:deepseek', 'DeepSeek'],
+    ['Qwen/Qwen3.5-Plus', 'openai', 'provider:qwen', 'Qwen'],
+    ['muse-spark', 'meta', 'provider:muse', 'Muse'],
+    ['xxx/muse-spark', 'openai', 'provider:muse', 'Muse'],
     ['mistralai/Mistral-Small', 'openai', 'owner:mistral', 'Mistral'],
     ['codestral-latest', 'openai', 'owner:mistral', 'Mistral'],
     ['MiniMax-M2.5', 'openai', 'owner:minimax', 'MiniMax'],
-    ['z-ai/GLM-5', 'openai', 'owner:z.ai', 'Z.ai'],
+    ['z-ai/GLM-5', 'openai', 'provider:zai', 'Z.ai'],
+    ['chatglm3-6b', 'openai', 'provider:zai', 'Z.ai'],
   ])('classifies %s by its model family despite owned_by=%s', (model, owner, key, label) => {
     expect(modelProvider(model, owner)).toMatchObject({ key, label })
   })
@@ -36,6 +40,8 @@ describe('model provider prefix priority', () => {
     ['custom-model', 'GOOGLE', 'provider:gemini', 'Gemini'],
     ['custom-model', 'gemini-cli', 'provider:gemini', 'Gemini'],
     ['claudette', 'openai', 'provider:openai', 'OpenAI'],
+    ['museum', 'meta', 'provider:meta', 'Meta'],
+    ['custom-model', 'glm', 'provider:zai', 'Z.ai'],
     ['gptish', 'anthropic', 'provider:claude', 'Claude'],
     ['o365', 'anthropic', 'provider:claude', 'Claude'],
     ['my-gpt-6-astra', ' Team Gateway ', 'owner:team gateway', 'Team Gateway'],

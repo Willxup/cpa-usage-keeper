@@ -117,6 +117,24 @@ describe('model catalog', () => {
     expect(viewport.scrollTop).toBe(0)
   })
 
+  it.each([
+    ['deepseek', 'deepseek', 'xxx/deepseek-chat'],
+    ['qwen', 'qwen', 'xxx/qwen3-coder'],
+    ['z.ai', 'zai', 'xxx/glm-5'],
+    ['glm', 'zai', 'xxx/glm-5'],
+    ['muse', 'muse', 'xxx/muse-spark'],
+  ])('restores the saved owner:%s filter after its brand icon is added', async (owner, icon, id) => {
+    localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, JSON.stringify({ version: 1, providerFilter: `owner:${owner}` }))
+    mocks.fetch.mockResolvedValue({ data: [{ id, owned_by: 'openai' }] })
+    await act(async () => root.render(<ModelCatalog />))
+    expect(loadModelProviderFilter()).toBe(`provider:${icon}`)
+    expect(ids()).toEqual([id])
+    expect(container.querySelector(`button[aria-pressed="true"] [data-provider-brand-icon="${icon}"]`)).not.toBeNull()
+    expect(container.querySelector(`article [data-provider-brand-icon="${icon}"] img`)).not.toBeNull()
+    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Copy ${id}"]`)!.click())
+    expect(mocks.copy).toHaveBeenCalledWith(id)
+  })
+
   it('validates local storage and falls back to owned_by for unknown model names', () => {
     localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, '{bad')
     expect(loadModelProviderFilter()).toBe('all')

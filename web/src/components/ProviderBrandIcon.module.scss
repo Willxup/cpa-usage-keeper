@@ -37,6 +37,11 @@
   background: #fff;
 }
 
+.providerBrandIconAvatar[data-provider-brand-icon='deepseek'] {
+  --provider-brand-icon-avatar-scale: 0.75;
+  background: #4d6bfe;
+}
+
 .providerBrandIconAvatar[data-provider-brand-icon='devin'] {
   --provider-brand-icon-avatar-scale: 0.75;
   background: #000;
@@ -57,9 +62,19 @@
   background: #0866ff;
 }
 
+.providerBrandIconAvatar[data-provider-brand-icon='muse'] {
+  --provider-brand-icon-avatar-scale: 0.75;
+  background: #fff;
+}
+
 .providerBrandIconAvatar[data-provider-brand-icon='openai'] {
   --provider-brand-icon-avatar-scale: 0.75;
   background: #000;
+}
+
+.providerBrandIconAvatar[data-provider-brand-icon='qwen'] {
+  --provider-brand-icon-avatar-scale: 0.6;
+  background: #082dff;
 }
 
 .providerBrandIconAvatar[data-provider-brand-icon='vertex'] {
@@ -72,30 +87,41 @@
   background: #000;
 }
 
+.providerBrandIconAvatar[data-provider-brand-icon='zai'] {
+  --provider-brand-icon-avatar-scale: 0.6;
+  background: #000;
+}
+
 .providerBrandIconAvatar[data-provider-brand-icon='claude'] .providerBrandIconAsset,
+.providerBrandIconAvatar[data-provider-brand-icon='deepseek'] .providerBrandIconAsset,
 .providerBrandIconAvatar[data-provider-brand-icon='devin'] .providerBrandIconAsset,
 .providerBrandIconAvatar[data-provider-brand-icon='meta'] .providerBrandIconAsset,
 .providerBrandIconAvatar[data-provider-brand-icon='openai'] .providerBrandIconAsset,
+.providerBrandIconAvatar[data-provider-brand-icon='qwen'] .providerBrandIconAsset,
 .providerBrandIconAvatar[data-provider-brand-icon='vertex'] .providerBrandIconAsset,
-.providerBrandIconAvatar[data-provider-brand-icon='xai'] .providerBrandIconAsset {
+.providerBrandIconAvatar[data-provider-brand-icon='xai'] .providerBrandIconAsset,
+.providerBrandIconAvatar[data-provider-brand-icon='zai'] .providerBrandIconAsset {
   filter: invert(1);
 }
 
 .providerBrandIconAvatar[data-provider-brand-icon='antigravity'],
 .providerBrandIconAvatar[data-provider-brand-icon='codex'],
-.providerBrandIconAvatar[data-provider-brand-icon='gemini'] {
+.providerBrandIconAvatar[data-provider-brand-icon='gemini'],
+.providerBrandIconAvatar[data-provider-brand-icon='muse'] {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05) inset;
 }
 
 :global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='antigravity'],
 :global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='codex'],
-:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='gemini'] {
+:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='gemini'],
+:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='muse'] {
   box-shadow: none;
 }
 
 :global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='devin'],
 :global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='kimi'],
 :global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='openai'],
-:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='xai'] {
+:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='xai'],
+:global([data-theme='dark']) .providerBrandIconAvatar[data-provider-brand-icon='zai'] {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }

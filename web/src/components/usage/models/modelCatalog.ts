@@ -8,7 +8,7 @@ export interface CatalogModel extends AvailableModel { provider: ModelProvider }
 const aliases: Record<string, string> = { anthropic: 'claude', google: 'gemini', 'google-ai': 'gemini', 'x-ai': 'xai', 'x.ai': 'xai' }
 const labels: Readonly<Record<string, string>> = {
   antigravity: 'Antigravity', claude: 'Claude', codex: 'Codex', devin: 'Devin', gemini: 'Gemini', kimi: 'Kimi', meta: 'Meta', openai: 'OpenAI', vertex: 'Vertex', xai: 'xAI',
-  deepseek: 'DeepSeek', qwen: 'Qwen', mistral: 'Mistral', minimax: 'MiniMax', 'z.ai': 'Z.ai',
+  deepseek: 'DeepSeek', muse: 'Muse', qwen: 'Qwen', mistral: 'Mistral', minimax: 'MiniMax', zai: 'Z.ai', 'z.ai': 'Z.ai',
 }
 
 // 只识别明确的模型家族前缀；边界避免把 gptish、o365 等自定义别名误归类。
@@ -20,10 +20,11 @@ const modelPrefixes: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(?:kimi|moonshot)(?:[-_.:]|\d|$)/, 'kimi'],
   [/^(?:meta[-_])?llama(?:[-_.:]|\d|$)/, 'meta'],
   [/^deepseek(?:[-_.:]|\d|$)/, 'deepseek'],
+  [/^muse(?:[-_.:]|\d|$)/, 'muse'],
   [/^qwen(?:[-_.:]|\d|$)/, 'qwen'],
   [/^(?:mistral|mixtral|codestral|ministral|devstral|pixtral|magistral|voxtral)(?:[-_.:]|\d|$)/, 'mistral'],
   [/^minimax(?:[-_.:]|\d|$)/, 'minimax'],
-  [/^glm(?:[-_.:]|\d|$)/, 'z.ai'],
+  [/^(?:chat)?glm(?:[-_.:]|\d|$)/, 'z.ai'],
 ]
 
 function providerFromOwner(owner?: string): ModelProvider {
@@ -56,8 +57,10 @@ export function loadModelProviderFilter(): string {
   try {
     const saved = JSON.parse(localStorage.getItem(MODEL_CATALOG_PREFERENCES_KEY) ?? 'null')
     const value = saved?.providerFilter
-    return saved?.version === 1 && typeof value === 'string' && value.length <= 256 &&
-      (value === 'all' || value === 'unknown' || /^(provider|owner):\S/.test(value)) ? value : 'all'
+    if (saved?.version !== 1 || typeof value !== 'string' || value.length > 256 ||
+      !(value === 'all' || value === 'unknown' || /^(provider|owner):\S/.test(value))) return 'all'
+    // 新增品牌图标后，旧的 owner 筛选迁移到同一品牌，避免恢复为无结果的旧分组。
+    return value.startsWith('owner:') ? providerFromOwner(value.slice('owner:'.length)).key : value
   } catch { return 'all' }
 }
 
