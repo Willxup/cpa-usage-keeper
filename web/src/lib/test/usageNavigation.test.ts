@@ -19,6 +19,7 @@ describe('usage page navigation', () => {
       ['events', '/request-events'],
       ['credentials', '/credentials'],
       ['ai-provider', '/ai-provider'],
+      ['models', '/models'],
       ['settings', '/settings'],
     ] as const;
 

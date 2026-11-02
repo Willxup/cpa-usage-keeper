@@ -80,6 +80,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   events: 'usage_stats.tab_events',
   'credentials': 'usage_stats.tab_credentials',
   'ai-provider': 'usage_stats.tab_ai_provider',
+  models: 'usage_stats.tab_models',
   settings: 'usage_stats.tab_settings',
 };
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v2';
@@ -142,7 +143,7 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'settings' && tab !== 'models' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
 
@@ -1764,8 +1765,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadAnalysis(true);
       return;
     }
+    if (activeTab === 'models') {
+      await pricingSettingsRef.current?.refresh();
+      return;
+    }
     if (activeTab === 'settings') {
-      await Promise.all([loadAuthSessions(), loadApiKeySettings(), pricingSettingsRef.current?.refresh()]);
+      await Promise.all([loadAuthSessions(), loadApiKeySettings()]);
       return;
     }
     await Promise.all([loadUsage(markOverviewLoaded), loadActivity(), loadComparisons({ onLoaded: markComparisonsLoaded })]);
@@ -2401,6 +2406,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
+            {activeTab === 'models' && (
+              <div className={styles.settingsSections}>
+                <PricingSettings ref={pricingSettingsRef} timezone={status?.timezone} onAuthRequired={onAuthRequired}
+                  onRecalculationSettled={() => { void credentialsData.refreshAfterRecalculation() }} />
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className={styles.settingsSections}>
                 <SessionSettingsCard
@@ -2418,8 +2430,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onSaveAlias={handleSaveApiKeyAlias}
                   onNotice={showTopNotice}
                 />
-                <PricingSettings ref={pricingSettingsRef} timezone={status?.timezone} onAuthRequired={onAuthRequired}
-                  onRecalculationSettled={() => { void credentialsData.refreshAfterRecalculation() }} />
               </div>
             )}
           </div>
