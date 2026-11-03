@@ -83,7 +83,6 @@
 @media (max-width: 600px) {
   .catalog { padding: 16px; gap: 16px; }
   .tools { align-items: stretch; flex-direction: column; gap: 10px; }
-  .search { width: auto; }
   .grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .model { padding: 10px 12px 12px; }
   .copy { width: 36px; height: 36px; flex-basis: 36px; }

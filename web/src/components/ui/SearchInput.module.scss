@@ -18,3 +18,7 @@
     &::placeholder { color: var(--text-secondary); }
   }
 }
+
+@media (max-width: 600px) {
+  .search { width: 100%; }
+}
