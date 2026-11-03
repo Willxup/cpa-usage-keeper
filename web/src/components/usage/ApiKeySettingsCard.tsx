@@ -183,8 +183,9 @@ function ApiKeyIdentityCard({ item, saving, copied, onCopy, onSaveAlias, renderS
         </div>}
       </div>
       <div className={styles.apiKeySettingsName}>
-        <CredentialAliasEditor identityId={item.id} displayName={<span className={styles.apiKeySettingsText} tabIndex={0}>{name}</span>} disabled={saving}
-          onEdit={() => setEditing(true)} />
+        {/* 保存期间保留编辑按钮节点供弹窗回焦，且不重复打开弹窗。 */}
+        <CredentialAliasEditor identityId={item.id} displayName={<span className={styles.apiKeySettingsText} tabIndex={0}>{name}</span>}
+          onEdit={() => { if (!saving) setEditing(true); }} />
       </div>
       <div className={styles.apiKeySettingsMeta}>
         <div className={styles.apiKeySettingsKeySpace}>
