@@ -1,3 +1,4 @@
+import { PricingEstimateNotice } from '@/components/usage/PricingEstimateNotice';
 import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AuthSessionAPIKeySummary } from '@/lib/types';
@@ -79,6 +80,7 @@ export function KeyViewerShell({
               refreshDisabled={refreshDisabled}
             />
 
+            <PricingEstimateNotice />
             {children}
           </div>
         </main>

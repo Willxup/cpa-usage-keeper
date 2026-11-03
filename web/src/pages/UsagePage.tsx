@@ -1,3 +1,4 @@
+import { PricingEstimateNotice } from '@/components/usage/PricingEstimateNotice';
 import { ChartLifecycleProvider, useChartRefresh, type ChartRefreshSignal } from '@/components/usage/charts/chartLifecycle';
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
@@ -2225,6 +2226,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               onRefresh={() => void handleManualRefresh().catch(() => {})}
               refreshing={manualRefreshLoading}
             />}
+            <PricingEstimateNotice />
 
             {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}
             {activeTab === 'settings' && authSessionsError && <div className={styles.errorBox}>{authSessionsError}</div>}

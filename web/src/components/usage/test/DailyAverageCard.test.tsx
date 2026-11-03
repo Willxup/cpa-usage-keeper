@@ -71,7 +71,7 @@ describe('DailyAverageCard', () => {
     expect(html).toContain('65.9');
     expect(html).toContain('Avg Tokens');
     expect(html).toContain('7.51M');
-    expect(html).toContain('Avg Cost');
+    expect(html).toContain('Avg Estimated Cost');
     expect(html).toContain('$8.07');
     expect(html).toContain('Set pricing to calculate cost');
   });
@@ -82,7 +82,7 @@ describe('DailyAverageCard', () => {
     expect(html).toContain('Daily Average');
     expect(html).toContain('Avg Requests');
     expect(html).toContain('Avg Tokens');
-    expect(html).toContain('Avg Cost');
+    expect(html).toContain('Avg Estimated Cost');
     expect(html).not.toContain('Range ');
   });
 });
