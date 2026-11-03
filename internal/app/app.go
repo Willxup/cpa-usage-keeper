@@ -286,6 +286,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 				CredentialStatus:   credentialStatusService,
 				CredentialPriority: credentialPriorityService,
 				RequestLogs:        requestLogService,
+				Models:             cpaClient,
 				Status: api.StatusRouteConfig{
 					CPAPublicURL:               cfg.CPAPublicURL,
 					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,

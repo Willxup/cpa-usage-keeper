@@ -1,0 +1,24 @@
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(360px, 100%);
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  &:focus-within { border-color: var(--primary-color); outline: 2px solid color-mix(in srgb, var(--primary-color) 18%, transparent); }
+  svg { flex: 0 0 auto; }
+  input {
+    width: 100%; min-width: 0; padding: 9px 0; border: 0; outline: 0;
+    background: transparent; color: var(--text-primary); font: inherit; font-size: 12px;
+    &::placeholder { color: var(--text-secondary); }
+  }
+}
+
+@media (max-width: 600px) {
+  .search { width: 100%; }
+}

@@ -1028,6 +1028,20 @@ export async function fetchUpdateCheck(signal?: AbortSignal): Promise<UpdateChec
   return response.json()
 }
 
+export interface AvailableModel {
+  id: string
+  owned_by?: string
+  object?: string
+  created?: number
+}
+
+// 当前 CPA 目录与价格编辑器的历史模型候选分开读取。
+export async function fetchAvailableModels(signal?: AbortSignal): Promise<{ object: string; data: AvailableModel[] }> {
+  const response = await apiFetch(apiPath('/models'), { signal, cache: 'no-store' })
+  if (!response.ok) await parseApiError(response, `Failed to load available models: ${response.status}`)
+  return response.json()
+}
+
 // 列表同时返回完整配置与已保存修订，供编辑和重算确认使用。
 export async function fetchPricingModels(signal?: AbortSignal): Promise<PricingModelsResponse> {
   const response = await apiFetch(apiPath('/pricing/models'), { signal, cache: 'no-store' })

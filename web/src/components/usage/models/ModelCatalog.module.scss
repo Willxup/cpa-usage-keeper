@@ -1,0 +1,89 @@
+.catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.tools, .modelTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tools { justify-content: space-between; }
+.title { margin: 0; font-size: 18px; font-weight: 700; }
+
+// 与会话管理共用列表高度上限；内容较少时自然收缩，超出后仅列表滚动。
+.listViewport {
+  flex: 0 0 auto;
+  max-height: var(--settings-list-scroll-height);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; border-radius: 12px; }
+}
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.model {
+  min-width: 0;
+  padding: 12px 14px 15px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  transition: border-color 0.15s ease;
+  &:hover { border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color)); }
+  h3 { margin: 10px 0 0; font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+}
+.modelTop { gap: 8px; }
+.owner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.unknownIcon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.copy {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 30px;
+  margin: -3px -5px -3px 0; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer;
+  &:hover { background: var(--bg-primary); color: var(--primary-color); }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+}
+// 复制反馈单独浮出，不占用已移除的底部说明区域。
+.copyNotice {
+  position: fixed;
+  z-index: 100;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 48px);
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 12px; color: var(--text-secondary); text-align: center; font-size: 12px; }
+.empty strong { color: var(--text-primary); font-size: 14px; }
+.error { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--bg-error-light); color: var(--danger-color); font-size: 12px; }
+.skeleton { height: 84px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-secondary); }
+
+@media (max-width: 1200px) {
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .catalog { padding: 16px; gap: 16px; }
+  .tools { align-items: stretch; flex-direction: column; gap: 10px; }
+  .grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .model { padding: 10px 12px 12px; }
+  .copy { width: 36px; height: 36px; flex-basis: 36px; }
+}

@@ -8,6 +8,7 @@ import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
 
 const api = vi.hoisted(() => ({
+  fetchAvailableModels: vi.fn(),
   fetchPricingModels: vi.fn(),
   fetchPricingModelOptions: vi.fn(),
   fetchCurrentPricingRecalculation: vi.fn(),
@@ -44,7 +45,8 @@ describe('UsagePage complete pricing integration', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     await i18n.changeLanguage('en')
     localStorage.clear()
-    window.history.replaceState(null, '', '/settings')
+    window.history.replaceState(null, '', '/models')
+    api.fetchAvailableModels.mockReset().mockResolvedValue({ object: 'list', data: [{ id: 'model-a', owned_by: 'openai' }] })
     api.fetchPricingModels.mockReset().mockResolvedValue({ models: [{
       model: 'model-a', pricing_style: 'openai',
       base_prices: { input: 1, output: 2, cache_read: 0, cache_write: 0 },
@@ -79,7 +81,7 @@ describe('UsagePage complete pricing integration', () => {
     vi.restoreAllMocks()
   })
 
-  it('mounts complete pricing models and the deployment timezone on the real settings page', async () => {
+  it('mounts the catalog, complete pricing models and deployment timezone on the models page', async () => {
     await act(async () => root.render(<UsagePage />))
     expect(api.fetchPricingModels).toHaveBeenCalledTimes(1)
     expect(api.fetchPricingModelOptions).toHaveBeenCalledTimes(1)
@@ -97,6 +99,16 @@ describe('UsagePage complete pricing integration', () => {
     await act(async () => triggerHeaderRefresh())
     expect(api.fetchPricingModels).toHaveBeenCalledTimes(2)
     expect(api.fetchCurrentPricingRecalculation).toHaveBeenCalledTimes(2)
+    expect(api.fetchAvailableModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps pricing out of Settings and positions Models before Settings', async () => {
+    window.history.replaceState(null, '', '/settings')
+    await act(async () => root.render(<UsagePage />))
+    expect(api.fetchPricingModels).not.toHaveBeenCalled()
+    expect(api.fetchAvailableModels).not.toHaveBeenCalled()
+    const links = [...container.querySelectorAll('a')]
+    expect(links.findIndex((link) => link.textContent === 'Models')).toBe(links.findIndex((link) => link.textContent === 'Settings') - 1)
   })
 
   it('keeps the displayed request cost on same-scope costs_busy and refreshes through the real page action', async () => {
