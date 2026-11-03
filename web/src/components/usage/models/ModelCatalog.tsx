@@ -6,7 +6,7 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { IconCopy, IconFilterAll, IconSearch } from '@/components/ui/icons'
 import { ApiError, fetchAvailableModels } from '@/lib/api'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { loadModelProviderFilter, normalizeCatalog, persistModelProviderFilter, type CatalogModel, type ModelProvider } from './modelCatalog'
+import { loadModelProviderFilter, modelProviderFromFilter, normalizeCatalog, persistModelProviderFilter, type CatalogModel, type ModelProvider } from './modelCatalog'
 import filterStyles from '../credentials/CredentialSections.module.scss'
 import styles from './ModelCatalog.module.scss'
 
@@ -55,21 +55,22 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
   const providers = useMemo(() => {
     const groups = new Map<string, ModelProvider & { count: number }>()
     for (const model of models) {
+      if (!model.provider.icon) continue
       const existing = groups.get(model.provider.key)
       groups.set(model.provider.key, { ...model.provider, count: (existing?.count ?? 0) + 1 })
     }
-    // 筛选暂时没有结果也保留选择，不因刷新或上游短暂缺失清掉用户偏好。
-    if (provider !== 'all' && !groups.has(provider)) groups.set(provider, { key: provider, label: provider.replace(/^(provider|owner):/, ''), count: 0 })
+    // 有图标的筛选暂时没有结果也保留选择；无图标的模型只计入 All。
+    const selected = modelProviderFromFilter(provider)
+    if (selected && !groups.has(selected.key)) groups.set(selected.key, { ...selected, count: 0 })
     return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label))
   }, [models, provider])
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
     return models.filter((model) => (provider === 'all' || model.provider.key === provider) &&
-      (!query || `${model.id} ${model.provider.label}`.toLowerCase().includes(query)))
+      (!query || `${model.id} ${model.provider.icon ? model.provider.label : ''}`.toLowerCase().includes(query)))
   }, [models, provider, search])
   const resetScroll = () => { if (listViewport.current) listViewport.current.scrollTop = 0 }
   const selectProvider = (value: string) => { setProvider(value); persistModelProviderFilter(value); resetScroll() }
-  const providerLabel = (item: ModelProvider) => item.key === 'unknown' ? t('usage_stats.models_unknown_provider') : item.label
   const copy = async (id: string) => {
     try { await copyTextToClipboard(id); setCopyNotice(t('usage_stats.models_copied', { model: id })) }
     catch { setCopyNotice(t('usage_stats.models_copy_failed')) }
@@ -84,10 +85,9 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
         onClick={() => selectProvider(item.key)}>
         <span className={filterStyles.credentialProviderFilterIconFrame}>
           {item.key === 'all' ? <IconFilterAll size={30} /> : 'icon' in item && item.icon
-            ? <ProviderBrandIcon providerType={item.icon} size="100%" />
-            : <span className={styles.unknownIcon} aria-hidden="true">{item.key === 'unknown' ? '?' : item.label.slice(0, 1).toUpperCase()}</span>}
+            ? <ProviderBrandIcon providerType={item.icon} size="100%" /> : null}
         </span>
-        <span className={filterStyles.credentialProviderFilterLabel}>{providerLabel(item)}</span>
+        <span className={filterStyles.credentialProviderFilterLabel}>{item.label}</span>
         <span className={filterStyles.credentialProviderFilterCount}>{loaded ? item.count : '—'}</span>
       </button>)}
     </div>
@@ -108,7 +108,7 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
           <div className={styles.modelTop}>
             {model.provider.icon ? <ProviderBrandIcon providerType={model.provider.icon} size={28} />
               : <span className={styles.unknownIcon} aria-hidden="true">{model.provider.label.slice(0, 1).toUpperCase() || '?'}</span>}
-            <span className={styles.owner}>{providerLabel(model.provider)}</span>
+            <span className={styles.owner}>{model.provider.label}</span>
             <button type="button" className={styles.copy} aria-label={t('usage_stats.models_copy', { model: model.id })}
               title={t('usage_stats.models_copy', { model: model.id })} onClick={() => void copy(model.id)}><IconCopy size={16} /></button>
           </div>

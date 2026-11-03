@@ -46,10 +46,9 @@ describe('model catalog', () => {
     expect(ids()).toEqual(['claude-model'])
   })
 
-  it('supports unknown owners, empty matches and reset', async () => {
+  it('clears an empty search result and restores All', async () => {
     await act(async () => root.render(<ModelCatalog />))
-    await act(async () => button('custom').click())
-    expect(ids()).toEqual(['alias'])
+    await act(async () => button('Claude').click())
     const input = container.querySelector('input')!
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'missing')
@@ -58,18 +57,68 @@ describe('model catalog', () => {
     expect(container.textContent).toContain('No matching models')
     await act(async () => button('Clear filters').click())
     expect(ids()).toHaveLength(3)
+    expect(button('All').getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('searches the resolved provider instead of conflicting owner metadata', async () => {
+  it('counts models without a brand icon only in All and preserves their full IDs', async () => {
+    mocks.fetch.mockResolvedValue({ data: [
+      { id: 'team/no-owner-alias' },
+      { id: 'team/blank-alias', owned_by: '   ' },
+      { id: 'team/custom-model', owned_by: 'custom-co' },
+      { id: 'team/unmapped-alias', owned_by: 'PrivateVendor' },
+      { id: 'team/vendor-alias', owned_by: 'mistral' },
+      { id: 'team/no-icon-alias', owned_by: 'MiniMax' },
+      { id: 'route/mistral-small', owned_by: 'openai' },
+      { id: 'route/MiniMax-M2.5', owned_by: 'openai' },
+      { id: 'route/gpt-6-astra' },
+      { id: 'route/claude-model', owned_by: 'openai' },
+      { id: 'route/fast-alias', owned_by: 'google' },
+    ] })
+    await act(async () => root.render(<ModelCatalog />))
+    const filters = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')]
+    expect(filters.map((item) => item.textContent)).toEqual(['All11', 'Claude1', 'Gemini1', 'OpenAI1'])
+    expect(ids()).toHaveLength(11)
+    const articles = [...container.querySelectorAll('article')]
+    const noOwner = articles.find((item) => item.querySelector('h3')?.textContent === 'team/no-owner-alias')!
+    expect(noOwner.textContent).toBe('?team/no-owner-alias')
+    expect(noOwner.querySelector('h3')?.getAttribute('title')).toBe('team/no-owner-alias')
+    expect(noOwner.querySelector('h3')?.parentElement?.children).toHaveLength(2)
+    expect(articles.find((item) => item.querySelector('h3')?.textContent === 'team/blank-alias')?.textContent).toBe('?team/blank-alias')
+    expect(container.textContent).not.toContain('Unspecified')
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Copy team/no-owner-alias"]')!.click())
+    expect(mocks.copy).toHaveBeenCalledWith('team/no-owner-alias')
+    await act(async () => button('OpenAI').click())
+    expect(ids()).toEqual(['route/gpt-6-astra'])
+  })
+
+  it('searches full IDs and known brands, but not unknown owners or conflicting metadata', async () => {
+    mocks.fetch.mockResolvedValue({ data: [
+      { id: 'route/claude-model', owned_by: 'openai' },
+      { id: 'route/gpt-model', owned_by: 'anthropic' },
+      { id: 'team/custom-model', owned_by: 'PrivateVendor' },
+      { id: 'team/vendor-alias', owned_by: 'mistral' },
+      { id: 'route/mistral-small', owned_by: 'openai' },
+      { id: 'team/no-icon-alias', owned_by: 'MiniMax' },
+      { id: 'route/MiniMax-M2.5', owned_by: 'openai' },
+    ] })
     await act(async () => root.render(<ModelCatalog />))
     const input = container.querySelector('input')!
-    for (const [query, expected] of [['openai', ['gpt-model']], ['claude', ['claude-model']], ['custom', ['alias']]] as const) {
+    for (const [query, expected] of [
+      ['openai', ['route/gpt-model']],
+      ['claude', ['route/claude-model']],
+      ['privatevendor', []],
+      ['mistral', ['route/mistral-small']],
+      ['minimax', ['route/MiniMax-M2.5']],
+      ['team/custom-model', ['team/custom-model']],
+    ] as const) {
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, query)
         input.dispatchEvent(new Event('input', { bubbles: true }))
       })
       expect(ids()).toEqual(expected)
     }
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Copy team/custom-model"]')!.click())
+    expect(mocks.copy).toHaveBeenCalledWith('team/custom-model')
   })
 
   it('retains the last catalog and saved filter on refresh failure', async () => {
@@ -133,6 +182,45 @@ describe('model catalog', () => {
     expect(container.querySelector(`article [data-provider-brand-icon="${icon}"] img`)).not.toBeNull()
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Copy ${id}"]`)!.click())
     expect(mocks.copy).toHaveBeenCalledWith(id)
+  })
+
+  it.each([
+    'unknown', 'owner:custom', 'owner:mistral', 'owner:minimax', 'owner:   ',
+    'provider:custom', 'provider:mistral', 'provider:minimax', 'provider:constructor',
+  ])('restores the obsolete %s filter as All without a ghost option', async (savedFilter) => {
+    localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, JSON.stringify({ version: 1, providerFilter: savedFilter }))
+    await act(async () => root.render(<ModelCatalog />))
+    expect(loadModelProviderFilter()).toBe('all')
+    expect([...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].map((item) => item.textContent))
+      .toEqual(['All3', 'Claude1', 'OpenAI1'])
+    expect(button('All').getAttribute('aria-pressed')).toBe('true')
+    expect(ids()).toEqual(['alias', 'claude-model', 'gpt-model'])
+  })
+
+  it('keeps a selected known brand with its icon and zero count when the catalog has no matches', async () => {
+    localStorage.setItem(MODEL_CATALOG_PREFERENCES_KEY, JSON.stringify({ version: 1, providerFilter: 'owner:deepseek' }))
+    await act(async () => root.render(<ModelCatalog />))
+    const selected = button('DeepSeek')
+    expect(selected.textContent).toBe('DeepSeek0')
+    expect(selected.getAttribute('aria-pressed')).toBe('true')
+    expect(selected.querySelector('[data-provider-brand-icon="deepseek"]')).not.toBeNull()
+    expect(ids()).toEqual([])
+    await act(async () => button('All').click())
+    expect(ids()).toHaveLength(3)
+  })
+
+  it('retains a selected brand and its zero count when a refresh removes its models', async () => {
+    await act(async () => root.render(<ModelCatalog ref={ref} />))
+    await act(async () => button('Claude').click())
+    mocks.fetch.mockResolvedValueOnce({ data: [{ id: 'team/gpt-6', owned_by: 'custom' }] })
+    await act(async () => ref.current!.refresh())
+    expect(ids()).toEqual([])
+    expect(button('Claude').textContent).toBe('Claude0')
+    expect(button('Claude').getAttribute('aria-pressed')).toBe('true')
+    expect(button('Claude').querySelector('[data-provider-brand-icon="claude"]')).not.toBeNull()
+    expect(loadModelProviderFilter()).toBe('provider:claude')
+    await act(async () => button('All').click())
+    expect(ids()).toEqual(['team/gpt-6'])
   })
 
   it('validates local storage and falls back to owned_by for unknown model names', () => {

@@ -53,14 +53,20 @@ export function normalizeCatalog(models: AvailableModel[]): CatalogModel[] {
   }).sort((a, b) => a.id.localeCompare(b.id))
 }
 
+export function modelProviderFromFilter(filter: string): ModelProvider | undefined {
+  const match = /^(?:provider|owner):(.+)$/.exec(filter)
+  if (!match) return undefined
+  const provider = providerFromOwner(match[1])
+  return provider.icon ? provider : undefined
+}
+
 export function loadModelProviderFilter(): string {
   try {
     const saved = JSON.parse(localStorage.getItem(MODEL_CATALOG_PREFERENCES_KEY) ?? 'null')
     const value = saved?.providerFilter
-    if (saved?.version !== 1 || typeof value !== 'string' || value.length > 256 ||
-      !(value === 'all' || value === 'unknown' || /^(provider|owner):\S/.test(value))) return 'all'
-    // 新增品牌图标后，旧的 owner 筛选迁移到同一品牌，避免恢复为无结果的旧分组。
-    return value.startsWith('owner:') ? providerFromOwner(value.slice('owner:'.length)).key : value
+    if (saved?.version !== 1 || typeof value !== 'string' || value.length > 256 || value === 'all') return 'all'
+    // 旧 owner 筛选迁移到有图标的品牌；无图标的旧筛选只计入 All。
+    return modelProviderFromFilter(value)?.key ?? 'all'
   } catch { return 'all' }
 }
 
