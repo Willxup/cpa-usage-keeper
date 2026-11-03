@@ -83,6 +83,32 @@ func registerPricingRecalculationRoutes(router gin.IRoutes, provider service.Pri
 		// nil 是未启动或进程重启后的正常状态，不伪造空任务对象。
 		c.JSON(http.StatusOK, task)
 	})
+	router.DELETE("/pricing/recalculations/interrupted", func(c *gin.Context) {
+		if provider == nil {
+			writeCompletePricingInternalError(c, errors.New("pricing provider is not configured"))
+			return
+		}
+		var input struct {
+			TaskID string `json:"task_id"`
+		}
+		decoder := json.NewDecoder(c.Request.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || input.TaskID == "" {
+			writeCompletePricingError(c, http.StatusBadRequest, "invalid_request", "Task ID is required", nil)
+			return
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			writeCompletePricingError(c, http.StatusBadRequest, "invalid_request", "Invalid request", nil)
+			return
+		}
+		if err := provider.AcknowledgeInterruptedPricingRecalculation(c.Request.Context(), input.TaskID); err != nil {
+			writePricingRecalculationError(c, err)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
 }
 
 // writePricingRecalculationError 将受理错误映射到稳定业务码，内部细节只写服务端日志。
@@ -98,6 +124,10 @@ func writePricingRecalculationError(c *gin.Context, err error) {
 	if errors.Is(err, service.ErrInvalidPricingRecalculationStart) {
 		var field *pricing.ValidationError
 		if errors.As(err, &field) {
+			if field.Code == "interrupted_range" {
+				writeCompletePricingError(c, http.StatusConflict, "interrupted_range", "Retry the interrupted start time or acknowledge the incomplete recalculation", []servicedto.PricingFieldError{{Path: field.Path, Code: field.Code}})
+				return
+			}
 			code := field.Code
 			if code == "" {
 				code = "invalid"

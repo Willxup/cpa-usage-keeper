@@ -466,6 +466,8 @@ For Docker/Compose, keep `APP_HOST` empty; publish `127.0.0.1:8080:8080` for hos
 
 Raw requests are archived after 90 days and retained indefinitely by default; set `USAGE_RAW_RETENTION_DAYS>=90` to remove expired archives. Deleted records cannot support historical recalculation, and deletion may not immediately shrink the database file. See [storage and log details](./docs/configuration.md#storage-and-log-details).
 
+Historical recalculation uses retained hot and archived events. Its event pages and aggregate adjustments commit together; interrupted runs must be retried from the same start or explicitly acknowledged as incomplete. A retry uses current prices through the current time. Deleted raw events cannot be repriced, but their existing aggregate contribution is preserved. Events already marked unavailable remain unchanged because their original completeness cannot be reconstructed. If a previously available event lacks a current price, the page fails without replacing its old estimate. Long histories require full scans while usage processing and cost reads are paused. Price sync only imports records with explicit input, output, cache-read, and cache-write prices; missing metadata is not treated as zero. Older saved zero prices have no recorded provenance and should be reviewed.
+
 ### Rolling Back A Failed v1-to-v2 Upgrade
 
 Keeper backs up the database before migration. If it fails, follow the [failed migration rollback guide](./docs/upgrading.md). **Do not open a partially migrated database with v1.**

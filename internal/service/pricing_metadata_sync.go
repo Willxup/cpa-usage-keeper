@@ -442,7 +442,7 @@ func normalizePricingModelKey(value string) string {
 }
 
 func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, providerID string, providerName string) (pricingSyncMatchedPrice, bool) {
-	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil {
+	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil || metadataModel.Cost.CacheRead == nil || metadataModel.Cost.CacheWrite == nil {
 		return pricingSyncMatchedPrice{}, false
 	}
 	input := *metadataModel.Cost.Input

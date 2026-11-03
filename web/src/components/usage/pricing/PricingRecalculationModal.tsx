@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { ApiError, fetchPricingRecalculationOptions } from '@/lib/api'
 import type { ModelPricingConfig, PricingRecalculationOptions, PricingRecalculationTask, StartPricingRecalculationResponse } from '@/lib/types'
 import { IconInfo, IconChevronDown } from '@/components/ui/icons'
-import { buildPricingRecalculationHours } from './pricingRecalculationHours'
+import { buildPricingRecalculationHours, pricingRecalculationDate } from './pricingRecalculationHours'
 import { PricingRuleCounts } from './PricingRuleCounts'
 import styles from './PricingRecalculationModal.module.scss'
 
@@ -27,6 +27,8 @@ interface PricingRecalculationModalProps {
 }
 
 const stages = ['preparing', 'events', 'updating_stats', 'finalizing'] as const
+const needsRecovery = (task: PricingRecalculationTask | null): task is PricingRecalculationTask =>
+  task?.status === 'failed' && (task.error?.code === 'recalculation_interrupted' || task.error?.code === 'recalculation_failed')
 
 // 范围按服务端 RFC3339 的本地钟点显示；仅跨 DST 偏移时标出两端偏移以消除歧义。
 function formatTaskTime(value: string, showOffset: boolean): string {
@@ -71,15 +73,21 @@ export function PricingRecalculationModal({
   const optionsRequestRef = useRef<AbortController | null>(null)
   const busyCheckedRef = useRef(false)
   const hadTaskRef = useRef(false)
+  const taskRef = useRef(task)
+  taskRef.current = task
 
-  const hours = useMemo(() => options ? buildPricingRecalculationHours(options) : [], [options])
-  const dates = useMemo(() => [...new Set(hours.map((hour) => hour.date))], [hours])
-  const hoursOnDate = useMemo(() => hours.filter((hour) => hour.date === selectedDate), [hours, selectedDate])
+  const hoursOnDate = useMemo(() => options ? buildPricingRecalculationHours(options, selectedDate) : [], [options, selectedDate])
+  const earliestDate = options ? pricingRecalculationDate(options.earliest_start, options.timezone) : ''
+  const latestDate = options ? pricingRecalculationDate(options.latest_start, options.timezone) : ''
   const currentTask = showProgress ? task : null
   const running = task?.status === 'running'
+  const interruptedTask = needsRecovery(task) ? task : null
+  const interruptedStartSelected = !interruptedTask || (selectedHour && Date.parse(selectedHour) === Date.parse(interruptedTask.start_at))
+  const interruptedStartAvailable = !interruptedTask || hoursOnDate.some((hour) => Date.parse(hour.value) === Date.parse(interruptedTask.start_at))
   const mismatch = Boolean(options && configRevision !== options.config_revision)
   const canStart = Boolean(!starting && !optionsLoading && !reloading && !requiresReconfirm && !mismatch &&
-    !optionsError && options && configRevision !== null && selectedHour && !running)
+    !optionsError && options && configRevision !== null && hoursOnDate.some((hour) => hour.value === selectedHour) &&
+    interruptedStartSelected && !running)
 
   // 每次打开才读取合法小时；关闭作废旧请求，避免旧范围覆盖再次打开的确认草稿。
   const loadOptions = useCallback(async () => {
@@ -91,8 +99,12 @@ export function PricingRecalculationModal({
     try {
       const next = await fetchPricingRecalculationOptions(controller.signal)
       if (optionsRequestRef.current !== controller || controller.signal.aborted) return
-      const nextHours = buildPricingRecalculationHours(next)
-      const latest = nextHours.at(-1)
+      const interrupted = needsRecovery(taskRef.current) ? taskRef.current : null
+      const preferredDate = pricingRecalculationDate(interrupted?.start_at ?? next.latest_start, next.timezone)
+      const preferredHours = buildPricingRecalculationHours(next, preferredDate)
+      const original = interrupted && preferredHours.find((hour) => Date.parse(hour.value) === Date.parse(interrupted.start_at))
+      const latestDate = pricingRecalculationDate(next.latest_start, next.timezone)
+      const latest = original || buildPricingRecalculationHours(next, latestDate).at(-1)
       setOptions(next)
       setSelectedDate(latest?.date ?? '')
       setSelectedHour(latest?.value ?? '')
@@ -237,15 +249,28 @@ export function PricingRecalculationModal({
 
       </> : <>
         <p className={styles.intro}>{t('usage_stats.pricing_recalculation_intro')}</p>
+        {interruptedTask ? <p role="alert" className={styles.failure}>
+          {t('usage_stats.pricing_recalculation_interrupted')}{' '}
+          {formatTaskTime(interruptedTask.start_at, true)} → {formatTaskTime(interruptedTask.end_at, true)}.{' '}
+          {t('usage_stats.pricing_recalculation_retry_scope')}
+        </p> : null}
+        {interruptedTask && options && !optionsLoading && !interruptedStartAvailable ? <p role="alert" className={styles.failure}>
+          {t('usage_stats.pricing_recalculation_original_start_unavailable')}
+        </p> : null}
+        {interruptedTask && interruptedStartAvailable && !interruptedStartSelected ? <p role="alert" className={styles.failure}>
+          {t('usage_stats.pricing_recalculation_original_start_required')}
+        </p> : null}
         <div className={styles.range}>
           <div className={styles.startFields}>
             <label>{t('usage_stats.pricing_recalculation_start_date')}
-              <Select dataAttributes={{ 'data-recalculation-date': true }} value={optionsLoading ? '' : selectedDate} placeholder={optionsLoading ? t('common.loading') : undefined} disabled={!dates.length || optionsLoading || reloading || starting}
-                ariaLabel={t('usage_stats.pricing_recalculation_start_date')}
-                options={dates.map((date) => ({ value: date, label: date }))}
-                onChange={(date) => {
+              <input type="date" data-recalculation-date value={optionsLoading ? '' : selectedDate}
+                min={earliestDate || undefined} max={latestDate || undefined}
+                disabled={!earliestDate || !latestDate || optionsLoading || reloading || starting}
+                aria-label={t('usage_stats.pricing_recalculation_start_date')}
+                onChange={(event) => {
+                  const date = event.target.value
                   setSelectedDate(date)
-                  setSelectedHour(hours.filter((hour) => hour.date === date).at(-1)?.value ?? '')
+                  setSelectedHour(options ? buildPricingRecalculationHours(options, date).at(-1)?.value ?? '' : '')
                 }} />
             </label>
             <label>{t('usage_stats.pricing_recalculation_start_hour')}
@@ -257,7 +282,9 @@ export function PricingRecalculationModal({
           </div>
           <span className={styles.rangeArrow} aria-hidden="true">→</span>
           <div className={styles.rangeEnd}><strong>{t('usage_stats.pricing_recalculation_until_now')}</strong></div>
-          <p className={styles.rangeHint}>{t('usage_stats.pricing_recalculation_recent_days', { days: options?.max_days ?? 30 })}</p>
+          <p className={styles.rangeHint}>{options?.max_days === 0
+            ? t('usage_stats.pricing_recalculation_available_history')
+            : t('usage_stats.pricing_recalculation_recent_days', { days: options?.max_days ?? 30 })}</p>
         </div>
         <p className={styles.impact}><IconInfo size={16} />{t('usage_stats.pricing_recalculation_impact')}</p>
         <details className={styles.savedPricing}>
@@ -267,14 +294,16 @@ export function PricingRecalculationModal({
             {models.map((model) => <SavedModelPricingPreview key={model.model} model={model} />)}
           </div>
         </details>
-        {options && !hours.length ? <p role="status" className={styles.muted}>{t('usage_stats.pricing_recalculation_no_data')}</p> : null}
+        {options && (!earliestDate || !latestDate) ? <p role="status" className={styles.muted}>{t('usage_stats.pricing_recalculation_no_data')}</p> : null}
         {optionsError ? <p role="alert" className={styles.failure}>{optionsError}</p> : null}
         {mismatch || requiresReconfirm ? <div role="alert" className={styles.failure}>
           <span>{t('usage_stats.pricing_recalculation_config_changed')}</span>
           <Button type="button" variant="secondary" appearance="action" data-recalculation-reload disabled={reloading}
             onClick={() => void reloadConfirmation()}>{t('usage_stats.pricing_recalculation_reload')}</Button>
         </div> : null}
-        {startAttempted && error && errorCode !== 'pricing_changed' && errorCode !== 'pricing_busy' ? <p role="alert" className={styles.failure}>{error}</p> : null}
+        {startAttempted && error && errorCode !== 'pricing_changed' && errorCode !== 'pricing_busy' ? <p role="alert" className={styles.failure}>
+          {errorCode === 'interrupted_range' ? t('usage_stats.pricing_recalculation_original_start_required') : error}
+        </p> : null}
         {startAttempted && errorCode === 'pricing_busy' && !task ? <p role="status" className={styles.failure}>{t('usage_stats.pricing_recalculation_busy')}</p> : null}
 
       </>}

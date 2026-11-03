@@ -121,6 +121,7 @@ func TestPricingRecalculationsHTTPKeepsAdminBoundaryAndBypassesCostReadGate(t *t
 		{http.MethodGet, "/api/v1/pricing/recalculations/options", ""},
 		{http.MethodGet, "/api/v1/pricing/recalculations/current", ""},
 		{http.MethodPost, "/api/v1/pricing/recalculations", recalculationHTTPBody},
+		{http.MethodDelete, "/api/v1/pricing/recalculations/interrupted", `{"task_id":"task-1"}`},
 	} {
 		anonymous := httptest.NewRecorder()
 		router.ServeHTTP(anonymous, newPricingRequest(route.method, route.path, route.body))
@@ -182,5 +183,29 @@ func TestPricingRecalculationsHTTPMapsBusinessErrorsAndSanitizesInternalFailures
 				}
 			}
 		})
+	}
+}
+
+func TestPricingRecalculationAcknowledgeValidatesTaskAndBusyState(t *testing.T) {
+	stub := &pricingStub{}
+	router := keeperapi.NewRouter(nil, nil, nil, stub, keeperapi.AuthConfig{}, nil, "")
+	for _, body := range []string{`{}`, `{"task_id":""}`, `{"task_id":"task-1","extra":1}`, `{"task_id":"task-1"}{}`} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, newPricingRequest(http.MethodDelete, "/api/v1/pricing/recalculations/interrupted", body))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: status=%d", body, response.Code)
+		}
+	}
+	stub.recalcErr = service.ErrPricingBusy
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, newPricingRequest(http.MethodDelete, "/api/v1/pricing/recalculations/interrupted", `{"task_id":"task-1"}`))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("busy status=%d", response.Code)
+	}
+	stub.recalcErr = nil
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, newPricingRequest(http.MethodDelete, "/api/v1/pricing/recalculations/interrupted", `{"task_id":"task-1"}`))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("acknowledge status=%d", response.Code)
 	}
 }

@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -22,6 +23,49 @@ func (f pricingReviewTransport) RoundTrip(request *http.Request) (*http.Response
 
 func previewReviewCatalog(t *testing.T, source, catalog string, names ...string) servicedto.PricingSyncFetchResponse {
 	t.Helper()
+	// These matching tests exercise identity and provider ranking with complete
+	// synthetic prices. Missing-price behavior is covered independently below.
+	var raw any
+	if err := json.Unmarshal([]byte(catalog), &raw); err != nil {
+		t.Fatal(err)
+	}
+	var fill func(any)
+	fill = func(v any) {
+		switch node := v.(type) {
+		case map[string]any:
+			if _, ok := node["input_cost_per_token"]; ok {
+				if node["cache_read_input_token_cost"] == nil && node["input_cost_per_token_cache_hit"] == nil {
+					node["cache_read_input_token_cost"] = float64(0)
+				}
+				if node["cache_creation_input_token_cost"] == nil {
+					node["cache_creation_input_token_cost"] = float64(0)
+				}
+			}
+			if _, ok := node["input"]; ok {
+				if _, ok := node["output"]; ok {
+					if node["cache_read"] == nil {
+						node["cache_read"] = float64(0)
+					}
+					if node["cache_write"] == nil {
+						node["cache_write"] = float64(0)
+					}
+				}
+			}
+			for _, child := range node {
+				fill(child)
+			}
+		case []any:
+			for _, child := range node {
+				fill(child)
+			}
+		}
+	}
+	fill(raw)
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog = string(encoded)
 	original := http.DefaultTransport
 	http.DefaultTransport = pricingReviewTransport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(catalog))}, nil

@@ -20,12 +20,13 @@ var ErrInvalidPricingInput = errors.New("invalid pricing input")
 var ErrPricingModelNotFound = errors.New("pricing model not found")
 
 type PricingProvider interface {
-	// GetPricingRecalculationOptions 返回按部署时区和当前热表计算的可选小时及配置修订。
+	// GetPricingRecalculationOptions returns the retained hourly range and config revision.
 	GetPricingRecalculationOptions(context.Context) (servicedto.RecalculationOptions, error)
 	// StartPricingRecalculation 原子受理唯一内存任务；运行中重复请求返回现行任务。
 	StartPricingRecalculation(context.Context, servicedto.StartRecalculationRequest) (servicedto.StartRecalculationResponse, error)
-	// CurrentPricingRecalculation 返回当前进程唯一任务状态，进程重启后为空。
+	// CurrentPricingRecalculation returns the current task or a persisted interruption.
 	CurrentPricingRecalculation(context.Context) (*servicedto.RecalculationTask, error)
+	AcknowledgeInterruptedPricingRecalculation(context.Context, string) error
 	// WaitPricingRecalculation 在 App 取消生命周期后等后台重算退出，再关闭数据库。
 	WaitPricingRecalculation()
 	// ListPricingModels 同一配置临界区返回已发布完整配置与对应修订号。

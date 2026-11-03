@@ -79,7 +79,7 @@ func TestUsageCostRecalculationRetainsCommittedBatchAndOriginalFacts(t *testing.
 	if err := repository.ApplyUsageCostRecalculationBatch(ctx, db, scope, page[2:], resolver); err == nil {
 		t.Fatal("second batch unexpectedly succeeded")
 	}
-	assertAcceptanceStoredFees(t, db, []float64{2, 2, 3, 3}, 10)
+	assertAcceptanceStoredFees(t, db, []float64{2, 3, 3, 3}, 11)
 	if after := captureRecalculationFacts(t, db); !reflect.DeepEqual(before, after) {
 		t.Fatalf("partial recalculation changed original facts: before=%+v after=%+v", before, after)
 	}
@@ -91,11 +91,7 @@ func TestUsageCostRecalculationRetainsCommittedBatchAndOriginalFacts(t *testing.
 		if err := repository.ApplyUsageCostRecalculationBatch(ctx, db, scope, page, resolver); err != nil {
 			t.Fatalf("repeat batch %d: %v", attempt, err)
 		}
-		// 同一个业务句柄应通过 dbresolver 使用独立读池，不应误判为单物理连接。
-		if err := repository.FinalizeUsageCostRecalculationStats(ctx, db, db, scope); err != nil {
-			t.Fatalf("finalize %d: %v", attempt, err)
-		}
-		assertAcceptanceStoredFees(t, db, []float64{2, 2, 2, 2}, 8)
+		assertAcceptanceStoredFees(t, db, []float64{2, 3, 2, 2}, 9)
 	}
 	if after := captureRecalculationFacts(t, db); !reflect.DeepEqual(before, after) {
 		t.Fatalf("completed recalculation changed original facts: before=%+v after=%+v", before, after)
@@ -145,7 +141,7 @@ func assertAcceptanceStoredFees(t *testing.T, db *gorm.DB, want []float64, total
 		t.Fatalf("event count=%d want=%d", len(events), len(want))
 	}
 	for index, event := range events {
-		if event.CostUSD == nil || !recalcClose(*event.CostUSD, want[index]) || event.CostAvailable == nil || !*event.CostAvailable {
+		if event.CostUSD == nil || !recalcClose(*event.CostUSD, want[index]) || event.CostAvailable == nil || *event.CostAvailable != (index != 1) {
 			t.Fatalf("event %d fee/state mismatch: %+v", index, event)
 		}
 	}
@@ -157,7 +153,7 @@ func assertAcceptanceStoredFees(t *testing.T, db *gorm.DB, want []float64, total
 		if err := db.Table(table).Take(&row).Error; err != nil {
 			t.Fatal(err)
 		}
-		if row.CostUSD == nil || !recalcClose(*row.CostUSD, total) || row.UnavailableCostCount == nil || *row.UnavailableCostCount != 0 {
+		if row.CostUSD == nil || !recalcClose(*row.CostUSD, total) || row.UnavailableCostCount == nil || *row.UnavailableCostCount != 1 {
 			t.Fatalf("%s fee/state mismatch: %+v want=%v", table, row, total)
 		}
 	}

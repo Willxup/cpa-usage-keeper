@@ -50,6 +50,20 @@
 
 .startFields button { font-variant-numeric: tabular-nums; }
 
+.startFields input[type='date'] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .rangeEnd {
   display: flex;
   align-items: center;

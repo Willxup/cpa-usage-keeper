@@ -9,8 +9,8 @@ import (
 	"cpa-usage-keeper/internal/repository"
 )
 
-// TestLoadEarliestHotUsageHourUsesAbsoluteTime 验证DST回拨和半小时时区都沿既有绝对整小时分桶。
-func TestLoadEarliestHotUsageHourUsesAbsoluteTime(t *testing.T) {
+// TestLoadEarliestRetainedUsageHourUsesAbsoluteTime 验证DST回拨和半小时时区都沿既有绝对整小时分桶。
+func TestLoadEarliestRetainedUsageHourUsesAbsoluteTime(t *testing.T) {
 	for _, scenario := range []struct {
 		name       string
 		location   string
@@ -40,7 +40,7 @@ func TestLoadEarliestHotUsageHourUsesAbsoluteTime(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			hour, err := repository.LoadEarliestHotUsageHour(context.Background(), db)
+			hour, err := repository.LoadEarliestRetainedUsageHour(context.Background(), db)
 			if err != nil || hour == nil || hour.Format(time.RFC3339) != scenario.want {
 				t.Fatalf("earliest hot hour=%v err=%v, want %s", hour, err, scenario.want)
 			}

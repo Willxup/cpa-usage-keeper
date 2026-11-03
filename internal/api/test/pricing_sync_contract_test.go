@@ -30,7 +30,7 @@ func TestPricingSyncFetchHTTPUsesNormalizedMetadata(t *testing.T) {
 		if request.URL.String() != "https://models.dev/api.json" {
 			t.Fatalf("unexpected source URL: %s", request.URL)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"anthropic":{"name":"Anthropic","models":{"claude-sonnet":{"cost":{"input":3,"output":15}}}}}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"anthropic":{"name":"Anthropic","models":{"claude-sonnet":{"cost":{"input":3,"output":15,"cache_read":0,"cache_write":0}}}}}`))}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = oldTransport })
 	db := openAPITestDatabase(t)

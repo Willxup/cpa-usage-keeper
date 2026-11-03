@@ -54,6 +54,10 @@ func (s *pricingStub) CurrentPricingRecalculation(context.Context) (*servicedto.
 	return s.recalcCurrent, s.recalcErr
 }
 
+func (s *pricingStub) AcknowledgeInterruptedPricingRecalculation(context.Context, string) error {
+	return s.recalcErr
+}
+
 func (s *pricingStub) WaitPricingRecalculation() {}
 
 func (s *pricingStub) ListUsedModels(context.Context) ([]string, error) {
@@ -69,7 +73,7 @@ func TestPricingRouterRegistersOnlyCompleteContract(t *testing.T) {
 	for _, route := range []string{
 		"GET /api/v1/pricing/models", "GET /api/v1/pricing/model-options", "PUT /api/v1/pricing/models", "DELETE /api/v1/pricing/models",
 		"GET /api/v1/pricing/sync/fetch", "POST /api/v1/pricing/sync/apply",
-		"GET /api/v1/pricing/recalculations/options", "POST /api/v1/pricing/recalculations", "GET /api/v1/pricing/recalculations/current",
+		"GET /api/v1/pricing/recalculations/options", "POST /api/v1/pricing/recalculations", "GET /api/v1/pricing/recalculations/current", "DELETE /api/v1/pricing/recalculations/interrupted",
 	} {
 		if !registered[route] {
 			t.Errorf("new pricing route %s is missing", route)
