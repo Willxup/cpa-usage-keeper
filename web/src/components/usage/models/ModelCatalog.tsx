@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { useTranslation } from 'react-i18next'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { Button } from '@/components/ui/Button'
+import { SearchInput } from '@/components/ui/SearchInput'
 import { IconCopy, IconFilterAll, IconSearch } from '@/components/ui/icons'
 import { ApiError, fetchAvailableModels } from '@/lib/api'
 import { copyTextToClipboard } from '@/utils/clipboard'
@@ -91,11 +92,8 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
       </button>)}
     </div>
     <div className={styles.tools}>
-      <label className={styles.search}>
-        <IconSearch size={17} />
-        <input type="search" value={search} placeholder={t('usage_stats.models_search')} aria-label={t('usage_stats.models_search')}
-          onChange={(event) => { setSearch(event.target.value); resetScroll() }} />
-      </label>
+      <SearchInput value={search} placeholder={t('usage_stats.models_search')}
+        onChange={(value) => { setSearch(value); resetScroll() }} />
     </div>
     {error ? <div className={styles.error} role="alert">
       <span>{t(loaded ? 'usage_stats.models_refresh_failed' : 'usage_stats.models_load_failed')}</span>

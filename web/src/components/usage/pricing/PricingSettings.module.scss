@@ -50,10 +50,21 @@
 }
 
 .listLabel {
-  justify-content: flex-end;
   margin: 18px 0 10px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.priceUnit {
+  margin-left: auto;
+}
+
+.searchEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .recalculationBanner {

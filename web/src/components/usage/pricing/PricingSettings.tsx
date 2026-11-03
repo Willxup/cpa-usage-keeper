@@ -1,6 +1,7 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
+import { SearchInput } from '@/components/ui/SearchInput'
 import { IconHistory, IconPlus, IconRefreshCw, IconTrash2 } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData'
@@ -58,6 +59,18 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
   const [notice, setNotice] = useState('')
   const [syncOpen, setSyncOpen] = useState(false)
   const [recalculationOpen, setRecalculationOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const listViewport = useRef<HTMLDivElement>(null)
+
+  // 接口返回完整配置；搜索只过滤显示，不影响总数、同步、重算或新增候选。
+  const filteredModels = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return pricing.models.filter((config) => config.model.toLowerCase().includes(query))
+  }, [pricing.models, search])
+  const updateSearch = (value: string) => {
+    setSearch(value)
+    if (listViewport.current) listViewport.current.scrollTop = 0
+  }
 
   // 新增入口只列尚未配置的模型；编辑始终保留完整的现有配置。
   const availableModels = useMemo(() => {
@@ -129,15 +142,16 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       <Button type="button" variant="secondary" appearance="action" onClick={() => void recalculation.refreshCurrent()}>{t('common.retry')}</Button>
     </div> : null}
     <div className={styles.listLabel}>
-      <span>{t('usage_stats.pricing_settings_price_unit')}</span>
+      <SearchInput value={search} placeholder={t('usage_stats.pricing_settings_search')} onChange={updateSearch} />
+      <span className={styles.priceUnit}>{t('usage_stats.pricing_settings_price_unit')}</span>
     </div>
     {pricing.error ? <div className={styles.listError} role="status">
       <span>{pricing.error}</span>
       <Button type="button" variant="secondary" appearance="action" onClick={() => void pricing.loadPricing()}>{t('common.retry')}</Button>
     </div> : null}
     {pricing.loading && !pricing.models.length ? <p className={styles.empty}>{t('common.loading')}</p>
-      : pricing.models.length ? <div className={styles.modelList}>
-        {pricing.models.map((config) => <article className={styles.modelCard} key={config.model}>
+      : filteredModels.length ? <div ref={listViewport} className={styles.modelList}>
+        {filteredModels.map((config) => <article className={styles.modelCard} key={config.model}>
           <div className={styles.modelName}>
             <strong>{config.model}</strong>
             <span>{t(`usage_stats.model_price_style_${config.pricing_style}`)}</span>
@@ -159,6 +173,9 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
               className={styles.iconDelete} onClick={() => { setDeleteError(''); setDeleteTarget(config) }}><IconTrash2 size={16} /></Button>
           </div>
         </article>)}
+      </div> : pricing.models.length ? <div className={`${styles.empty} ${styles.searchEmpty}`}>
+        <span>{t('usage_stats.models_no_matches')}</span>
+        <Button type="button" variant="secondary" appearance="action" onClick={() => updateSearch('')}>{t('usage_stats.models_clear_filters')}</Button>
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
 
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}

@@ -116,6 +116,67 @@ describe('PricingSettings', () => {
     expect(container.textContent).toContain('usage_stats.pricing_settings_price_unit')
   })
 
+  it('filters the complete list locally by model name without changing the total or making requests', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' }, { ...structuredClone(existing), model: 'fast-alias' })
+    await renderSettings()
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    expect(input).not.toBeNull()
+    const requestCount = vi.mocked(globalThis.fetch).mock.calls.length
+    const names = () => [...container.querySelectorAll('article')].map((card) => card.querySelector('strong')?.textContent)
+    const list = container.querySelector('article')!.parentElement!
+    list.scrollTop = 200
+    await setInput(input, '  GPT-5  ')
+    expect(names()).toEqual(['openai/gpt-5'])
+    expect(list.scrollTop).toBe(0)
+    await setInput(input, 'PROVIDER/')
+    expect(names()).toEqual(['provider/claude-sonnet'])
+    await setInput(input, 'claude')
+    expect(names()).toEqual(['provider/claude-sonnet'])
+    await setInput(input, 'no-match')
+    expect(names()).toEqual([])
+    expect(container.textContent).toContain('usage_stats.models_no_matches')
+    expect(container.textContent).not.toContain('usage_stats.model_price_empty')
+    await act(async () => button('usage_stats.models_clear_filters').click())
+    expect(input.value).toBe('')
+    expect(names()).toHaveLength(3)
+    await setInput(input, '   ')
+    expect(names()).toHaveLength(3)
+    expect(priceCount()?.textContent).toBe('3')
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(requestCount)
+  })
+
+  it('keeps all saved models excluded from the add picker while search hides some rows', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' })
+    await renderSettings()
+    await setInput(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'claude')
+    await act(async () => button('usage_stats.pricing_settings_add').click())
+    expect(document.querySelector('[data-pricing-field="model"]')?.textContent).toBe('gemini/3')
+    expect(priceCount()?.textContent).toBe('2')
+  })
+
+  it('retains the name query after editing and reloading saved prices', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' })
+    await renderSettings()
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    await setInput(input, 'sonnet')
+    await act(async () => button('common.edit').click())
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '4.5')
+    await act(async () => button('common.save').click())
+    expect(input.value).toBe('sonnet')
+    expect(container.querySelectorAll('article')).toHaveLength(1)
+    expect(container.querySelector('article')?.textContent).toContain('$4.5')
+    expect(priceCount()?.textContent).toBe('2')
+  })
+
+  it('distinguishes an empty saved list from a search with no matches', async () => {
+    configs = []
+    await renderSettings()
+    await setInput(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'anything')
+    expect(container.textContent).toContain('usage_stats.model_price_empty')
+    expect(container.textContent).not.toContain('usage_stats.models_no_matches')
+    expect(priceCount()?.textContent).toBe('0')
+  })
+
   it('loads complete saved prices and adds a model with free-text conditions in one save', async () => {
     await renderSettings()
     expect(document.body.textContent).toContain('provider/claude-sonnet')
