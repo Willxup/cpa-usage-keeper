@@ -229,7 +229,7 @@ describe('RequestEventsDetailsCard', () => {
 
   it('shows a dash and pricing hint when backend cost is unavailable', () => {
     const html = renderCard({ events: [{ ...events[0], cost_usd: 0, cost_available: false }] });
-    expect(tableValues(html).Cost).toBe('-Claude Style');
+    expect(tableValues(html)['Estimated cost']).toBe('-Claude Style');
     expect(html).toContain('title="Set pricing to calculate cost"');
   });
 
@@ -240,7 +240,7 @@ describe('RequestEventsDetailsCard', () => {
     const html = renderCard(props);
     expect(tableValues(html)).toEqual({
       Timestamp: '02:00:002026/04/23', Model: 'claude-sonnet',
-      ...(props.initialVisibleColumnIds ? { Cost: '$0.1234Claude Style' } : {}),
+      ...(props.initialVisibleColumnIds ? { 'Estimated cost': '$0.1234Claude Style' } : {}),
     });
   });
 

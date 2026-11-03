@@ -43,6 +43,13 @@ const setInput = async (input: HTMLInputElement, value: string) => {
   })
 }
 
+const setSelect = async (select: HTMLSelectElement, value: string) => {
+  await act(async () => {
+    select.value = value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
 const button = (label: string) => {
   const found = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
     .find((candidate) => candidate.textContent?.trim() === label)
@@ -118,7 +125,7 @@ describe('PricingSettings', () => {
       await setInput(dialog.querySelector<HTMLInputElement>(`[data-pricing-field="base_prices.${field}"]`)!, value)
     }
     await act(async () => button('usage_stats.pricing_settings_add_condition').click())
-    await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].key"]')!, 'reasoning_effort')
+    await setSelect(dialog.querySelector<HTMLSelectElement>('[data-pricing-field="conditional_multipliers[0].key"]')!, 'reasoning_effort')
     await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].value"]')!, 'xhigh')
     await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].multiplier"]')!, '1.5')
     await act(async () => button('common.save').click())
@@ -134,13 +141,32 @@ describe('PricingSettings', () => {
     expect(document.body.textContent).toContain('openai/gpt-5')
   })
 
+  it.each(['service_tier', 'response_service_tier'])('saves an explicit %s condition without changing existing rules', async (tierField) => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    expect(dialog.textContent).toContain('usage_stats.pricing_settings_tier_hint')
+    await act(async () => button('usage_stats.pricing_settings_add_condition').click())
+    const select = dialog.querySelector<HTMLSelectElement>('[data-pricing-field="conditional_multipliers[2].key"]')!
+    expect(select.value).toBe('')
+    expect([...select.options].map((option) => option.value)).toContain('service_tier')
+    expect([...select.options].map((option) => option.value)).toContain('response_service_tier')
+    await setSelect(select, tierField)
+    await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[2].value"]')!, 'priority')
+    await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[2].multiplier"]')!, '2')
+    await act(async () => button('common.save').click())
+    expect(writes[0].body?.conditional_multipliers).toEqual([
+      ...existing.conditional_multipliers, { key: tierField, value: 'priority', multiplier: 2 },
+    ])
+  })
+
   it('discards an edit draft and later saves the original branches and legal condition values', async () => {
     await renderSettings()
     await act(async () => button('common.edit').click())
     let dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(dialog.querySelector<HTMLButtonElement>('[data-pricing-field="model"]')).toBeNull()
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].value"]')?.value).toBe('xhigh')
-    expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[1].key"]')?.value).toBe('endpoint')
+    expect(dialog.querySelector<HTMLSelectElement>('[data-pricing-field="conditional_multipliers[1].key"]')?.value).toBe('endpoint')
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[1].value"]')?.value).toBe('/v1/responses')
     await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '99')
     await act(async () => button('common.cancel').click())

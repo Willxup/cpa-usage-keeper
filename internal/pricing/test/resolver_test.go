@@ -116,6 +116,26 @@ func TestResolverMatchesValuesExactlyAndCaseSensitively(t *testing.T) {
 	assertResultCost(t, result, 10)
 }
 
+func TestResolverSelectsRequestedOrReportedTierPerRule(t *testing.T) {
+	t.Parallel()
+	tokens := helper.UsageTokenCostInput{InputTokens: 1_000_000}
+	for _, tc := range []struct {
+		name, field string
+		dimensions  pricing.UsageDimensions
+		want        float64
+	}{
+		{"requested matches", "service_tier", pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ResponseServiceTier: "default"}, 20},
+		{"reported differs", "response_service_tier", pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ResponseServiceTier: "default"}, 10},
+		{"reported matches", "response_service_tier", pricing.UsageDimensions{Model: "model-a", ServiceTier: "default", ResponseServiceTier: "priority"}, 20},
+		{"missing reported has no fallback", "response_service_tier", pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority"}, 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := compileResolver(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("model-a", 10), Rules: []pricing.RuleConfig{{Key: tc.field, Value: "priority", Multiplier: 2}}})
+			assertResultCost(t, resolver.CalculateFee(pricing.NewCostSubject(tc.dimensions, tokens)), tc.want)
+		})
+	}
+}
+
 func TestResolverSupportsAllNineRuleFields(t *testing.T) {
 	t.Parallel()
 
