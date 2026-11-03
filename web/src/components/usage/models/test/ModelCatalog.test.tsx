@@ -55,9 +55,30 @@ describe('model catalog', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     expect(container.textContent).toContain('No matching models')
-    await act(async () => button('Clear filters').click())
+    const clear = button('Clear filters')
+    clear.focus()
+    expect(document.activeElement).toBe(clear)
+    await act(async () => clear.click())
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('')
     expect(ids()).toHaveLength(3)
     expect(button('All').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('does not steal focus on input, refresh or language change', async () => {
+    await act(async () => root.render(<ModelCatalog ref={ref} />))
+    const selected = button('Claude')
+    selected.focus()
+    const input = container.querySelector('input')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'claude')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(document.activeElement).toBe(selected)
+    await act(async () => ref.current!.refresh())
+    expect(document.activeElement).toBe(selected)
+    await act(async () => i18n.changeLanguage('zh'))
+    expect(document.activeElement).toBe(selected)
   })
 
   it('counts models without a brand icon only in All and preserves their full IDs', async () => {

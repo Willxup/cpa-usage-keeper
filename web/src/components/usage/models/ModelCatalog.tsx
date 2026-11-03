@@ -23,6 +23,7 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
   const [copyNotice, setCopyNotice] = useState('')
   const request = useRef<AbortController | null>(null)
   const listViewport = useRef<HTMLDivElement | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
     request.current?.abort()
@@ -92,7 +93,7 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
       </button>)}
     </div>
     <div className={styles.tools}>
-      <SearchInput value={search} placeholder={t('usage_stats.models_search')}
+      <SearchInput ref={searchInput} value={search} placeholder={t('usage_stats.models_search')}
         onChange={(value) => { setSearch(value); resetScroll() }} />
     </div>
     {error ? <div className={styles.error} role="alert">
@@ -118,7 +119,7 @@ export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: ()
         <IconSearch size={26} />
         <strong>{t(models.length ? 'usage_stats.models_no_matches' : 'usage_stats.models_empty')}</strong>
         <span>{t('usage_stats.models_empty_hint')}</span>
-        {provider !== 'all' || search ? <Button variant="secondary" appearance="action" onClick={() => { selectProvider('all'); setSearch('') }}>{t('usage_stats.models_clear_filters')}</Button> : null}
+        {provider !== 'all' || search ? <Button variant="secondary" appearance="action" onClick={() => { selectProvider('all'); setSearch(''); searchInput.current?.focus() }}>{t('usage_stats.models_clear_filters')}</Button> : null}
       </div> : null}
     </div>
     {copyNotice ? <span className={styles.copyNotice} role="status">{copyNotice}</span> : null}

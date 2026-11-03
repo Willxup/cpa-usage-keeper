@@ -61,6 +61,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
   const [recalculationOpen, setRecalculationOpen] = useState(false)
   const [search, setSearch] = useState('')
   const listViewport = useRef<HTMLDivElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
 
   // 接口返回完整配置；搜索只过滤显示，不影响总数、同步、重算或新增候选。
   const filteredModels = useMemo(() => {
@@ -142,7 +143,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       <Button type="button" variant="secondary" appearance="action" onClick={() => void recalculation.refreshCurrent()}>{t('common.retry')}</Button>
     </div> : null}
     <div className={styles.listLabel}>
-      <SearchInput value={search} placeholder={t('usage_stats.pricing_settings_search')} onChange={updateSearch} />
+      <SearchInput ref={searchInput} value={search} placeholder={t('usage_stats.pricing_settings_search')} onChange={updateSearch} />
       <span className={styles.priceUnit}>{t('usage_stats.pricing_settings_price_unit')}</span>
     </div>
     {pricing.error ? <div className={styles.listError} role="status">
@@ -175,7 +176,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
         </article>)}
       </div> : pricing.models.length ? <div className={`${styles.empty} ${styles.searchEmpty}`}>
         <span>{t('usage_stats.models_no_matches')}</span>
-        <Button type="button" variant="secondary" appearance="action" onClick={() => updateSearch('')}>{t('usage_stats.models_clear_filters')}</Button>
+        <Button type="button" variant="secondary" appearance="action" onClick={() => { updateSearch(''); searchInput.current?.focus() }}>{t('usage_stats.models_clear_filters')}</Button>
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
 
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
