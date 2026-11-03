@@ -108,6 +108,11 @@ func (s *pricingService) GetPricingRecalculationOptions(ctx context.Context) (se
 	if err != nil {
 		return servicedto.RecalculationOptions{}, err
 	}
+	marker, err := loadPricingRecalculationMarker(ctx, s.db)
+	if err != nil {
+		return servicedto.RecalculationOptions{}, err
+	}
+	retainedEarliest = includeInterruptedStart(retainedEarliest, marker)
 	return pricingRecalculationOptions(now, retainedEarliest, revision), nil
 }
 
@@ -144,6 +149,11 @@ func (s *pricingService) StartPricingRecalculation(ctx context.Context, request 
 		return servicedto.StartRecalculationResponse{}, fmt.Errorf("pricing recalculation lifecycle ended: %w", err)
 	}
 	now := timeutil.NormalizeStorageTime(s.recalculation.Now())
+	previous, err := loadPricingRecalculationMarker(ctx, s.db)
+	if err != nil {
+		return servicedto.StartRecalculationResponse{}, err
+	}
+	retainedEarliest = includeInterruptedStart(retainedEarliest, previous)
 	if err := validatePricingRecalculationStart(request, pricingRecalculationOptions(now, retainedEarliest, 0), now); err != nil {
 		return servicedto.StartRecalculationResponse{}, err
 	}
@@ -160,10 +170,6 @@ func (s *pricingService) StartPricingRecalculation(ctx context.Context, request 
 		ConfigRevision: revision, UpdatedAt: now,
 	}
 	snapshot := s.catalog.Snapshot()
-	previous, err := loadPricingRecalculationMarker(ctx, s.db)
-	if err != nil {
-		return servicedto.StartRecalculationResponse{}, err
-	}
 	if previous != nil && !request.StartAt.Equal(previous.Task.StartAt) {
 		return servicedto.StartRecalculationResponse{}, fmt.Errorf("%w: %w", ErrInvalidPricingRecalculationStart,
 			&pricing.ValidationError{Path: "start_at", Code: "interrupted_range", Reason: "retry the interrupted start time"})
@@ -180,6 +186,16 @@ func (s *pricingService) StartPricingRecalculation(ctx context.Context, request 
 	s.recalculationWG.Add(1)
 	go s.runPricingRecalculation(task.TaskID, snapshot, task.StartAt, task.EndAt)
 	return servicedto.StartRecalculationResponse{Started: true, Task: *clonePricingRecalculationTask(task)}, nil
+}
+
+// A retry must remain selectable even if retention removed events before its
+// original start. The persisted scope and count are checked before any writes.
+func includeInterruptedStart(earliest *time.Time, marker *pricingRecalculationMarker) *time.Time {
+	if marker != nil && (earliest == nil || marker.Task.StartAt.Before(*earliest)) {
+		start := marker.Task.StartAt
+		return &start
+	}
+	return earliest
 }
 
 // CurrentPricingRecalculation returns the live task or a persisted interruption.

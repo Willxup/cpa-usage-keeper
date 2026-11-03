@@ -563,6 +563,11 @@ func TestPricingRecalculationRejectsNarrowRetryAndDetectsExpiredHistory(t *testi
 	if err := db.Delete(&entities.UsageEventArchive{}, events[0].ID).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Even if retention advances the first retained event past the saved
+	// start, admission must let the scope/count check detect target loss.
+	if err := db.Delete(&events[2]).Error; err != nil {
+		t.Fatal(err)
+	}
 	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
 		t.Fatalf("retry admission: %v", err)
 	}
@@ -590,4 +595,66 @@ func TestPricingRecalculationRejectsNarrowRetryAndDetectsExpiredHistory(t *testi
 		t.Fatalf("new run after acknowledgement: %v", err)
 	}
 	provider.WaitPricingRecalculation()
+}
+
+// Retention may remove an earlier anchor without removing any target events.
+// The saved start must remain selectable and retryable after process restart.
+func TestPricingRecalculationRetryWhenRetentionAdvancesPastStart(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db, _ := openResolverServiceTestPools(t)
+	now := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
+	start := now.Add(-90 * 24 * time.Hour).Truncate(time.Hour)
+	cost, available := 1.0, true
+	events := []entities.UsageEvent{
+		{EventKey: "retry-anchor", Model: "model-a", Timestamp: start.Add(-time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "retry-target", Model: "model-a", Timestamp: start.Add(2 * time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
+	saved, err := provider.SavePricingModel(context.Background(), completeServiceConfig("model-a", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_gap_retry BEFORE UPDATE OF cost_usd ON usage_events BEGIN SELECT RAISE(ABORT, 'fail once'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := servicedto.StartRecalculationRequest{StartAt: start, ConfigRevision: saved.ConfigRevision}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err := provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationFailed {
+		t.Fatalf("failed task=%+v err=%v", task, err)
+	}
+	stop()
+	if err := db.Exec("DROP TRIGGER fail_gap_retry").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&events[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop = newPricingRecalculationTestProvider(t, db, now)
+	defer stop()
+	options, err := provider.GetPricingRecalculationOptions(context.Background())
+	if err != nil || options.EarliestStart == nil || !options.EarliestStart.Equal(start) {
+		t.Fatalf("interrupted start must remain selectable: options=%+v err=%v", options, err)
+	}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatalf("retry admission: %v", err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err = provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationCompleted {
+		t.Fatalf("retry task=%+v err=%v", task, err)
+	}
+	var target entities.UsageEvent
+	if err := db.First(&target, events[1].ID).Error; err != nil || target.CostUSD == nil || *target.CostUSD != 2 {
+		t.Fatalf("target=%+v err=%v", target, err)
+	}
 }
