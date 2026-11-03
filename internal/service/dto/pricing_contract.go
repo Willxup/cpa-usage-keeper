@@ -82,7 +82,7 @@ type RecalculationOptions struct {
 	EarliestStart  *time.Time `json:"earliest_start"`
 	LatestStart    *time.Time `json:"latest_start"`
 	StepSeconds    int64      `json:"step_seconds"`
-	MaxDays        int        `json:"max_days"`
+	MaxDays        int        `json:"max_days"` // 0 means no fixed day limit.
 	ConfigRevision int64      `json:"config_revision"`
 }
 

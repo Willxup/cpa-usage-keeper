@@ -78,11 +78,11 @@ describe('PricingRecalculationModal', () => {
     let finish!: (response: Response) => void
     vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
     await renderModal()
-    const date = document.querySelector<HTMLButtonElement>('[data-recalculation-date]')!
+    const date = document.querySelector<HTMLInputElement>('[data-recalculation-date]')!
     const hour = document.querySelector<HTMLButtonElement>('[data-recalculation-hour]')!
     expect(date.disabled).toBe(true)
     expect(hour.disabled).toBe(true)
-    expect(date.textContent).toBe('common.loading')
+    expect(date.value).toBe('')
     expect(hour.textContent).toBe('common.loading')
     expect(document.querySelector('[role="dialog"] p[role="status"]')).toBeNull()
     await act(async () => finish(Response.json({ timezone: 'Asia/Kolkata',
@@ -90,7 +90,7 @@ describe('PricingRecalculationModal', () => {
       step_seconds: 3600, max_days: 30, config_revision: 7 })))
     expect(date.disabled).toBe(false)
     expect(hour.disabled).toBe(false)
-    expect(date.textContent).toBe('2026-09-22')
+    expect(date.value).toBe('2026-09-22')
     expect(hour.textContent).toBe('11:30')
   })
 
@@ -107,9 +107,9 @@ describe('PricingRecalculationModal', () => {
     expect(dialog.textContent).toContain('×1.2')
     expect(dialog.textContent).toContain('usage_stats.pricing_settings_rule_counts:{"branches":1,"conditions":1}')
     expect(dialog.textContent).toContain('usage_stats.pricing_recalculation_recent_days')
-    const date = dialog.querySelector<HTMLButtonElement>('[data-recalculation-date]')!
+    const date = dialog.querySelector<HTMLInputElement>('[data-recalculation-date]')!
     const hour = dialog.querySelector<HTMLButtonElement>('[data-recalculation-hour]')!
-    expect(date.textContent).toBe('2026-09-22')
+    expect(date.value).toBe('2026-09-22')
     expect(hour.textContent).toBe('11:30')
     await act(async () => dialog.querySelector<HTMLButtonElement>('[data-recalculation-start]')!.click())
     expect(onStart).toHaveBeenCalledTimes(1)
@@ -130,6 +130,44 @@ describe('PricingRecalculationModal', () => {
     expect(optionsCalls).toBe(2)
     await renderModal({ configRevision: 8 })
     expect(document.querySelector<HTMLButtonElement>('[data-recalculation-start]')?.disabled).toBe(false)
+  })
+
+  it('selects a retained historical day without enumerating the entire range', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ timezone: 'America/New_York',
+      earliest_start: '2000-01-01T00:00:00-05:00', latest_start: '2026-11-01T03:00:00-05:00',
+      step_seconds: 3600, max_days: 0, config_revision: 7 }))
+    await renderModal()
+    const date = document.querySelector<HTMLInputElement>('[data-recalculation-date]')!
+    expect(date.min).toBe('2000-01-01')
+    expect(date.max).toBe('2026-11-01')
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_available_history')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(date, '2020-04-01')
+      date.dispatchEvent(new Event('input', { bubbles: true }))
+      date.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-recalculation-start]')!.click())
+    expect(onStart).toHaveBeenCalledWith('2020-04-01T23:00:00-04:00', 7)
+  })
+
+  it.each(['recalculation_interrupted', 'recalculation_failed'])('shows %s and prefills its original start for an explicit new run', async (code) => {
+    await renderModal({ task: { ...runningTask, status: 'failed', stage: 'finalizing',
+      error: { code, message: 'interrupted' } } })
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_interrupted')
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_retry_scope')
+    expect(document.body.textContent).toContain('2026-09-22 09:30 UTC+05:30')
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-recalculation-start]')!.click())
+    expect(onStart).toHaveBeenCalledWith('2026-09-22T09:30:00+05:30', 7)
+  })
+
+  it('blocks a different start when the interrupted start is no longer retained', async () => {
+    await renderModal({ task: { ...runningTask, status: 'failed', stage: 'finalizing', start_at: '2000-01-01T00:00:00+05:30',
+      error: { code: 'recalculation_interrupted', message: 'interrupted' } } })
+    const date = document.querySelector<HTMLInputElement>('[data-recalculation-date]')!
+    expect(date.value).toBe('2026-09-22')
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_original_start_unavailable')
+    expect(document.querySelector<HTMLButtonElement>('[data-recalculation-start]')!.disabled).toBe(true)
+    expect(onStart).not.toHaveBeenCalled()
   })
 
   it('shows only committed progress and does not invent a percentage for unknown or zero totals', async () => {

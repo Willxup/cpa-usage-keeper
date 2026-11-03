@@ -13,8 +13,8 @@ func TestPricingSyncPreservesModelVersionSuffixes(t *testing.T) {
 	transport := http.DefaultTransport
 	http.DefaultTransport = pricingCatalogTransport{body: `{
 		"amazon-bedrock": {"models": {
-			"global.anthropic.claude-haiku-v1:0": {"cost": {"input": 1, "output": 5}},
-			"global.anthropic.claude-sonnet-v1:0": {"cost": {"input": 3, "output": 15}}
+			"global.anthropic.claude-haiku-v1:0": {"cost": {"input": 1, "output": 5, "cache_read": 0, "cache_write": 0}},
+			"global.anthropic.claude-sonnet-v1:0": {"cost": {"input": 3, "output": 15, "cache_read": 0, "cache_write": 0}}
 		}}
 	}`}
 	t.Cleanup(func() { http.DefaultTransport = transport })

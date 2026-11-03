@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { IconHistory, IconPlus, IconRefreshCw, IconTrash2 } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData'
-import { ApiError } from '@/lib/api'
+import { acknowledgeInterruptedPricingRecalculation, ApiError } from '@/lib/api'
 import type { ModelPricingConfig, PricingBasePrices, PricingRecalculationTask } from '@/lib/types'
 import { CompletePricingSyncModal } from './CompletePricingSyncModal'
 import { ModelPricingEditor } from './ModelPricingEditor'
@@ -46,6 +46,8 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
     refresh: async () => { await Promise.all([loadPricing(), refreshCurrent()]) },
   }), [loadPricing, refreshCurrent])
   const recalculationRunning = recalculation.task?.status === 'running'
+  const recoveryNeeded = recalculation.task?.status === 'failed' &&
+    (recalculation.task.error?.code === 'recalculation_interrupted' || recalculation.task.error?.code === 'recalculation_failed')
   const pricingLocked = !enabled || recalculationRunning || Boolean(recalculation.connectionError) ||
     (recalculation.loading && !recalculation.task)
   const [editorConfig, setEditorConfig] = useState<ModelPricingConfig | null>(null)
@@ -57,6 +59,9 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
   const [notice, setNotice] = useState('')
   const [syncOpen, setSyncOpen] = useState(false)
   const [recalculationOpen, setRecalculationOpen] = useState(false)
+  const [acknowledgeTaskID, setAcknowledgeTaskID] = useState<string | null>(null)
+  const [acknowledging, setAcknowledging] = useState(false)
+  const [acknowledgeError, setAcknowledgeError] = useState('')
 
   // 新增入口只列尚未配置的模型；编辑始终保留完整的现有配置。
   const availableModels = useMemo(() => {
@@ -98,6 +103,23 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       setDeleteError(failure instanceof Error ? failure.message : t('usage_stats.pricing_settings_delete_failed'))
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const acknowledgeInterruption = async () => {
+    if (!acknowledgeTaskID || acknowledging) return
+    setAcknowledging(true)
+    setAcknowledgeError('')
+    try {
+      await acknowledgeInterruptedPricingRecalculation(acknowledgeTaskID)
+      await recalculation.refreshCurrent()
+      setAcknowledgeTaskID(null)
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 401) onAuthRequired?.()
+      setAcknowledgeError(failure instanceof Error ? failure.message : t('usage_stats.pricing_recalculation_acknowledge_failed'))
+      void recalculation.refreshCurrent()
+    } finally {
+      setAcknowledging(false)
     }
   }
 
@@ -159,10 +181,15 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
 
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
-    {recalculation.task?.status === 'failed' ? <p className={styles.listError} role="alert">
-      {recalculation.task.error?.message || t('usage_stats.pricing_recalculation_failed')}
+    {recalculation.task?.status === 'failed' ? <div className={styles.listError} role="alert">
+      {recoveryNeeded
+        ? t('usage_stats.pricing_recalculation_interrupted')
+        : recalculation.task.error?.message || t('usage_stats.pricing_recalculation_failed')}
       {' '}{t('usage_stats.pricing_recalculation_partial_kept')}
-    </p> : null}
+      {recoveryNeeded ? <Button type="button" variant="secondary" appearance="action"
+        disabled={pricingLocked} onClick={() => { setAcknowledgeError(''); setAcknowledgeTaskID(recalculation.task!.task_id) }}>
+        {t('usage_stats.pricing_recalculation_acknowledge')}</Button> : null}
+    </div> : null}
 
     {editorKey > 0 ? <ModelPricingEditor key={editorKey} open={editorOpen} initialConfig={editorConfig}
       modelOptions={availableModels} timezone={timezone} locked={pricingLocked} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}
@@ -182,6 +209,16 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       </div>}>
       {deleteTarget ? <p>{t('usage_stats.pricing_settings_delete_body', { model: deleteTarget.model })}</p> : null}
       {deleteError ? <p className={styles.listError} role="alert">{deleteError}</p> : null}
+    </Modal>
+    <Modal open={acknowledgeTaskID !== null} title={t('usage_stats.pricing_recalculation_acknowledge')}
+      onClose={() => { if (!acknowledging) setAcknowledgeTaskID(null) }} closeDisabled={acknowledging}
+      footer={<div className={styles.deleteFooter}>
+        <Button type="button" variant="secondary" appearance="action" disabled={acknowledging} onClick={() => setAcknowledgeTaskID(null)}>{t('common.cancel')}</Button>
+        <Button type="button" variant="danger" appearance="action" loading={acknowledging} disabled={acknowledging}
+          onClick={() => void acknowledgeInterruption()}>{t('usage_stats.pricing_recalculation_acknowledge_confirm')}</Button>
+      </div>}>
+      <p>{t('usage_stats.pricing_recalculation_acknowledge_warning')}</p>
+      {acknowledgeError ? <p className={styles.listError} role="alert">{acknowledgeError}</p> : null}
     </Modal>
   </section>
 })

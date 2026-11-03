@@ -95,8 +95,8 @@ waiting:
 	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
 	defer stop()
 	current, err := provider.CurrentPricingRecalculation(context.Background())
-	if err != nil || current != nil {
-		t.Fatalf("crash resurrected an in-memory task: %+v, %v", current, err)
+	if err != nil || current == nil || current.Status != servicedto.RecalculationFailed || current.Error == nil || current.Error.Code != "recalculation_interrupted" || !current.StartAt.Equal(now.Add(-90*time.Minute)) {
+		t.Fatalf("missing interruption marker: %+v, %v", current, err)
 	}
 	models, err := provider.ListPricingModels(context.Background())
 	if err != nil {

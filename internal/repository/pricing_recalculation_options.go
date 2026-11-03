@@ -3,35 +3,32 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
-	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 )
 
-// LoadEarliestHotUsageHour 按绝对秒找到热表最早事件所属的既有小时桶，供重算起点与热表范围取交集。
-// SQLite 文本排序会把 DST 回拨的两次本地小时排错；同一秒内任一事件都属于同一绝对小时。
-func LoadEarliestHotUsageHour(ctx context.Context, db *gorm.DB) (*time.Time, error) {
+// LoadEarliestRetainedUsageHour returns the earliest retained event hour across hot
+// and archive. Absolute seconds avoid ordering errors during DST transitions.
+func LoadEarliestRetainedUsageHour(ctx context.Context, db *gorm.DB) (*time.Time, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 	const epochSecond = "CAST(strftime('%s', substr(timestamp,1,19) || CASE WHEN substr(timestamp,-1) = 'Z' THEN 'Z' ELSE substr(timestamp,-6) END) AS INTEGER)"
-	var raw string
-	err := db.Clauses(dbresolver.Read).WithContext(ctx).Table("usage_events").
-		Select("timestamp").Order(epochSecond + " ASC").Limit(1).Row().Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
+	query := "SELECT MIN(" + epochSecond + "), COALESCE(SUM(CASE WHEN " + epochSecond + " IS NULL THEN 1 ELSE 0 END), 0) FROM (SELECT timestamp FROM usage_events UNION ALL SELECT timestamp FROM usage_events_archive)"
+	var earliest sql.NullInt64
+	var invalid int64
+	if err := db.Clauses(dbresolver.Read).WithContext(ctx).Raw(query).Row().Scan(&earliest, &invalid); err != nil {
+		return nil, fmt.Errorf("load earliest usage event: %w", err)
+	}
+	if invalid != 0 {
+		return nil, fmt.Errorf("invalid stored usage event timestamp")
+	}
+	if !earliest.Valid {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("load earliest hot usage event: %w", err)
-	}
-	instant, err := timeutil.ParseStorageTime(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse earliest hot usage event: %w", err)
-	}
-	hour := instant.Truncate(time.Hour).In(time.Local)
+	hour := time.Unix(earliest.Int64, 0).Truncate(time.Hour).In(time.Local)
 	return &hour, nil
 }

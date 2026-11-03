@@ -56,6 +56,7 @@ describe('PricingSettings', () => {
   let configs: ModelPricingConfig[]
   let revision: number
   let currentTask: PricingRecalculationTask | null
+  let acknowledgements: string[]
   let writes: Array<{ method: string; url: URL; body?: ModelPricingConfig }>
 
   beforeEach(() => {
@@ -63,6 +64,7 @@ describe('PricingSettings', () => {
     configs = [structuredClone(existing)]
     revision = 7
     currentTask = null
+    acknowledgements = []
     writes = []
     vi.stubGlobal('window', window)
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -71,6 +73,11 @@ describe('PricingSettings', () => {
         return Response.json({ models: ['provider/claude-sonnet', 'openai/gpt-5', 'gemini/3'] })
       }
       if (url.pathname.endsWith('/pricing/recalculations/current')) return Response.json(currentTask)
+      if (url.pathname.endsWith('/pricing/recalculations/interrupted') && init?.method === 'DELETE') {
+        acknowledgements.push(JSON.parse(String(init.body)).task_id as string)
+        currentTask = null
+        return new Response(null, { status: 204 })
+      }
       if (!url.pathname.endsWith('/pricing/models')) throw new Error(`unexpected pricing request ${url}`)
       if (init?.method === 'PUT') {
         const config = JSON.parse(String(init.body)) as ModelPricingConfig
@@ -421,6 +428,32 @@ describe('PricingSettings', () => {
     await renderSettings()
     expect(document.querySelector('section[aria-label="usage_stats.model_price_settings_title"] > p[role="status"]')).toBeNull()
     expect(document.body.textContent).not.toContain('usage_stats.pricing_recalculation_view_progress')
+  })
+
+  it.each(['recalculation_interrupted', 'recalculation_failed'])('requires explicit confirmation before acknowledging %s', async (code) => {
+    currentTask = { ...runningTask, status: 'failed', stage: 'finalizing',
+      error: { code, message: 'interrupted' } }
+    await renderSettings()
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_interrupted')
+    await act(async () => button('usage_stats.pricing_recalculation_acknowledge').click())
+    expect(acknowledgements).toEqual([])
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    expect(dialog.textContent).toContain('usage_stats.pricing_recalculation_acknowledge_warning')
+    await act(async () => button('usage_stats.pricing_recalculation_acknowledge_confirm').click())
+    expect(acknowledgements).toEqual(['running-1'])
+    expect(document.body.textContent).not.toContain('usage_stats.pricing_recalculation_interrupted')
+  })
+
+  it('keeps the warning visible when acknowledging a stale task fails', async () => {
+    currentTask = { ...runningTask, status: 'failed', stage: 'finalizing',
+      error: { code: 'recalculation_interrupted', message: 'interrupted' } }
+    await renderSettings()
+    await act(async () => button('usage_stats.pricing_recalculation_acknowledge').click())
+    vi.mocked(fetch).mockImplementationOnce(async () => Response.json({ code: 'pricing_changed', message: 'Task changed' }, { status: 409 }))
+    await act(async () => button('usage_stats.pricing_recalculation_acknowledge_confirm').click())
+    expect(acknowledgements).toEqual([])
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Task changed')
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_interrupted')
   })
 
   it('requires confirmation before deleting configuration and keeps the model query intact', async () => {

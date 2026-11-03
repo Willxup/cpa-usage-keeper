@@ -20,9 +20,9 @@ func (transport liteLLMCatalogTransport) RoundTrip(request *http.Request) (*http
 		transport.t.Fatalf("unexpected pricing source: %s", request.URL)
 	}
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{
-		"gpt-test":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.000015,"cache_read_input_token_cost":0.00000025},
+		"gpt-test":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.000015,"cache_read_input_token_cost":0.00000025,"cache_creation_input_token_cost":0},
 		"azure/gpt-test":{"litellm_provider":"azure","mode":"chat","input_cost_per_token":0.000099,"output_cost_per_token":0.000099},
-		"claude-test":{"litellm_provider":"anthropic","mode":"chat","input_cost_per_token":0.000003,"output_cost_per_token":0.000015,"cache_creation_input_token_cost":0.00000375},
+		"claude-test":{"litellm_provider":"anthropic","mode":"chat","input_cost_per_token":0.000003,"output_cost_per_token":0.000015,"cache_read_input_token_cost":0,"cache_creation_input_token_cost":0.00000375},
 		"overflow":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":1e308,"output_cost_per_token":1}
 	}`))}, nil
 }
@@ -94,5 +94,22 @@ func TestPricingSyncLiteLLMCacheHitPriceFallback(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPricingSyncDoesNotInventMissingCachePrices(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingReviewTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{
+			"missing-write":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000002,"output_cost_per_token":0.000004,"cache_read_input_token_cost":0.0000005},
+			"missing-read":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000002,"output_cost_per_token":0.000004,"cache_creation_input_token_cost":0},
+			"explicit-zero":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000002,"output_cost_per_token":0.000004,"cache_read_input_token_cost":0,"cache_creation_input_token_cost":0}
+		}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = transport })
+	provider := newPricingTestProvider(t, openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(), stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "missing-write"}, {ID: "missing-read"}, {ID: "explicit-zero"}}}}})
+	preview, err := provider.FetchPricingSync(context.Background(), "litellm")
+	if err != nil || len(preview.Matches) != 1 || preview.Matches[0].Model != "explicit-zero" || len(preview.UnmatchedModels) != 2 {
+		t.Fatalf("preview=%+v err=%v", preview, err)
 	}
 }

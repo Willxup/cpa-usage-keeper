@@ -1105,6 +1105,14 @@ export async function fetchCurrentPricingRecalculation(signal?: AbortSignal): Pr
   return response.json()
 }
 
+export async function acknowledgeInterruptedPricingRecalculation(taskID: string, signal?: AbortSignal): Promise<void> {
+  const response = await apiFetch(apiPath('/pricing/recalculations/interrupted'), {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskID }), signal,
+  })
+  if (!response.ok) await parseApiError(response, `Failed to acknowledge interrupted recalculation: ${response.status}`)
+}
+
 // 仅在用户明确拉取时请求选定来源；响应包含来源 ID、匹配提供商显示名和四项候选基础价。
 export async function fetchPricingSync(source: PricingSyncSource, signal?: AbortSignal): Promise<PricingSyncFetchResponse> {
   const params = new URLSearchParams({ source })

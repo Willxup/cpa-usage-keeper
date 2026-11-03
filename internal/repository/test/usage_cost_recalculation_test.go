@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-	"unicode"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
@@ -66,9 +65,10 @@ func TestUsageCostRecalculationPagesUseRealInstants(t *testing.T) {
 func TestUsageCostRecalculationBatchRollsBackWithDailyFailure(t *testing.T) {
 	writer, reader := openRecalculationPools(t)
 	when := time.Date(2026, 9, 23, 10, 15, 0, 0, time.Local)
+	pricedAlias := "priced"
 	events := []entities.UsageEvent{
 		{EventKey: "priced", APIGroupKey: "key", Model: "priced", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true)},
-		{EventKey: "missing", APIGroupKey: "key", Model: "missing", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: recalcCost(3), CostAvailable: recalcAvailable(true)},
+		{EventKey: "missing", APIGroupKey: "key", Model: "missing", ModelAlias: &pricedAlias, Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: recalcCost(3), CostAvailable: recalcAvailable(true)},
 	}
 	if err := writer.Create(&events).Error; err != nil {
 		t.Fatal(err)
@@ -99,12 +99,12 @@ func TestUsageCostRecalculationBatchRollsBackWithDailyFailure(t *testing.T) {
 		}
 	}
 	assertRecalculationFeeState(t, writer, events[0].ID, 2, true, "priced", 2, 0)
-	assertRecalculationFeeState(t, writer, events[1].ID, 0, false, "missing", 0, 1)
+	assertRecalculationFeeState(t, writer, events[1].ID, 2, true, "missing", 2, 0)
 	assertUsageOverviewCheckpoint(t, writer, events[1].ID)
 }
 
-// TestUsageCostRecalculationFinalSumKeepsOutsideRange 验证首末残桶及规范化维度的全桶已存费用覆盖。
-func TestUsageCostRecalculationFinalSumKeepsOutsideRange(t *testing.T) {
+// TestUsageCostRecalculationKeepsOutsideRange 验证首末残桶及规范化维度的全桶已存费用覆盖。
+func TestUsageCostRecalculationKeepsOutsideRange(t *testing.T) {
 	writer, reader := openRecalculationPools(t)
 	day := time.Date(2026, 9, 23, 0, 0, 0, 0, time.Local)
 	alias := "priced"
@@ -128,29 +128,15 @@ func TestUsageCostRecalculationFinalSumKeepsOutsideRange(t *testing.T) {
 	if err := repository.ApplyUsageCostRecalculationBatch(context.Background(), writer, scope, page, recalcResolver(t)); err != nil {
 		t.Fatal(err)
 	}
-	// 故意引入普通 float 累加尾差；末尾仅用已存事件金额覆盖，不重新计价范围外两条。
-	if err := writer.Model(&entities.UsageOverviewHourlyStat{}).Where("model = ?", "reported").Update("cost_usd", gorm.Expr("cost_usd + ?", 0.000001)).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Model(&entities.UsageOverviewDailyStat{}).Where("model = ?", "reported").Update("cost_usd", gorm.Expr("cost_usd + ?", 0.000001)).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.FinalizeUsageCostRecalculationStats(context.Background(), reader, writer, scope); err != nil {
-		t.Fatal(err)
-	}
 	var hourly []entities.UsageOverviewHourlyStat
 	if err := writer.Where("model = ?", "reported").Order("bucket_start").Find(&hourly).Error; err != nil {
 		t.Fatal(err)
 	}
 	expectedHours := make(map[int64]float64)
-	touchedHours := make(map[int64]bool)
 	for index, event := range events {
 		bucket := event.Timestamp.Truncate(time.Hour).Unix()
 		amount := []float64{4, 2, 2, 7}[index]
 		expectedHours[bucket] += amount
-		if index == 1 || index == 2 {
-			touchedHours[bucket] = true
-		}
 	}
 	if len(hourly) != len(expectedHours) {
 		t.Fatalf("hourly buckets=%d, want %d", len(hourly), len(expectedHours))
@@ -158,9 +144,6 @@ func TestUsageCostRecalculationFinalSumKeepsOutsideRange(t *testing.T) {
 	for _, row := range hourly {
 		bucket := row.BucketStart.Unix()
 		want := expectedHours[bucket]
-		if !touchedHours[bucket] {
-			want += 0.000001
-		}
 		if row.CostUSD == nil || !recalcClose(*row.CostUSD, want) {
 			t.Fatalf("hour %s fee=%v, want %g", row.BucketStart, row.CostUSD, want)
 		}
@@ -215,15 +198,7 @@ func TestUsageCostRecalculationStreamsMoreThanOneGroupBatch(t *testing.T) {
 	if err != nil || len(page) != 1000 || done || cursor != events[999].ID {
 		t.Fatalf("first event page: len=%d cursor=%d done=%v err=%v", len(page), cursor, done, err)
 	}
-	if err := repository.FinalizeUsageCostRecalculationStats(ctx, writer, writer, scope); err != nil {
-		t.Fatalf("stream grouped sum through business dbresolver: %v", err)
-	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		var correct int64
-		if err := writer.Table(table).Where("cost_usd = ? AND unavailable_cost_count = ? AND request_count = ?", 1, 0, 1).Count(&correct).Error; err != nil || correct != int64(len(events)) {
-			t.Fatalf("%s groups overwritten: correct=%d err=%v", table, correct, err)
-		}
-	}
+
 }
 
 // TestUsageCostRecalculationRejectsMissingRowsAndInvalidOldFees 验证旧值或必要桶不可用时不提交事件改价。
@@ -328,121 +303,6 @@ func TestUsageCostRecalculationRejectsFiniteDeltaOverflow(t *testing.T) {
 	}
 }
 
-// TestUsageCostRecalculationFinalSumRejectsNullFee 验证流式整桶 SUM 不把未填事件视作明确零价。
-func TestUsageCostRecalculationFinalSumRejectsNullFee(t *testing.T) {
-	writer, reader := openRecalculationPools(t)
-	when := time.Date(2026, 9, 23, 10, 15, 0, 0, time.Local)
-	event := entities.UsageEvent{EventKey: "target", APIGroupKey: "key", Model: "priced", Timestamp: when, CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true)}
-	if err := writer.Create(&event).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.AggregateUsageOverviewStats(context.Background(), writer, when.Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Exec("UPDATE usage_events SET cost_usd = NULL WHERE id = ?", event.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	scope := repository.UsageCostRecalculationScope{Start: when.Truncate(time.Hour), End: when.Add(time.Hour), MaxEventID: event.ID}
-	if err := repository.FinalizeUsageCostRecalculationStats(context.Background(), reader, writer, scope); err == nil {
-		t.Fatal("NULL event amount was ignored by full-bucket SUM")
-	}
-	var hourly entities.UsageOverviewHourlyStat
-	if err := writer.Take(&hourly).Error; err != nil || hourly.CostUSD == nil || !recalcClose(*hourly.CostUSD, 1) {
-		t.Fatalf("failed full-bucket SUM overwrote amount: %+v err=%v", hourly, err)
-	}
-}
-
-// TestUsageCostRecalculationEmptyScopeDoesNotNeedStreamingPool 验证空目标直接结束，不申请写事务或要求额外连接。
-func TestUsageCostRecalculationEmptyScopeDoesNotNeedStreamingPool(t *testing.T) {
-	db := openTestDatabase(t)
-	start := time.Date(2026, 9, 23, 10, 0, 0, 0, time.Local)
-	scope := repository.UsageCostRecalculationScope{Start: start, End: start.Add(time.Hour), MaxEventID: 0}
-	if err := repository.FinalizeUsageCostRecalculationStats(context.Background(), db, db, scope); err != nil {
-		t.Fatalf("empty scope requested a streaming pool: %v", err)
-	}
-}
-
-// TestUsageCostRecalculationFinalSumHandlesSkippedLocalMidnight 验证自然日日期不从可能回退到前一日的零点桶键反推。
-func TestUsageCostRecalculationFinalSumHandlesSkippedLocalMidnight(t *testing.T) {
-	location, err := time.LoadLocation("America/Sao_Paulo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	previousLocal := time.Local
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
-	writer, reader := openRecalculationPools(t)
-	when := time.Date(2018, 11, 4, 1, 15, 0, 0, location)
-	dayBucket := time.Date(when.Year(), when.Month(), when.Day(), 0, 0, 0, 0, location)
-	if dayBucket.Format("2006-01-02") == when.Format("2006-01-02") {
-		t.Fatal("fixture did not exercise a skipped local midnight")
-	}
-	event := entities.UsageEvent{EventKey: "skipped-midnight", APIGroupKey: "key", Model: "priced", Timestamp: when, CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true)}
-	if err := writer.Create(&event).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.AggregateUsageOverviewStats(context.Background(), writer, when.Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Model(&entities.UsageOverviewDailyStat{}).Where("id > ?", 0).Update("cost_usd", 2).Error; err != nil {
-		t.Fatal(err)
-	}
-	scope := repository.UsageCostRecalculationScope{Start: when.Truncate(time.Hour), End: when.Add(time.Hour), MaxEventID: event.ID}
-	if err := repository.FinalizeUsageCostRecalculationStats(context.Background(), reader, writer, scope); err != nil {
-		t.Fatal(err)
-	}
-	var daily entities.UsageOverviewDailyStat
-	if err := writer.Take(&daily).Error; err != nil || daily.CostUSD == nil || !recalcClose(*daily.CostUSD, 1) {
-		t.Fatalf("skipped-midnight daily fee=%+v err=%v", daily, err)
-	}
-}
-
-// TestUsageCostRecalculationSQLDimensionsMatchOverview 验证 SQL 分组与 Go TrimSpace 对全部 Unicode 空白使用同一键。
-func TestUsageCostRecalculationSQLDimensionsMatchOverview(t *testing.T) {
-	writer, reader := openRecalculationPools(t)
-	when := time.Date(2026, 9, 23, 10, 15, 0, 0, time.Local)
-	var events []entities.UsageEvent
-	for space := rune(0); space <= unicode.MaxRune; space++ {
-		if !unicode.IsSpace(space) {
-			continue
-		}
-		wrapped := string(space) + "key" + string(space)
-		events = append(events, entities.UsageEvent{
-			EventKey: fmt.Sprintf("space-%U", space), APIGroupKey: wrapped, Model: wrapped,
-			Timestamp: when, CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true),
-		})
-	}
-	if err := writer.CreateInBatches(&events, 100).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.AggregateUsageOverviewStats(context.Background(), writer, when.Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		if err := writer.Table(table).Where("id > ?", 0).Update("cost_usd", 0).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	scope := repository.UsageCostRecalculationScope{Start: when.Truncate(time.Hour), End: when.Add(time.Hour), MaxEventID: events[len(events)-1].ID}
-	if err := repository.FinalizeUsageCostRecalculationStats(context.Background(), reader, writer, scope); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		var rows []struct {
-			APIGroupKey  string
-			Model        string
-			CostUSD      float64
-			RequestCount int64
-		}
-		if err := writer.Table(table).Select("api_group_key, model, cost_usd, request_count").Find(&rows).Error; err != nil {
-			t.Fatal(err)
-		}
-		if len(rows) != 1 || rows[0].APIGroupKey != "key" || rows[0].Model != "key" || rows[0].RequestCount != int64(len(events)) || !recalcClose(rows[0].CostUSD, float64(len(events))) {
-			t.Fatalf("%s whitespace key/fee mismatch: %+v", table, rows)
-		}
-	}
-}
-
 func openRecalculationPools(t *testing.T) (*gorm.DB, *gorm.DB) {
 	t.Helper()
 	writer, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: filepath.Join(t.TempDir(), "recalculation.db")})
@@ -509,4 +369,30 @@ func assertRecalculationFeeState(t *testing.T, db *gorm.DB, eventID int64, wantC
 			t.Fatalf("model %s bucket changed: %+v", model, row)
 		}
 	}
+}
+
+func TestUsageCostRecalculationMissingPricePreservesFeeUntilRetry(t *testing.T) {
+	db, _ := openRecalculationPools(t)
+	when := time.Date(2026, 9, 23, 10, 15, 0, 0, time.Local)
+	event := entities.UsageEvent{EventKey: "price-missing", Model: "priced", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true)}
+	if err := db.Create(&event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, when.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	scope := repository.UsageCostRecalculationScope{Start: when.Truncate(time.Hour), End: when.Add(time.Hour), MaxEventID: event.ID}
+	page, _, _, err := repository.LoadUsageCostRecalculationPage(context.Background(), db, scope, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()
+	if err := repository.ApplyUsageCostRecalculationBatch(context.Background(), db, scope, page, empty); err == nil {
+		t.Fatal("missing price accepted")
+	}
+	assertRecalculationFeeState(t, db, event.ID, 1, true, "priced", 1, 0)
+	if err := repository.ApplyUsageCostRecalculationBatch(context.Background(), db, scope, page, recalcResolver(t)); err != nil {
+		t.Fatal(err)
+	}
+	assertRecalculationFeeState(t, db, event.ID, 2, true, "priced", 2, 0)
 }

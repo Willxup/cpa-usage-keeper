@@ -29,22 +29,38 @@ function formatPricingHour(instant: number, formatter: Intl.DateTimeFormat): For
   return { value: `${date}T${clock}:00${offset}`, date, clock, offset }
 }
 
-// buildPricingRecalculationHours 从后端合法 instant 边界按 step_seconds 生成小时选项，不按浏览器时区取整。
-// 普通小时仅显示本地钟点；DST 同日重复小时才附实际偏移，value 始终包含部署时区的 RFC3339 偏移。
-export function buildPricingRecalculationHours(options: PricingRecalculationOptions): PricingRecalculationHour[] {
+function pricingFormatter(timezone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset',
+  })
+}
+
+export function pricingRecalculationDate(value: string | null, timezone: string): string {
+  if (!value) return ''
+  const instant = Date.parse(value)
+  return Number.isFinite(instant) ? formatPricingHour(instant, pricingFormatter(timezone)).date : ''
+}
+
+// Generate only the selected local date, anchored to the server's absolute-hour grid.
+// The bounded UTC window covers timezone offsets and DST transitions without scanning history.
+export function buildPricingRecalculationHours(options: PricingRecalculationOptions, date: string): PricingRecalculationHour[] {
   if (!options.earliest_start || !options.latest_start) return []
   const first = Date.parse(options.earliest_start)
   const last = Date.parse(options.latest_start)
   const step = options.step_seconds * 1000
-  if (!Number.isFinite(first) || !Number.isFinite(last) || !Number.isSafeInteger(step) || step <= 0 || first > last) return []
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: options.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset',
-  })
+  const midnight = Date.parse(`${date}T00:00:00Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0, 10) !== date ||
+      !Number.isFinite(first) || !Number.isFinite(last) || step !== 3600000 || first > last) return []
+  const formatter = pricingFormatter(options.timezone)
+  const lower = Math.max(first, midnight - 48 * 3600000)
+  const upper = Math.min(last, midnight + 72 * 3600000)
+  const firstCandidate = first + Math.ceil((lower - first) / step) * step
   const hours: FormattedHour[] = []
   const labelCounts = new Map<string, number>()
-  for (let instant = first; instant <= last; instant += step) {
+  for (let instant = firstCandidate; instant <= upper; instant += step) {
     const hour = formatPricingHour(instant, formatter)
+    if (hour.date !== date) continue
     hours.push(hour)
     const key = `${hour.date} ${hour.clock}`
     labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1)

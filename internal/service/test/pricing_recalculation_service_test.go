@@ -41,7 +41,7 @@ func TestPricingRecalculationUsesOneTaskAndStoredFees(t *testing.T) {
 		t.Fatal(err)
 	}
 	options, err := provider.GetPricingRecalculationOptions(context.Background())
-	if err != nil || options.EarliestStart == nil || options.LatestStart == nil || options.ConfigRevision != saved.ConfigRevision || options.StepSeconds != 3600 || options.MaxDays != 30 {
+	if err != nil || options.EarliestStart == nil || options.LatestStart == nil || options.ConfigRevision != saved.ConfigRevision || options.StepSeconds != 3600 || options.MaxDays != 0 {
 		t.Fatalf("pricing recalculation options: %+v err=%v", options, err)
 	}
 	releaseRead, ok := readGate.Acquire()
@@ -98,7 +98,7 @@ func TestPricingRecalculationOptionsIncludeFirstPartialHotHour(t *testing.T) {
 }
 
 // TestPricingRecalculationOptionsNeverCrossThirtyDayFloor 验证30天边界落在最早事件小时中间时仍向后对齐。
-func TestPricingRecalculationOptionsNeverCrossThirtyDayFloor(t *testing.T) {
+func TestPricingRecalculationOptionsIncludeOlderHistory(t *testing.T) {
 	withUsageServiceLocation(t, "UTC")
 	db, _ := openResolverServiceTestPools(t)
 	now := time.Date(2026, 9, 23, 10, 30, 0, 0, time.UTC)
@@ -110,12 +110,12 @@ func TestPricingRecalculationOptionsNeverCrossThirtyDayFloor(t *testing.T) {
 	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
 	defer stop()
 	options, err := provider.GetPricingRecalculationOptions(context.Background())
-	want := now.Add(-30 * 24 * time.Hour).Truncate(time.Hour).Add(time.Hour)
+	want := first.Truncate(time.Hour)
 	if err != nil || options.EarliestStart == nil || !options.EarliestStart.Equal(want) {
-		t.Fatalf("thirty-day floor must ceil to %s: options=%+v err=%v", want, options, err)
+		t.Fatalf("earliest event hour must be %s: options=%+v err=%v", want, options, err)
 	}
 	if _, err := provider.StartPricingRecalculation(context.Background(), servicedto.StartRecalculationRequest{StartAt: want.Add(-time.Hour)}); !errors.Is(err, service.ErrInvalidPricingRecalculationStart) {
-		t.Fatalf("accepted a start before thirty-day floor: %v", err)
+		t.Fatalf("accepted a start before the first event hour: %v", err)
 	}
 }
 
@@ -414,4 +414,247 @@ func newPricingRecalculationTestProvider(t *testing.T, db *gorm.DB, now time.Tim
 		recent.Close()
 	})
 	return provider, readGate, syncer, runner, stop
+}
+
+// Archived and deleted raw rows can share a bucket: recalculation must change
+// only retained events while preserving the deleted row's aggregate contribution.
+func TestPricingRecalculationArchivedHistoryPartialFailureAndRetry(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db, _ := openResolverServiceTestPools(t)
+	now := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
+	when := now.Add(-90 * 24 * time.Hour).Truncate(time.Hour).Add(15 * time.Minute)
+	cost, available, incomplete := 1.0, true, false
+	events := []entities.UsageEvent{
+		{EventKey: "old-archive", Model: "model-a", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "old-purged", Model: "model-a", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "old-incomplete", Model: "model-a", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &incomplete},
+		{EventKey: "old-hot", Model: "model-a", Timestamp: when, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO usage_events_archive ("+entities.UsageEventStorageColumns+") SELECT "+entities.UsageEventStorageColumns+" FROM usage_events WHERE id IN (?, ?)", events[0].ID, events[2].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("id IN ?", []int64{events[0].ID, events[1].ID, events[2].ID}).Delete(&entities.UsageEvent{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
+	defer stop()
+	saved, err := provider.SavePricingModel(context.Background(), completeServiceConfig("model-a", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := provider.GetPricingRecalculationOptions(context.Background())
+	if err != nil || options.EarliestStart == nil || !options.EarliestStart.Equal(when.Truncate(time.Hour)) {
+		t.Fatalf("options=%+v err=%v", options, err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_archive_reprice BEFORE UPDATE OF cost_usd ON usage_events_archive BEGIN SELECT RAISE(ABORT, 'archive failure'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := servicedto.StartRecalculationRequest{StartAt: when.Truncate(time.Hour), ConfigRevision: saved.ConfigRevision}
+	startAndWait := func() servicedto.RecalculationStatus {
+		t.Helper()
+		if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
+		provider.WaitPricingRecalculation()
+		task, err := provider.CurrentPricingRecalculation(context.Background())
+		if err != nil || task == nil {
+			t.Fatalf("task=%+v err=%v", task, err)
+		}
+		return task.Status
+	}
+	check := func(hot, archived, total float64) {
+		t.Helper()
+		var gotHot, gotArchive float64
+		if err := db.Table("usage_events").Select("cost_usd").Where("id = ?", events[3].ID).Scan(&gotHot).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Table("usage_events_archive").Select("cost_usd").Where("id = ?", events[0].ID).Scan(&gotArchive).Error; err != nil {
+			t.Fatal(err)
+		}
+		if gotHot != hot || gotArchive != archived {
+			t.Fatalf("hot=%v archive=%v", gotHot, gotArchive)
+		}
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			var row struct {
+				CostUSD              float64
+				UnavailableCostCount int64
+			}
+			if err := db.Table(table).Take(&row).Error; err != nil || row.CostUSD != total || row.UnavailableCostCount != 1 {
+				t.Fatalf("%s: %+v err=%v", table, row, err)
+			}
+		}
+		var incompleteRow entities.UsageEventArchive
+		if err := db.First(&incompleteRow, events[2].ID).Error; err != nil || incompleteRow.CostUSD == nil || *incompleteRow.CostUSD != 1 || incompleteRow.CostAvailable == nil || *incompleteRow.CostAvailable {
+			t.Fatalf("incomplete row=%+v err=%v", incompleteRow, err)
+		}
+	}
+	if status := startAndWait(); status != servicedto.RecalculationFailed {
+		t.Fatalf("status=%s", status)
+	}
+	check(2, 1, 5)
+	if err := db.Exec("DROP TRIGGER fail_archive_reprice").Error; err != nil {
+		t.Fatal(err)
+	}
+	if status := startAndWait(); status != servicedto.RecalculationCompleted {
+		t.Fatalf("status=%s", status)
+	}
+	check(2, 2, 6)
+	if status := startAndWait(); status != servicedto.RecalculationCompleted {
+		t.Fatalf("repeat status=%s", status)
+	}
+	check(2, 2, 6)
+}
+
+func TestPricingRecalculationRejectsNarrowRetryAndDetectsExpiredHistory(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db, _ := openResolverServiceTestPools(t)
+	now := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
+	when := now.Add(-90 * 24 * time.Hour).Truncate(time.Hour).Add(15 * time.Minute)
+	cost, available := 1.0, true
+	events := []entities.UsageEvent{
+		{EventKey: "retained-archive", Model: "model-a", Timestamp: when, InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "retained-hot", Model: "model-a", Timestamp: when.Add(time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "earlier-anchor", Model: "model-a", Timestamp: when.Add(-time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO usage_events_archive ("+entities.UsageEventStorageColumns+") SELECT "+entities.UsageEventStorageColumns+" FROM usage_events WHERE id = ?", events[0].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&events[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
+	defer stop()
+	saved, err := provider.SavePricingModel(context.Background(), completeServiceConfig("model-a", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_archive_retry BEFORE UPDATE OF cost_usd ON usage_events_archive BEGIN SELECT RAISE(ABORT, 'archive failure'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := servicedto.StartRecalculationRequest{StartAt: when.Truncate(time.Hour), ConfigRevision: saved.ConfigRevision}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err := provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationFailed {
+		t.Fatalf("task=%+v err=%v", task, err)
+	}
+	narrow := request
+	narrow.StartAt = narrow.StartAt.Add(time.Hour)
+	if _, err := provider.StartPricingRecalculation(context.Background(), narrow); !errors.Is(err, service.ErrInvalidPricingRecalculationStart) {
+		t.Fatalf("narrow retry accepted: %v", err)
+	}
+	if err := db.Exec("DROP TRIGGER fail_archive_retry").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&entities.UsageEventArchive{}, events[0].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Even if retention advances the first retained event past the saved
+	// start, admission must let the scope/count check detect target loss.
+	if err := db.Delete(&events[2]).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatalf("retry admission: %v", err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err = provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationFailed {
+		t.Fatalf("expired history appeared completed: task=%+v err=%v", task, err)
+	}
+
+	if err := provider.AcknowledgeInterruptedPricingRecalculation(context.Background(), "wrong-id"); !errors.Is(err, service.ErrPricingChanged) {
+		t.Fatalf("stale acknowledgement: %v", err)
+	}
+	current, err := provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || current == nil {
+		t.Fatalf("marker lost: %+v err=%v", current, err)
+	}
+	if err := provider.AcknowledgeInterruptedPricingRecalculation(context.Background(), current.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	current, err = provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || current != nil {
+		t.Fatalf("marker not cleared: %+v err=%v", current, err)
+	}
+	if _, err := provider.StartPricingRecalculation(context.Background(), narrow); err != nil {
+		t.Fatalf("new run after acknowledgement: %v", err)
+	}
+	provider.WaitPricingRecalculation()
+}
+
+// Retention may remove an earlier anchor without removing any target events.
+// The saved start must remain selectable and retryable after process restart.
+func TestPricingRecalculationRetryWhenRetentionAdvancesPastStart(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db, _ := openResolverServiceTestPools(t)
+	now := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
+	start := now.Add(-90 * 24 * time.Hour).Truncate(time.Hour)
+	cost, available := 1.0, true
+	events := []entities.UsageEvent{
+		{EventKey: "retry-anchor", Model: "model-a", Timestamp: start.Add(-time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+		{EventKey: "retry-target", Model: "model-a", Timestamp: start.Add(2 * time.Hour), InputTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop := newPricingRecalculationTestProvider(t, db, now)
+	saved, err := provider.SavePricingModel(context.Background(), completeServiceConfig("model-a", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_gap_retry BEFORE UPDATE OF cost_usd ON usage_events BEGIN SELECT RAISE(ABORT, 'fail once'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := servicedto.StartRecalculationRequest{StartAt: start, ConfigRevision: saved.ConfigRevision}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err := provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationFailed {
+		t.Fatalf("failed task=%+v err=%v", task, err)
+	}
+	stop()
+	if err := db.Exec("DROP TRIGGER fail_gap_retry").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&events[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider, _, _, _, stop = newPricingRecalculationTestProvider(t, db, now)
+	defer stop()
+	options, err := provider.GetPricingRecalculationOptions(context.Background())
+	if err != nil || options.EarliestStart == nil || !options.EarliestStart.Equal(start) {
+		t.Fatalf("interrupted start must remain selectable: options=%+v err=%v", options, err)
+	}
+	if _, err := provider.StartPricingRecalculation(context.Background(), request); err != nil {
+		t.Fatalf("retry admission: %v", err)
+	}
+	provider.WaitPricingRecalculation()
+	task, err = provider.CurrentPricingRecalculation(context.Background())
+	if err != nil || task == nil || task.Status != servicedto.RecalculationCompleted {
+		t.Fatalf("retry task=%+v err=%v", task, err)
+	}
+	var target entities.UsageEvent
+	if err := db.First(&target, events[1].ID).Error; err != nil || target.CostUSD == nil || *target.CostUSD != 2 {
+		t.Fatalf("target=%+v err=%v", target, err)
+	}
 }
