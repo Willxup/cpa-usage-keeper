@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appendUniqueUsageEvents, getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, handleUsageEventLoadMoreError, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeStoredApiKeyFilter, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, resolveApiKeyFilterRequestState, resolveCredentialTimeZone, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldResetSelectedApiKeyFilter, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, API_KEY_FILTER_MAX_LENGTH } from '../UsagePage';
+import { getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeStoredApiKeyFilter, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, resolveApiKeyFilterRequestState, resolveCredentialTimeZone, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldResetSelectedApiKeyFilter, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, API_KEY_FILTER_MAX_LENGTH } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
 import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
@@ -9,80 +9,6 @@ describe('resolveCredentialTimeZone', () => {
     expect(resolveCredentialTimeZone(' Asia/Shanghai ', 'UTC')).toBe('Asia/Shanghai');
     expect(resolveCredentialTimeZone(undefined, 'America/New_York')).toBe('America/New_York');
     expect(resolveCredentialTimeZone(undefined, undefined)).toBeUndefined();
-  });
-});
-
-describe('appendUniqueUsageEvents', () => {
-  it('appends cursor batches without duplicating overlapping event ids', () => {
-    const current = [
-      { id: '3', timestamp: '2026-07-11T10:00:03Z', model: 'm3', source: 's', failed: false, latency_ms: 1, tokens: { input_tokens: 1, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 1 } },
-      { id: '2', timestamp: '2026-07-11T10:00:02Z', model: 'm2', source: 's', failed: false, latency_ms: 1, tokens: { input_tokens: 1, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 1 } },
-    ];
-    const incoming = [
-      current[1],
-      { ...current[1], id: '1', timestamp: '2026-07-11T10:00:01Z', model: 'm1' },
-    ];
-
-    expect(appendUniqueUsageEvents(current, incoming).map((event) => event.id)).toEqual(['3', '2', '1']);
-  });
-});
-
-describe('handleUsageEventLoadMoreError', () => {
-  it('pauses automatic loading and surfaces ordinary errors', () => {
-    const pauseAutoLoadMore = vi.fn();
-    const recoverRangeBoundsConflict = vi.fn(() => false);
-    const setError = vi.fn();
-
-    handleUsageEventLoadMoreError({
-      error: new Error('cursor failed'),
-      pauseAutoLoadMore,
-      recoverRangeBoundsConflict,
-      setError,
-    });
-
-    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
-    expect(recoverRangeBoundsConflict).toHaveBeenCalledOnce();
-    expect(setError).toHaveBeenCalledWith('cursor failed');
-  });
-
-  it('recovers range conflicts without surfacing a pagination error', () => {
-    const pauseAutoLoadMore = vi.fn();
-    const recoverRangeBoundsConflict = vi.fn(() => true);
-    const onAuthRequired = vi.fn();
-    const setError = vi.fn();
-    const error = new ApiError('range changed', 409);
-
-    handleUsageEventLoadMoreError({
-      error,
-      pauseAutoLoadMore,
-      recoverRangeBoundsConflict,
-      onAuthRequired,
-      setError,
-    });
-
-    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
-    expect(recoverRangeBoundsConflict).toHaveBeenCalledWith(error);
-    expect(onAuthRequired).not.toHaveBeenCalled();
-    expect(setError).not.toHaveBeenCalled();
-  });
-
-  it('keeps authentication handling after pausing automatic loading', () => {
-    const pauseAutoLoadMore = vi.fn();
-    const recoverRangeBoundsConflict = vi.fn(() => false);
-    const onAuthRequired = vi.fn();
-    const setError = vi.fn();
-
-    handleUsageEventLoadMoreError({
-      error: new ApiError('unauthorized', 401),
-      pauseAutoLoadMore,
-      recoverRangeBoundsConflict,
-      onAuthRequired,
-      setError,
-    });
-
-    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
-    expect(onAuthRequired).toHaveBeenCalledOnce();
-    expect(setError).not.toHaveBeenCalled();
   });
 });
 
@@ -539,8 +465,8 @@ describe('UsagePage visibility guard', () => {
 });
 
 describe('UsagePage active tab auto-refresh guard', () => {
-  it('allows Request Events auto-refresh only on the first page', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 })).toBe(true);
+  it('leaves Request Events updates to the live feed on every history page', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 })).toBe(false);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2 })).toBe(false);
   });
 

@@ -2514,6 +2514,16 @@
   }
 }
 
+.requestEventsLiveStatus {
+  display: inline-flex;
+  min-height: var(--keeper-control-height-sm);
+  align-items: center;
+  gap: $spacing-sm;
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
 .requestEventsFiltersGroup {
   display: inline-flex;
   align-items: flex-end;

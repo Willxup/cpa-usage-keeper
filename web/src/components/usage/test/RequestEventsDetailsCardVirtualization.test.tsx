@@ -109,7 +109,7 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     const scroller = await renderEvents(events);
     const table = scroller.querySelector('table');
     expect(scroller.dataset.virtualized).toBe('true');
-    expect(table?.getAttribute('aria-rowcount')).toBe('1001');
+    expect(table?.getAttribute('aria-rowcount')).toBe('-1');
 
     const initialRows = Array.from(scroller.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]'));
     const initialIndexes = initialRows.map((row) => Number(row.dataset.index));
@@ -188,7 +188,7 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
       '[class*="requestEventsPaginationPage"]',
     );
     expect(loadedSummary?.getAttribute('role')).toBe('status');
-    expect(loadedSummary?.getAttribute('aria-label')).toBe('Loaded 100 / 500');
+    expect(loadedSummary?.getAttribute('aria-label')).toBe('Loaded 100');
     await act(async () => {
       loadMoreButton.click();
     });

@@ -29,6 +29,7 @@ import {
   IconSettings,
 } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
+import type { RequestEventsConnectionStatus } from './useRequestEventsFeed';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { compareModelNames } from '@/utils/modelSort';
@@ -389,6 +390,10 @@ export interface RequestEventsDetailsCardProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   autoLoadMore?: boolean;
+  connectionStatus?: RequestEventsConnectionStatus;
+  pendingCount?: number;
+  onFollowingChange?: (following: boolean) => void;
+  onViewLatest?: () => void;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
   initialColumnOrder?: readonly RequestEventColumnId[];
   visibleColumnIds?: readonly RequestEventColumnId[];
@@ -586,6 +591,10 @@ export function RequestEventsDetailsCard({
   hasMore = false,
   loadingMore = false,
   autoLoadMore = true,
+  connectionStatus,
+  pendingCount = 0,
+  onFollowingChange,
+  onViewLatest,
   initialVisibleColumnIds,
   initialColumnOrder,
   visibleColumnIds,
@@ -750,12 +759,13 @@ export function RequestEventsDetailsCard({
     ? Math.max(eventRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end, 0)
     : 0;
   const handleTableScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    if (!autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
     const scroller = event.currentTarget;
+    onFollowingChange?.(scroller.scrollTop <= 8);
+    if (!autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
     if (shouldLoadMoreRequestEvents(scroller)) {
       onLoadMore();
     }
-  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore]);
+  }, [autoLoadMore, hasMore, loading, loadingMore, onFollowingChange, onLoadMore]);
   useEffect(() => {
     const scroller = requestEventsTableWrapperRef.current;
     if (!scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
@@ -1212,7 +1222,7 @@ export function RequestEventsDetailsCard({
         subtitle={t('usage_stats.request_events_subtitle')}
         titleMeta={
           <span className={styles.requestEventsCountBadge}>
-            {t('usage_stats.request_events_total_count', { count: totalCount })}
+            {t('usage_stats.request_events_snapshot_count', { count: totalCount })}
           </span>
         }
         extra={
@@ -1302,6 +1312,21 @@ export function RequestEventsDetailsCard({
               </Button>
             </div>
           </div>
+          {connectionStatus && (
+            <div className={styles.requestEventsLiveStatus}>
+              <span role="status">{t(`usage_stats.request_events_live_${connectionStatus}`)}</span>
+              {(pendingCount > 0 || connectionStatus === 'needs_sync') && (
+                <Button type="button" variant="secondary" size="sm" appearance="action" onClick={() => {
+                  requestEventsTableWrapperRef.current?.scrollTo({ top: 0 });
+                  onViewLatest?.();
+                }}>
+                  {connectionStatus === 'needs_sync'
+                    ? t('usage_stats.request_events_live_sync_latest')
+                    : t('usage_stats.request_events_live_new', { count: pendingCount })}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {loading && rows.length === 0 ? (
@@ -1314,7 +1339,7 @@ export function RequestEventsDetailsCard({
         ) : (
           <>
             <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper} data-virtualized={virtualizeRows} data-loaded-row-count={rows.length} onScroll={handleTableScroll}>
-              <table className={styles.table} aria-rowcount={totalCount + 1}>
+              <table className={styles.table} aria-rowcount={-1}>
                 <thead>
                   <tr>
                     {visibleColumns.map((column) => (
@@ -1371,15 +1396,12 @@ export function RequestEventsDetailsCard({
                     role="status"
                     aria-live="polite"
                     aria-atomic="true"
-                    aria-label={t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
+                    aria-label={t('usage_stats.request_events_loaded_only', { loaded: rows.length })}
                   >
                     <span className={styles.requestEventsPaginationLabel}>
                       {t('usage_stats.request_events_loaded_label')}
                     </span>
                     <strong className={styles.requestEventsPaginationLoaded}>{rows.length}</strong>
-                    <span className={styles.requestEventsPaginationTotal} aria-hidden="true">
-                      / {totalCount}
-                    </span>
                   </span>
                   {hasMore && (
                     <Button
