@@ -3,7 +3,7 @@ import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, fetchUsageEvents, openUsageEventsLive } from '@/lib/api';
-import type { UsageEvent } from '@/lib/types';
+import type { UsageEvent, UsageEventsResponse } from '@/lib/types';
 import { useRequestEventsFeed } from '../useRequestEventsFeed';
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -103,6 +103,125 @@ describe('useRequestEventsFeed', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(vi.mocked(openUsageEventsLive).mock.calls[1][2]).toBe('live-2');
+  });
+
+  it('requires a fresh snapshot when a late append races an in-flight history page', async () => {
+    await emit(0, 'snapshot', 'live-1', snapshot([event('5', 50), event('4', 40)]));
+    await act(async () => latest.setFollowing(false));
+    let resolveHistory!: (value: UsageEventsResponse) => void;
+    let history!: Promise<void>;
+    vi.mocked(fetchUsageEvents).mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve; }));
+    await act(async () => { history = latest.loadMore(); });
+
+    // 已加载记录与历史请求重叠时仍是正常去重，不应触发同步。
+    await emit(0, 'append', 'live-2', { ...bounds, events: [event('4', 40)] });
+    expect(latest.status).toBe('live');
+    expect(latest.loadingMore).toBe(true);
+    await emit(0, 'append', 'conflicting-batch', { ...bounds, events: [event('7', 55), event('6', 25)] });
+    expect(latest.status).toBe('needs_sync');
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4']);
+    expect(latest.pendingCount).toBe(0);
+    expect(latest.historyCursor).toBe('history-1');
+    expect(latest.loadingMore).toBe(false);
+    expect(vi.mocked(openUsageEventsLive).mock.calls[0][3].aborted).toBe(true);
+    expect(vi.mocked(fetchUsageEvents).mock.calls[0][1]?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveHistory({ events: [event('3', 30), event('2', 20)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: true, next_cursor: 'history-2' });
+      await history;
+    });
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4']);
+    expect(latest.historyCursor).toBe('history-1');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(latest.status).toBe('needs_sync');
+    await act(async () => { latest.viewLatest(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(vi.mocked(openUsageEventsLive).mock.calls[1][2]).toBe('');
+    await emit(1, 'snapshot', 'fresh', snapshot([event('7', 55), event('5', 50), event('4', 40), event('6', 25)]));
+    expect(latest.events.map((item) => item.id)).toEqual(['7', '5', '4', '6']);
+    expect(latest.status).toBe('live');
+  });
+
+  it('pauses old pagination during refresh and ignores its late response after the fresh snapshot', async () => {
+    await emit(0, 'snapshot', 'live-1', snapshot([event('5', 50), event('4', 40)]));
+    vi.mocked(fetchUsageEvents).mockResolvedValueOnce({ events: [event('3', 30), event('2', 20)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: true, next_cursor: 'history-2' });
+    await act(async () => { await latest.loadMore(); });
+    let resolveHistory!: (value: UsageEventsResponse) => void;
+    let history!: Promise<void>;
+    vi.mocked(fetchUsageEvents).mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve; }));
+    vi.mocked(fetchUsageEvents).mockResolvedValue({ events: [event('1', 10)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: false });
+    await act(async () => { history = latest.loadMore(); });
+    expect(vi.mocked(fetchUsageEvents).mock.calls[1][2]?.cursor).toBe('history-2');
+    let done = false;
+    await act(async () => { void latest.refresh().then(() => { done = true; }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4', '3', '2']);
+    expect(done).toBe(false);
+    await act(async () => { await latest.loadMore(); });
+    expect(fetchUsageEvents).toHaveBeenCalledTimes(2);
+    expect(latest.loading).toBe(true);
+    expect(vi.mocked(fetchUsageEvents).mock.calls[1][1]?.aborted).toBe(true);
+
+    await emit(1, 'snapshot', 'fresh', { ...snapshot([event('5', 50), event('4', 40)]), next_cursor: 'history-4' });
+    expect(done).toBe(true);
+    expect(latest.loading).toBe(false);
+    await act(async () => {
+      resolveHistory({ events: [event('1', 10)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: false });
+      await history;
+    });
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4']);
+    expect(latest.historyCursor).toBe('history-4');
+    expect(latest.loadingMore).toBe(false);
+    await act(async () => { await latest.loadMore(); });
+    expect(vi.mocked(fetchUsageEvents).mock.calls[2][2]?.cursor).toBe('history-4');
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4', '1']);
+  });
+
+  it('pauses history while an automatic resync waits for its replacement snapshot', async () => {
+    await emit(0, 'snapshot', 'live-1', snapshot([event('5', 5)]));
+    await emit(0, 'append', 'overflow', { ...bounds, events: Array.from({ length: 2001 }, (_, index) => event(String(100 + index), 6)) });
+    expect(latest.events.map((item) => item.id)).toEqual(['5']);
+    expect(latest.loading).toBe(true);
+    await act(async () => { await latest.loadMore(); });
+    expect(fetchUsageEvents).not.toHaveBeenCalled();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await emit(1, 'snapshot', 'fresh', snapshot([event('8', 8)]));
+    expect(latest.loading).toBe(false);
+    vi.mocked(fetchUsageEvents).mockResolvedValueOnce({ events: [event('7', 7)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: false });
+    await act(async () => { await latest.loadMore(); });
+    expect(latest.events.map((item) => item.id)).toEqual(['8', '7']);
+  });
+
+  it.each(['failure', 'range conflict', 'background pause', 'replacement'] as const)('releases snapshot loading after %s', async (outcome) => {
+    await emit(0, 'snapshot', 'live-1', snapshot([event('5', 5)]));
+    if (outcome === 'failure') vi.mocked(openUsageEventsLive).mockRejectedValueOnce(new Error('connection failed'));
+    if (outcome === 'range conflict') {
+      onRangeBoundsConflict.mockReturnValue(true);
+      vi.mocked(openUsageEventsLive).mockRejectedValueOnce(new ApiError('range changed', 409));
+    }
+    let firstDone = false;
+    await act(async () => { void latest.refresh().then(() => { firstDone = true; }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    if (outcome === 'background pause') {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    } else if (outcome === 'replacement') {
+      let secondDone = false;
+      await act(async () => { void latest.refresh().then(() => { secondDone = true; }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(firstDone).toBe(true);
+      expect(secondDone).toBe(false);
+      expect(latest.loading).toBe(true);
+      expect(vi.mocked(openUsageEventsLive).mock.calls[1][3].aborted).toBe(true);
+      await emit(2, 'snapshot', 'fresh', snapshot([event('5', 5)]));
+      expect(secondDone).toBe(true);
+    }
+    expect(firstDone).toBe(true);
+    expect(latest.loading).toBe(false);
+    expect(latest.events.map((item) => item.id)).toEqual(['5']);
+    vi.mocked(fetchUsageEvents).mockResolvedValueOnce({ events: [event('4', 4)], total_count: -1, page: 1, page_size: 50, total_pages: 0, has_more: false });
+    await act(async () => { await latest.loadMore(); });
+    expect(latest.events.map((item) => item.id)).toEqual(['5', '4']);
+    expect(latest.loadingMore).toBe(false);
   });
 
   it('aborts the actual connection when an invalid frame terminates the reader', async () => {

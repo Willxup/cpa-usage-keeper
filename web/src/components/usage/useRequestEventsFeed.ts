@@ -153,7 +153,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     const fail = (error: unknown) => {
       state.loading = false;
       settleRefresh();
-      if (callbacksRef.current.onRangeBoundsConflict?.(error)) return true;
+      if (callbacksRef.current.onRangeBoundsConflict?.(error)) { publish(); return true; }
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         callbacksRef.current.onAuthRequired?.();
         state.status = 'needs_sync';
@@ -178,6 +178,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
       const localController = new AbortController();
       controller = localController;
       const after = fresh ? '' : cursor;
+      if (fresh) state.loading = true;
       state.status = after ? 'reconnecting' : 'connecting';
       publish();
       let timedOut = false;
@@ -191,6 +192,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         stopConnection();
         stopHistory();
         needsSync = false;
+        state.loading = true;
         state.status = 'connecting';
         publish();
         retryTimer = setTimeout(() => connect(true), 0);
@@ -220,6 +222,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
           if (after) throw new Error('Unexpected live snapshot on resume');
           const events = readEvents(payload);
           if (typeof payload.total_count !== 'number') throw new Error('Invalid live snapshot');
+          stopHistory();
           bounds = nextBounds;
           state.events = mergeRequestEvents([], events);
           historyBoundary = events.at(-1) ?? null;
@@ -242,13 +245,24 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         }
         if (!cursor) throw new Error('Live event arrived before snapshot');
         if (frame.event === 'append') {
-          // 未加载历史区间不能被迟到事件伪装为连续列表；它仍会由历史游标查到。
+          // 非并发的界外迟到事件由后续历史分页覆盖；在途查询可能已取数，必须停止并请求重新同步。
+          let historyConflict = false;
           const incoming = readEvents(payload).filter((event) => {
             if (known.has(event.id!)) return false;
             if (!state.historyCursor || !historyBoundary) return true;
             const timeOrder = compareRequestEventTimestamps(event.timestamp, historyBoundary.timestamp);
-            return timeOrder > 0 || (timeOrder === 0 && compareIDs(event.id!, historyBoundary.id!) > 0);
+            const withinLoaded = timeOrder > 0 || (timeOrder === 0 && compareIDs(event.id!, historyBoundary.id!) > 0);
+            if (!withinLoaded && historyController) historyConflict = true;
+            return withinLoaded;
           });
+          if (historyConflict) {
+            needsSync = true;
+            state.status = 'needs_sync';
+            stopHistory();
+            stopConnection();
+            publish();
+            return;
+          }
           const unique = [...new Map(incoming.map((event) => [event.id!, event])).values()];
           if ((!following && pending.size + unique.length > MAX_PENDING) || (following && autoAdded + unique.length > MAX_AUTO_ADDED)) {
             if (following) requestSnapshot();
@@ -301,7 +315,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
       stopHistory();
       needsSync = false;
       state.error = '';
-      state.loading = state.events.length === 0;
+      state.loading = true;
       if (document.visibilityState === 'hidden') {
         state.loading = false;
         state.status = 'paused';
@@ -313,7 +327,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     });
     const loadMore = async () => {
       const historyCursor = state.historyCursor;
-      if (!historyCursor || historyController) return;
+      if (!historyCursor || historyController || state.loading) return;
       const localController = new AbortController();
       historyController = localController;
       state.loadingMore = true;
@@ -365,6 +379,9 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         state.loading = false;
         state.status = 'paused';
         settleRefresh();
+        publish();
+      } else if (needsSync) {
+        state.status = 'needs_sync';
         publish();
       } else resume();
     };
