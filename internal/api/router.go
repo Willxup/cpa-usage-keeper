@@ -51,6 +51,7 @@ type StatusRouteConfig struct {
 
 type OptionalProviders struct {
 	CostReadGate       *service.CostReadGate
+	UsageEventsLive    *service.UsageEventsNotifier
 	UsageIdentity      service.UsageIdentityProvider
 	ErrorEvents        service.ErrorEventProvider
 	Quota              QuotaProvider
@@ -104,6 +105,7 @@ func NewRouter(
 
 	var usageIdentityProvider service.UsageIdentityProvider
 	var costReadGate *service.CostReadGate
+	var usageEventsLive *service.UsageEventsNotifier
 	var errorEventProvider service.ErrorEventProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
@@ -115,6 +117,7 @@ func NewRouter(
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		costReadGate = optionalProviders[0].CostReadGate
+		usageEventsLive = optionalProviders[0].UsageEventsLive
 		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
@@ -142,6 +145,7 @@ func NewRouter(
 	registerUsageActivityRoute(adminProtected, usageProvider)
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
+	registerUsageEventsLiveRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, usageEventsLive, costReadGate, authHandler)
 	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
 	registerErrorEventRoutes(adminProtected, errorEventProvider)
 	registerCredentialManagementRoutes(adminProtected, credentialsProvider)

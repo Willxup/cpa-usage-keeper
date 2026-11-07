@@ -23,11 +23,13 @@ type UsageQueryFilter struct {
 	CursorTimestamp *time.Time
 	CursorID        int64
 	SkipTotalCount  bool
-	Model           string
-	AuthIndex       string
-	AuthType        string
-	APIGroupKey     string
-	Result          string
+	// MaxID 固定实时快照的入库上界；普通历史分页不设置。
+	MaxID       *int64
+	Model       string
+	AuthIndex   string
+	AuthType    string
+	APIGroupKey string
+	Result      string
 }
 
 const DefaultUsageEventsLimit = 100

@@ -358,6 +358,9 @@ func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilt
 // Request Event Log 列表第一步：在时间窗口上叠加 model/auth_index/result。
 func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
+	if filter.MaxID != nil {
+		query = query.Where("id <= ?", *filter.MaxID)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
