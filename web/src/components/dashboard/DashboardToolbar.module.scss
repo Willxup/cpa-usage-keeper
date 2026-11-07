@@ -124,6 +124,8 @@
   &:focus { box-shadow: none; outline: none; }
   &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 }
+// 匹配 Select 的 hover:not(:disabled) 优先级，仅覆盖工具栏触发按钮的悬停边框。
+.filter > div > button:hover:not(:disabled) { border-color: transparent; }
 .filter > div > button > span:first-of-type { display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; overflow: visible; }
 .filter [data-time-range-trigger] > svg:last-child { width: 14px; height: 14px; color: var(--toolbar-muted); }
 .filter [data-dashboard-filter-value], .filter [data-time-range-value] { flex: 0 1 auto; min-width: 0; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.4; font-weight: 600; color: var(--text-primary); }
