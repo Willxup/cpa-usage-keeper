@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -160,12 +163,100 @@ func TestUsageEventsLiveSnapshotResumeAndCostGate(t *testing.T) {
 	}
 }
 
+func TestUsageEventsLiveResolvesCurrentIdentityForNewEvents(t *testing.T) {
+	db := openAPITestDatabase(t)
+	notifier := service.NewUsageEventsNotifier()
+	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
+	identities := service.NewUsageIdentityService(db)
+	router := api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier, UsageIdentity: identities})
+	server := httptest.NewServer(router)
+	defer server.Close()
+	resp, reader := liveTestConnect(t, &http.Client{Timeout: 5 * time.Second}, server.URL+"/api/v1/usage/events/live?range=24h", nil)
+	defer resp.Body.Close()
+	liveTestReadKind(t, reader, "snapshot")
+
+	// 模拟连接建立后其他会话提交了新的本地活跃身份。
+	alias := "Active credential alias"
+	identity := entities.UsageIdentity{Identity: "new-active-identity", Name: "credential.json", Alias: &alias, Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, TotalRequests: 1}
+	if err := db.Create(&identity).Error; err != nil {
+		t.Fatal(err)
+	}
+	inserted := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now().Add(-time.Minute), Model: "metadata-probe", AuthIndex: identity.Identity, AuthType: "oauth", Source: "credential.json"}})
+	notifier.NotifyUsageEventsCommitted(inserted)
+	appendFrame := liveTestReadKind(t, reader, "append")
+	liveRow := appendFrame.data["events"].([]any)[0].(map[string]any)
+
+	listed := serveAPIGet(router, "/api/v1/usage/events?range=24h&cursor_mode=true")
+	if listed.Code != http.StatusOK {
+		t.Fatalf("HTTP list status=%d body=%s", listed.Code, listed.Body.String())
+	}
+	var list struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &list); err != nil || len(list.Events) != 1 {
+		t.Fatalf("decode HTTP events: %+v, %v", list.Events, err)
+	}
+	httpRow := list.Events[0]
+	if httpRow["source"] != alias || httpRow["source_type"] != "codex" || httpRow["isDelete"] == true {
+		t.Fatalf("expected active HTTP identity: %+v", httpRow)
+	}
+	if liveRow["id"] != httpRow["id"] || liveRow["source"] != httpRow["source"] || liveRow["source_type"] != httpRow["source_type"] || liveRow["isDelete"] != httpRow["isDelete"] {
+		t.Fatalf("live row differs from HTTP: live=%+v HTTP=%+v", liveRow, httpRow)
+	}
+}
+
+type failingLiveIdentityProvider struct {
+	service.UsageIdentityProvider
+	calls atomic.Int32
+}
+
+func (p *failingLiveIdentityProvider) ListActiveUsageIdentities(context.Context) ([]entities.UsageIdentity, error) {
+	p.calls.Add(1)
+	return nil, errors.New("identity lookup failed")
+}
+
+func TestUsageEventsLiveIdentityLookupFailureDoesNotEmitMislabelledEvents(t *testing.T) {
+	db := openAPITestDatabase(t)
+	notifier := service.NewUsageEventsNotifier()
+	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
+	identities := &failingLiveIdentityProvider{UsageIdentityProvider: service.NewUsageIdentityService(db)}
+	server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier, UsageIdentity: identities}))
+	defer server.Close()
+	client := &http.Client{Timeout: 5 * time.Second}
+	target := server.URL + "/api/v1/usage/events/live?range=24h"
+	resp, reader := liveTestConnect(t, client, target, nil)
+	defer resp.Body.Close()
+	liveTestReadKind(t, reader, "snapshot")
+	if identities.calls.Load() != 0 {
+		t.Fatalf("empty snapshot queried identities: %d", identities.calls.Load())
+	}
+	inserted := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now().Add(-time.Minute), Model: "new", AuthIndex: "credential"}})
+	notifier.NotifyUsageEventsCommitted(inserted)
+	remaining, err := io.ReadAll(reader)
+	if err != nil || strings.Contains(string(remaining), "event: append") || strings.Contains(string(remaining), "internal server error") {
+		t.Fatalf("failed lookup must close SSE without an event or JSON error: %q, %v", remaining, err)
+	}
+	if identities.calls.Load() != 1 {
+		t.Fatalf("expected one lookup for the nonempty batch, got %d", identities.calls.Load())
+	}
+	failed, err := client.Get(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer failed.Body.Close()
+	body, err := io.ReadAll(failed.Body)
+	if err != nil || failed.StatusCode != http.StatusInternalServerError || !strings.Contains(string(body), "internal server error") {
+		t.Fatalf("snapshot lookup failure: status=%d body=%s error=%v", failed.StatusCode, body, err)
+	}
+}
+
 func TestUsageEventsLiveRollingWindowFindsPreviouslyFutureEvent(t *testing.T) {
 	db := openAPITestDatabase(t)
 	notifier := service.NewUsageEventsNotifier()
-	future := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now().Add(600 * time.Millisecond), Model: "future"}})
+	future := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now().Add(600 * time.Millisecond), Model: "future", AuthIndex: "future-identity", AuthType: "oauth", Source: "future.json"}})
 	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
-	server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier}))
+	identities := service.NewUsageIdentityService(db)
+	server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier, UsageIdentity: identities}))
 	defer server.Close()
 	resp, reader := liveTestConnect(t, &http.Client{Timeout: 5 * time.Second}, server.URL+"/api/v1/usage/events/live?range=24h", nil)
 	defer resp.Body.Close()
@@ -173,11 +264,17 @@ func TestUsageEventsLiveRollingWindowFindsPreviouslyFutureEvent(t *testing.T) {
 	if len(first.data["events"].([]any)) != 0 {
 		t.Fatalf("future event appeared in snapshot: %+v", first.data)
 	}
+	alias := "Future credential"
+	identity := entities.UsageIdentity{Identity: "future-identity", Name: "future.json", Alias: &alias, Type: "codex", AuthType: entities.UsageIdentityAuthTypeCredential, TotalRequests: 1}
+	if err := db.Create(&identity).Error; err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(750 * time.Millisecond)
 	notifier.NotifyUsageEventsCommitted(future)
 	frame := liveTestReadKind(t, reader, "append")
-	if got := frame.data["events"].([]any)[0].(map[string]any)["id"]; got != fmt.Sprint(future[0].ID) {
-		t.Fatalf("future event missing: %v", got)
+	row := frame.data["events"].([]any)[0].(map[string]any)
+	if row["id"] != fmt.Sprint(future[0].ID) || row["source"] != alias || row["source_type"] != "codex" || row["isDelete"] == true {
+		t.Fatalf("future event or current identity missing: %+v", row)
 	}
 }
 

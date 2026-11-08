@@ -169,21 +169,13 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 		originalRequest := c.Request
 		metadataCtx, cancelMetadata := context.WithTimeout(c.Request.Context(), liveWriteTimeout)
 		c.Request = c.Request.WithContext(metadataCtx)
-		resolution, err := loadUsageResolutionData(c, identities)
-		if err != nil {
-			cancelMetadata()
-			c.Request = originalRequest
-			writeInternalError(c, "load usage resolution data failed", err)
-			return
-		}
-		resolver := newUsageIdentityResolver(resolution)
 		keyInfos, err := loadCPAAPIKeyInfos(c, keys)
 		cancelMetadata()
 		c.Request = originalRequest
 		if err != nil {
 			return
 		}
-		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, resolver: resolver, keyInfos: keyInfos}
+		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, identities: identities, keyInfos: keyInfos}
 		scope := usageEventsLiveScope(c.Request.URL.Query())
 		cursor := usageEventsLiveCursor{Version: 1, Anchor: now, Scope: scope}
 		after := strings.TrimSpace(c.Query("after"))
@@ -204,6 +196,10 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 					return err
 				}
 				cursor.ID = high
+				events, err := stream.buildEvents(ctx, page.Events)
+				if err != nil {
+					return err
+				}
 				next := ""
 				if page.HasMore && len(page.Events) > 0 {
 					last := page.Events[len(page.Events)-1]
@@ -211,7 +207,7 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 				}
 				stream.open()
 				return stream.send("snapshot", encodeUsageEventsLiveCursor(cursor), gin.H{
-					"events": buildUsageEventsPayload(page.Events, resolver, keyInfos), "total_count": page.TotalCount,
+					"events": events, "total_count": page.TotalCount,
 					"page": page.Page, "page_size": page.PageSize, "total_pages": page.TotalPages,
 					"next_cursor": next, "has_more": page.HasMore, "range_start": liveBounds(filter).RangeStart,
 					"range_end": liveBounds(filter).RangeEnd, "end_exclusive": filter.EndExclusive, "snapshot_at": timeutil.FormatStorageTime(now),
@@ -232,13 +228,28 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 }
 
 type usageEventsLiveStream struct {
-	c        *gin.Context
-	provider service.UsageEventsLiveProvider
-	gate     *service.CostReadGate
-	auth     *authHandler
-	resolver usageIdentityResolver
-	keyInfos map[string]analysisAPIKeyInfo
-	opened   bool
+	c          *gin.Context
+	provider   service.UsageEventsLiveProvider
+	gate       *service.CostReadGate
+	auth       *authHandler
+	identities service.UsageIdentityProvider
+	keyInfos   map[string]analysisAPIKeyInfo
+	opened     bool
+}
+
+// 每批非空事件使用当前活跃来源，避免长连接复用建流时的旧映射。
+func (s *usageEventsLiveStream) buildEvents(ctx context.Context, rows []servicedto.UsageEventRecord) ([]usageEventPayload, error) {
+	if len(rows) == 0 {
+		return []usageEventPayload{}, nil
+	}
+	if s.identities == nil {
+		return buildUsageEventsPayload(rows, newUsageIdentityResolver(nil), s.keyInfos), nil
+	}
+	identities, err := s.identities.ListActiveUsageIdentities(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load usage resolution data: %w", err)
+	}
+	return buildUsageEventsPayload(rows, newUsageIdentityResolver(identities), s.keyInfos), nil
 }
 
 func (s *usageEventsLiveStream) open() {
@@ -406,8 +417,12 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 			kind := "checkpoint"
 			payload := gin.H{"range_start": liveBounds(old).RangeStart, "range_end": liveBounds(old).RangeEnd, "end_exclusive": old.EndExclusive}
 			if len(rows) > 0 {
+				events, buildErr := s.buildEvents(ctx, rows)
+				if buildErr != nil {
+					return buildErr
+				}
 				kind = "append"
-				payload["events"] = buildUsageEventsPayload(rows, s.resolver, s.keyInfos)
+				payload["events"] = events
 			}
 			if e = s.send(kind, encodeUsageEventsLiveCursor(nextCursor), payload); e != nil {
 				return e
@@ -437,7 +452,11 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 				count = readCount
 				scanned += count
 				if len(rows) > 0 {
-					if e = s.send("append", encodeUsageEventsLiveCursor(*cursor), gin.H{"events": buildUsageEventsPayload(rows, s.resolver, s.keyInfos), "range_start": liveBounds(current).RangeStart, "range_end": liveBounds(current).RangeEnd, "end_exclusive": current.EndExclusive}); e != nil {
+					events, buildErr := s.buildEvents(ctx, rows)
+					if buildErr != nil {
+						return buildErr
+					}
+					if e = s.send("append", encodeUsageEventsLiveCursor(*cursor), gin.H{"events": events, "range_start": liveBounds(current).RangeStart, "range_end": liveBounds(current).RangeEnd, "end_exclusive": current.EndExclusive}); e != nil {
 						return e
 					}
 				}
