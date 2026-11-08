@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -173,16 +175,7 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 		// 先订阅再读取上界；连接内只传唤醒，数据库是唯一数据来源。
 		wake, unsubscribe := notifier.Subscribe()
 		defer unsubscribe()
-		originalRequest := c.Request
-		metadataCtx, cancelMetadata := context.WithTimeout(c.Request.Context(), liveWriteTimeout)
-		c.Request = c.Request.WithContext(metadataCtx)
-		keyInfos, err := loadCPAAPIKeyInfos(c, keys)
-		cancelMetadata()
-		c.Request = originalRequest
-		if err != nil {
-			return
-		}
-		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, identities: identities, keyInfos: keyInfos}
+		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, identities: identities, keys: keys}
 		scope := usageEventsLiveScope(c.Request.URL.Query())
 		cursor := usageEventsLiveCursor{Version: 1, Anchor: now, Scope: scope}
 		after := strings.TrimSpace(c.Query("after"))
@@ -240,23 +233,35 @@ type usageEventsLiveStream struct {
 	gate       *service.CostReadGate
 	auth       *authHandler
 	identities service.UsageIdentityProvider
-	keyInfos   map[string]analysisAPIKeyInfo
+	keys       service.CPAAPIKeyProvider
 	opened     bool
 }
 
-// 每批非空事件使用当前活跃来源，避免长连接复用建流时的旧映射。
+// 每批非空事件使用当前活跃来源和 API Key 映射，避免长连接复用建流时的旧展示信息。
 func (s *usageEventsLiveStream) buildEvents(ctx context.Context, rows []servicedto.UsageEventRecord) ([]usageEventPayload, error) {
 	if len(rows) == 0 {
 		return []usageEventPayload{}, nil
 	}
-	if s.identities == nil {
-		return buildUsageEventsPayload(rows, newUsageIdentityResolver(nil), s.keyInfos), nil
+	var resolver usageIdentityResolver
+	if s.identities != nil {
+		identities, err := s.identities.ListActiveUsageIdentities(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load usage resolution data: %w", err)
+		}
+		resolver = newUsageIdentityResolver(identities)
 	}
-	identities, err := s.identities.ListActiveUsageIdentities(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load usage resolution data: %w", err)
+	var keyInfos map[string]analysisAPIKeyInfo
+	if s.keys != nil {
+		keys, err := s.keys.ListCPAAPIKeys(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list api key options: %w", err)
+		}
+		keyInfos = make(map[string]analysisAPIKeyInfo, len(keys))
+		for _, key := range keys {
+			keyInfos[key.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(key.ID, 10), Label: helper.CPAAPIKeyDisplayName(key)}
+		}
 	}
-	return buildUsageEventsPayload(rows, newUsageIdentityResolver(identities), s.keyInfos), nil
+	return buildUsageEventsPayload(rows, resolver, keyInfos), nil
 }
 
 func (s *usageEventsLiveStream) open() {
