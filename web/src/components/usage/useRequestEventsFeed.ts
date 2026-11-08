@@ -3,17 +3,13 @@ import { ApiError, fetchUsageEvents, isCostsBusy, openUsageEventsLive, type Fetc
 import type { UsageEvent, UsageEventsResponse, UsageRangeRequest } from '@/lib/types';
 import { readRequestEventsSSE, type RequestEventsSSEFrame } from './requestEventsSSE';
 
-const MAX_PENDING = 1000;
-const MAX_AUTO_ADDED = 2000;
 const FLUSH_INTERVAL_MS = 250;
 const INACTIVE_TIMEOUT_MS = 45_000;
 
-export type RequestEventsConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'paused' | 'needs_sync' | 'busy';
 type Bounds = { range_start: string; range_end: string; end_exclusive: boolean };
 type View = {
   scope: string; events: UsageEvent[]; totalCount: number; historyCursor: string | null;
-  loading: boolean; loadingMore: boolean; autoLoadMore: boolean; error: string;
-  status: RequestEventsConnectionStatus; pendingCount: number;
+  loading: boolean; loadingMore: boolean; autoLoadMore: boolean; reading: boolean; restoring: boolean; error: string;
 };
 type FeedOptions = {
   enabled: boolean;
@@ -25,28 +21,17 @@ type FeedOptions = {
 type FeedControls = {
   refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
-  setFollowing: (following: boolean) => void;
-  viewLatest: () => void;
+  setAtTop: (atTop: boolean) => void;
+  startReading: () => void;
+  returnToTop: () => void;
 };
 
 const emptyView = (scope: string): View => ({
   scope, events: [], totalCount: 0, historyCursor: null, loading: true, loadingMore: false,
-  autoLoadMore: true, error: '', status: 'connecting', pendingCount: 0,
+  autoLoadMore: true, reading: false, restoring: false, error: '',
 });
 
-// RFC3339 的纳秒尾数不能经 Date.parse 丢失；时区先换算到同一秒，再比较固定宽度小数。
-function timestampParts(value: string): [number, string] {
-  const match = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?(Z|[+-]\d\d:\d\d)$/.exec(value);
-  if (!match) return [Date.parse(value) || 0, '000000000'];
-  return [Date.parse(match[1] + match[3]), (match[2] ?? '').padEnd(9, '0')];
-}
-
-export function compareRequestEventTimestamps(left: string, right: string): number {
-  const [leftSecond, leftFraction] = timestampParts(left);
-  const [rightSecond, rightFraction] = timestampParts(right);
-  return leftSecond - rightSecond || (leftFraction < rightFraction ? -1 : leftFraction > rightFraction ? 1 : 0);
-}
-
+// 时间戳按 SQLite 的存储文本比较，ID 始终以十进制字符串比较，不能经过 Date 或 Number。
 function compareIDs(left: string, right: string): number {
   const a = left.replace(/^0+/, '') || '0';
   const b = right.replace(/^0+/, '') || '0';
@@ -61,12 +46,26 @@ export function mergeRequestEvents(current: readonly UsageEvent[], incoming: rea
     seen.add(event.id);
     merged.push(event);
   }
-  return merged.sort((a, b) => compareRequestEventTimestamps(b.timestamp, a.timestamp) || compareIDs(b.id ?? '', a.id ?? ''));
+  return merged.sort((a, b) => (
+    a.timestamp === b.timestamp ? compareIDs(b.id!, a.id!) : a.timestamp < b.timestamp ? 1 : -1
+  ));
+}
+
+function appendHistory(current: readonly UsageEvent[], incoming: readonly UsageEvent[]): UsageEvent[] {
+  const seen = new Set(current.map((event) => event.id));
+  const result = [...current];
+  for (const event of incoming) {
+    if (!seen.has(event.id)) { seen.add(event.id); result.push(event); }
+  }
+  return result;
+}
+
+function eventCursor(event: UsageEvent): string {
+  return btoa(`${event.timestamp}|${event.id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function insideBounds(event: UsageEvent, bounds: Bounds): boolean {
-  const end = compareRequestEventTimestamps(event.timestamp, bounds.range_end);
-  return compareRequestEventTimestamps(event.timestamp, bounds.range_start) >= 0 && (bounds.end_exclusive ? end < 0 : end <= 0);
+  return event.timestamp >= bounds.range_start && (bounds.end_exclusive ? event.timestamp < bounds.range_end : event.timestamp <= bounds.range_end);
 }
 
 function framePayload(frame: RequestEventsSSEFrame): Record<string, unknown> {
@@ -97,20 +96,16 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
   const controlsRef = useRef<FeedControls | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
-      controlsRef.current = null;
-      return;
-    }
+    if (!enabled) { controlsRef.current = null; return; }
     let active = true;
     const state = emptyView(scope);
-    let cursor = '';
-    let historyBoundary: UsageEvent | null = null;
-    let bounds: Bounds | null = null;
+    const pageSize = options.pageSize ?? 50;
+    let atTop = true;
     let following = true;
-    let needsSync = false;
-    let autoAdded = 0;
-    let pending = new Map<string, UsageEvent>();
-    let known = new Set<string>();
+    let restoring = false;
+    let mayHaveMore = false;
+    let bounds: Bounds | null = null;
+    let pending: UsageEvent[] = [];
     let controller: AbortController | null = null;
     let historyController: AbortController | null = null;
     let generation = 0;
@@ -121,30 +116,42 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     const publish = () => { if (active) setView({ ...state }); };
     const settleRefresh = () => { refreshDone?.(); refreshDone = undefined; };
     const clearRetry = () => { if (retryTimer !== undefined) clearTimeout(retryTimer); retryTimer = undefined; };
+    const clearPending = () => {
+      if (flushTimer !== undefined) clearTimeout(flushTimer);
+      flushTimer = undefined;
+      pending = [];
+    };
     const stopConnection = () => {
       generation++;
       controller?.abort();
       controller = null;
       clearRetry();
+      clearPending();
     };
     const stopHistory = () => {
       historyController?.abort();
       historyController = null;
       state.loadingMore = false;
     };
+    const updateBoundary = () => {
+      const last = state.events.at(-1);
+      state.historyCursor = mayHaveMore && last ? eventCursor(last) : null;
+    };
     const prune = () => {
       if (!bounds) return;
+      const last = state.events.at(-1);
       state.events = state.events.filter((event) => insideBounds(event, bounds!));
-      pending = new Map([...pending].filter(([, event]) => insideBounds(event, bounds!)));
-      known = new Set([...state.events.map((event) => event.id!), ...pending.keys()]);
+      if (last && !state.events.includes(last)) mayHaveMore = false;
     };
     const flush = () => {
       flushTimer = undefined;
-      if (!following || needsSync) return;
+      if (!following || !atTop) { pending = []; return; }
       prune();
-      state.events = mergeRequestEvents(state.events, [...pending.values()]);
-      pending.clear();
-      state.pendingCount = 0;
+      const merged = mergeRequestEvents(state.events, pending.filter((event) => !bounds || insideBounds(event, bounds)));
+      if (merged.length > pageSize) mayHaveMore = true;
+      state.events = merged.slice(0, pageSize);
+      pending = [];
+      updateBoundary();
       publish();
     };
     const scheduleFlush = () => {
@@ -156,30 +163,26 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
       if (callbacksRef.current.onRangeBoundsConflict?.(error)) { publish(); return true; }
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         callbacksRef.current.onAuthRequired?.();
-        state.status = 'needs_sync';
         publish();
         return true;
       }
       if (error instanceof ApiError && [400, 404, 405, 409, 501].includes(error.status)) {
-        state.status = 'needs_sync';
         state.error = error.message;
         publish();
         return true;
       }
       state.error = isCostsBusy(error) ? 'COSTS_BUSY' : '';
-      state.status = isCostsBusy(error) ? 'busy' : 'reconnecting';
       publish();
       return false;
     };
-    const connect = (fresh: boolean) => {
-      if (!active || document.visibilityState === 'hidden' || needsSync) return;
+    const connect = () => {
+      if (!active || document.visibilityState === 'hidden' || (!following && !restoring)) return;
       stopConnection();
       const currentGeneration = generation;
       const localController = new AbortController();
       controller = localController;
-      const after = fresh ? '' : cursor;
-      if (fresh) state.loading = true;
-      state.status = after ? 'reconnecting' : 'connecting';
+      let receivedSnapshot = false;
+      state.loading = true;
       publish();
       let timedOut = false;
       let watchdog: ReturnType<typeof setTimeout> | undefined;
@@ -188,30 +191,32 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         watchdog = setTimeout(() => { timedOut = true; localController.abort(); }, INACTIVE_TIMEOUT_MS);
       };
       const isCurrent = () => active && generation === currentGeneration;
-      const requestSnapshot = () => {
-        stopConnection();
-        stopHistory();
-        needsSync = false;
-        state.loading = true;
-        state.status = 'connecting';
-        publish();
-        retryTimer = setTimeout(() => connect(true), 0);
-      };
       const receive = (frame: RequestEventsSSEFrame) => {
         if (!isCurrent()) return;
         const payload = framePayload(frame);
         if (frame.event === 'reset') {
-          if (following && after) requestSnapshot();
-          else { needsSync = true; state.status = 'needs_sync'; state.loading = false; settleRefresh(); stopConnection(); publish(); }
+          if (following && atTop && receivedSnapshot) {
+            stopConnection();
+            retryTimer = setTimeout(connect, 0);
+          } else {
+            restoring = false;
+            state.restoring = false;
+            state.loading = false;
+            settleRefresh();
+            stopConnection();
+            publish();
+          }
           return;
         }
-        if (frame.event === 'busy') { state.status = 'busy'; publish(); return; }
+        if (frame.event === 'busy') return;
         if (frame.event === 'heartbeat') {
+          if (!following || !atTop) return;
           bounds = readBounds(payload);
-          state.status = payload.busy === true ? 'busy' : 'live';
+          if (typeof payload.total_count === 'number') state.totalCount = payload.total_count;
           state.error = '';
           attempts = 0;
-          if (following) prune();
+          prune();
+          updateBoundary();
           publish();
           return;
         }
@@ -219,113 +224,102 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         if (!frame.id) throw new Error('Live event cursor is missing');
         const nextBounds = readBounds(payload);
         if (frame.event === 'snapshot') {
-          if (after) throw new Error('Unexpected live snapshot on resume');
           const events = readEvents(payload);
           if (typeof payload.total_count !== 'number') throw new Error('Invalid live snapshot');
+          if (restoring && !atTop) return;
           stopHistory();
           bounds = nextBounds;
-          state.events = mergeRequestEvents([], events);
-          historyBoundary = events.at(-1) ?? null;
+          state.events = mergeRequestEvents([], events).slice(0, pageSize);
+          receivedSnapshot = true;
           state.totalCount = payload.total_count;
-          state.historyCursor = payload.has_more === true && typeof payload.next_cursor === 'string' ? payload.next_cursor : null;
-          pending.clear();
-          known = new Set(state.events.map((event) => event.id!));
-          autoAdded = 0;
-          needsSync = false;
-          state.pendingCount = 0;
+          mayHaveMore = payload.has_more === true;
+          state.historyCursor = mayHaveMore && typeof payload.next_cursor === 'string' ? payload.next_cursor : null;
+          following = true;
+          restoring = false;
+          state.restoring = false;
+          state.reading = false;
           state.loading = false;
           state.autoLoadMore = true;
-          cursor = frame.id;
           state.error = '';
-          state.status = 'live';
           attempts = 0;
           settleRefresh();
           publish();
+          if (!atTop) stopConnection();
           return;
         }
-        if (!cursor) throw new Error('Live event arrived before snapshot');
-        if (frame.event === 'append') {
-          // 非并发的界外迟到事件由后续历史分页覆盖；在途查询可能已取数，必须停止并请求重新同步。
-          let historyConflict = false;
-          const incoming = readEvents(payload).filter((event) => {
-            if (known.has(event.id!)) return false;
-            if (!state.historyCursor || !historyBoundary) return true;
-            const timeOrder = compareRequestEventTimestamps(event.timestamp, historyBoundary.timestamp);
-            const withinLoaded = timeOrder > 0 || (timeOrder === 0 && compareIDs(event.id!, historyBoundary.id!) > 0);
-            if (!withinLoaded && historyController) historyConflict = true;
-            return withinLoaded;
-          });
-          if (historyConflict) {
-            needsSync = true;
-            state.status = 'needs_sync';
-            stopHistory();
-            stopConnection();
-            publish();
-            return;
-          }
-          const unique = [...new Map(incoming.map((event) => [event.id!, event])).values()];
-          if ((!following && pending.size + unique.length > MAX_PENDING) || (following && autoAdded + unique.length > MAX_AUTO_ADDED)) {
-            if (following) requestSnapshot();
-            else { needsSync = true; state.status = 'needs_sync'; stopConnection(); publish(); }
-            return;
-          }
-          for (const event of unique) { pending.set(event.id!, event); known.add(event.id!); }
-          autoAdded += unique.length;
-          bounds = nextBounds;
-          cursor = frame.id;
-          state.status = 'live';
-          state.error = '';
-          attempts = 0;
-          if (following) scheduleFlush();
-          else { state.pendingCount = pending.size; publish(); }
-          return;
-        }
+        if (!receivedSnapshot) throw new Error('Live event arrived before snapshot');
+        if (!following || !atTop) return;
         bounds = nextBounds;
-        cursor = frame.id;
-        state.status = 'live';
         state.error = '';
         attempts = 0;
-        if (following) { prune(); publish(); }
+        if (frame.event === 'append') {
+          // 最新页只保留首屏候选，历史模式不接收也不缓存流。
+          pending = mergeRequestEvents(pending, readEvents(payload)).slice(0, pageSize + 1);
+          scheduleFlush();
+        } else {
+          prune();
+          updateBoundary();
+          publish();
+        }
       };
       void (async () => {
         try {
           touch();
-          const response = await openUsageEventsLive(request, options, after, localController.signal);
+          const response = await openUsageEventsLive(request, options, '', localController.signal);
           if (!isCurrent()) return;
           await readRequestEventsSSE(response.body!, receive, touch);
           if (isCurrent()) throw new Error('Live stream disconnected');
         } catch (error) {
           if (!isCurrent() || (localController.signal.aborted && !timedOut)) return;
-          if (fail(error)) return;
+          const terminal = fail(error);
+          if (terminal) {
+            restoring = false;
+            state.restoring = false;
+            publish();
+            return;
+          }
+          if (restoring) { state.loading = true; publish(); }
           const delay = error instanceof ApiError && error.status === 429 && error.retryAfterMs
             ? error.retryAfterMs
             : Math.min(30_000, 1000 * 2 ** Math.min(attempts++, 5)) * (0.8 + Math.random() * 0.4);
-          retryTimer = setTimeout(() => connect(!cursor), delay);
+          // 断线时尚未刷新的小批次不推进阅读边界；重连首屏避免丢失这些记录。
+          retryTimer = setTimeout(connect, delay);
         } finally {
           if (watchdog !== undefined) clearTimeout(watchdog);
-          // 解析失败等非 AbortError 路径也必须取消 fetch，不能遗留实际 SSE 连接。
           localController.abort();
           if (isCurrent()) controller = null;
         }
       })();
     };
+    const startReading = () => {
+      if (!following && !restoring) return;
+      following = false;
+      restoring = false;
+      state.restoring = false;
+      state.reading = true;
+      stopConnection();
+      state.loading = false;
+      settleRefresh();
+      publish();
+    };
     const refresh = () => new Promise<void>((resolve) => {
       settleRefresh();
       refreshDone = resolve;
       stopHistory();
-      needsSync = false;
+      following = true;
+      restoring = false;
+      state.restoring = false;
       state.error = '';
       state.loading = true;
       if (document.visibilityState === 'hidden') {
+        stopConnection();
         state.loading = false;
-        state.status = 'paused';
         settleRefresh();
         publish();
-        return;
-      }
-      connect(true);
+      } else connect();
     });
     const loadMore = async () => {
+      startReading();
       const historyCursor = state.historyCursor;
       if (!historyCursor || historyController || state.loading) return;
       const localController = new AbortController();
@@ -336,12 +330,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
       try {
         const response: UsageEventsResponse = await fetchUsageEvents(request, localController.signal, { ...options, cursor: historyCursor });
         if (!active || historyController !== localController) return;
-        state.events = mergeRequestEvents(state.events, response.events);
-        historyBoundary = response.events.at(-1) ?? historyBoundary;
-        for (const event of response.events) {
-          if (event.id) { known.add(event.id); pending.delete(event.id); }
-        }
-        state.pendingCount = pending.size;
+        state.events = appendHistory(state.events, response.events);
         state.historyCursor = response.has_more === true ? response.next_cursor?.trim() || null : null;
         state.autoLoadMore = true;
       } catch (error) {
@@ -355,40 +344,42 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         if (historyController === localController) { historyController = null; state.loadingMore = false; publish(); }
       }
     };
-    const setFollowing = (value: boolean) => {
-      if (following === value) return;
-      following = value;
-      if (following) {
-        if (needsSync) { needsSync = false; void refresh(); }
-        else flush();
-      } else { state.pendingCount = pending.size; publish(); }
+    const returnToTop = () => {
+      if (following || restoring || !atTop || document.visibilityState === 'hidden') return;
+      stopHistory();
+      restoring = true;
+      state.restoring = true;
+      connect();
     };
-    const viewLatest = () => {
-      following = true;
-      if (needsSync) { needsSync = false; void refresh(); }
-      else flush();
+    const setAtTop = (value: boolean) => {
+      if (atTop === value) return;
+      atTop = value;
+      if (!atTop) {
+        if (controller || retryTimer !== undefined) stopConnection();
+        restoring = false;
+        state.restoring = false;
+        if (state.loading) { state.loading = false; settleRefresh(); publish(); }
+      } else if (following && !controller && document.visibilityState !== 'hidden') connect();
     };
     const resume = () => {
-      if (!active || needsSync || document.visibilityState === 'hidden' || controller) return;
+      if (!active || !following || !atTop || document.visibilityState === 'hidden' || controller) return;
       clearRetry();
-      connect(!cursor);
+      connect();
     };
     const visibility = () => {
       if (document.visibilityState === 'hidden') {
         stopConnection();
+        restoring = false;
+        state.restoring = false;
         state.loading = false;
-        state.status = 'paused';
         settleRefresh();
-        publish();
-      } else if (needsSync) {
-        state.status = 'needs_sync';
         publish();
       } else resume();
     };
-    controlsRef.current = { refresh, loadMore, setFollowing, viewLatest };
+    controlsRef.current = { refresh, loadMore, setAtTop, startReading, returnToTop };
     publish();
     if (document.visibilityState === 'hidden') visibility();
-    else connect(true);
+    else connect();
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('online', resume);
     window.addEventListener('pageshow', resume);
@@ -396,7 +387,6 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
       active = false;
       stopConnection();
       stopHistory();
-      if (flushTimer !== undefined) clearTimeout(flushTimer);
       settleRefresh();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('online', resume);
@@ -409,7 +399,8 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
 
   const refresh = useCallback(() => controlsRef.current?.refresh() ?? Promise.resolve(), []);
   const loadMore = useCallback(() => controlsRef.current?.loadMore() ?? Promise.resolve(), []);
-  const setFollowing = useCallback((following: boolean) => controlsRef.current?.setFollowing(following), []);
-  const viewLatest = useCallback(() => controlsRef.current?.viewLatest(), []);
-  return { ...(view.scope === scope ? view : emptyView(scope)), refresh, loadMore, setFollowing, viewLatest };
+  const setAtTop = useCallback((atTop: boolean) => controlsRef.current?.setAtTop(atTop), []);
+  const startReading = useCallback(() => controlsRef.current?.startReading(), []);
+  const returnToTop = useCallback(() => controlsRef.current?.returnToTop(), []);
+  return { ...(view.scope === scope ? view : emptyView(scope)), refresh, loadMore, setAtTop, startReading, returnToTop };
 }

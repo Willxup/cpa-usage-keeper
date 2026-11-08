@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readRequestEventsSSE, type RequestEventsSSEFrame } from '../requestEventsSSE';
-import { compareRequestEventTimestamps, mergeRequestEvents } from '../useRequestEventsFeed';
+import { mergeRequestEvents } from '../useRequestEventsFeed';
 import type { UsageEvent } from '@/lib/types';
 
 const bytes = new TextEncoder();
@@ -28,15 +28,15 @@ describe('request events SSE reader', () => {
 
 describe('request events ID and timestamp ordering', () => {
   const event = (id: string, timestamp: string, request_id = 'same') => ({ id, timestamp, request_id }) as UsageEvent;
-  it('deduplicates by 64-bit ID while retaining nanosecond ordering and shared request IDs', () => {
+  it('deduplicates by 64-bit ID and follows database text ordering for nanoseconds and shared request IDs', () => {
     const result = mergeRequestEvents([
       event('9007199254740993', '2026-09-21T12:00:00.123456789+08:00'),
       event('9007199254740992', '2026-09-21T12:00:00.123456788+08:00'),
     ], [
       event('9007199254740993', '2026-09-21T12:00:00.123456789+08:00'),
-      event('9007199254740995', '2026-09-21T04:00:00.123456789Z'),
+      event('9007199254740995', '2026-09-21T12:00:00.123456789+08:00'),
+      event('9007199254740996', '2026-09-21T12:00:00+08:00'),
     ]);
-    expect(result.map((item) => item.id)).toEqual(['9007199254740995', '9007199254740993', '9007199254740992']);
-    expect(compareRequestEventTimestamps('2026-09-21T12:00:00+08:00', '2026-09-21T04:00:00Z')).toBe(0);
+    expect(result.map((item) => item.id)).toEqual(['9007199254740995', '9007199254740993', '9007199254740992', '9007199254740996']);
   });
 });

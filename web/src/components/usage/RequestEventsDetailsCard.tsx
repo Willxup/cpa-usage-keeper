@@ -29,7 +29,6 @@ import {
   IconSettings,
 } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
-import type { RequestEventsConnectionStatus } from './useRequestEventsFeed';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { compareModelNames } from '@/utils/modelSort';
@@ -390,10 +389,11 @@ export interface RequestEventsDetailsCardProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   autoLoadMore?: boolean;
-  connectionStatus?: RequestEventsConnectionStatus;
-  pendingCount?: number;
-  onFollowingChange?: (following: boolean) => void;
-  onViewLatest?: () => void;
+  reading?: boolean;
+  restoring?: boolean;
+  onTablePositionChange?: (atTop: boolean) => void;
+  onStartReading?: () => void;
+  onReturnToTop?: () => void;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
   initialColumnOrder?: readonly RequestEventColumnId[];
   visibleColumnIds?: readonly RequestEventColumnId[];
@@ -591,10 +591,11 @@ export function RequestEventsDetailsCard({
   hasMore = false,
   loadingMore = false,
   autoLoadMore = true,
-  connectionStatus,
-  pendingCount = 0,
-  onFollowingChange,
-  onViewLatest,
+  reading = false,
+  restoring = false,
+  onTablePositionChange,
+  onStartReading,
+  onReturnToTop,
   initialVisibleColumnIds,
   initialColumnOrder,
   visibleColumnIds,
@@ -626,6 +627,12 @@ export function RequestEventsDetailsCard({
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [columnSettingsSession, setColumnSettingsSession] = useState(0);
   const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
+  const lastScrollTopRef = useRef(0);
+  const scrollIntentUntilRef = useRef(0);
+  const scrollIntentDirectionRef = useRef(0);
+  const leftTopRef = useRef(false);
+  const returnTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(returnTimerRef.current), []);
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
@@ -742,10 +749,11 @@ export function RequestEventsDetailsCard({
     });
   }, [events, t]);
   const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
+  // 首屏也提前测量，首次切换虚拟列表时不对既有行的估值误差补偿滚动位置。
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library
   const eventRowVirtualizer = useVirtualizer({
-    count: virtualizeRows ? rows.length : 0,
+    count: rows.length,
     getScrollElement: () => requestEventsTableWrapperRef.current,
     estimateSize: () => REQUEST_EVENT_VIRTUAL_ROW_HEIGHT,
     overscan: REQUEST_EVENT_VIRTUAL_OVERSCAN,
@@ -753,26 +761,70 @@ export function RequestEventsDetailsCard({
     initialRect: { width: 0, height: REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT },
     useAnimationFrameWithResizeObserver: true,
   });
+  useLayoutEffect(() => {
+    // 只移除已离开列表的尺寸；保留当前行的测量以平稳切换虚拟化。
+    const currentKeys = new Set<React.Key>(rows.map((row) => row.id));
+    for (const key of eventRowVirtualizer.itemSizeCache.keys()) {
+      if (!currentKeys.has(key)) eventRowVirtualizer.itemSizeCache.delete(key);
+    }
+  }, [eventRowVirtualizer, rows]);
   const virtualRows = eventRowVirtualizer.getVirtualItems();
   const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const virtualPaddingBottom = virtualRows.length > 0
     ? Math.max(eventRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end, 0)
     : 0;
+  const markScrollIntent = () => {
+    scrollIntentUntilRef.current = Date.now() + 1000;
+    scrollIntentDirectionRef.current = 0;
+  };
+  const handleLoadMore = useCallback(() => {
+    clearTimeout(returnTimerRef.current);
+    if ((requestEventsTableWrapperRef.current?.scrollTop ?? 0) <= 8) leftTopRef.current = false;
+    onStartReading?.();
+    onLoadMore?.();
+  }, [onLoadMore, onStartReading]);
   const handleTableScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const scroller = event.currentTarget;
-    onFollowingChange?.(scroller.scrollTop <= 8);
-    if (!autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
-    if (shouldLoadMoreRequestEvents(scroller)) {
-      onLoadMore();
+    const top = scroller.scrollTop;
+    const direction = Math.sign(top - lastScrollTopRef.current);
+    if (!direction) return;
+    lastScrollTopRef.current = top;
+    const atTop = top <= 8;
+    onTablePositionChange?.(atTop);
+    clearTimeout(returnTimerRef.current);
+    // 一次输入允许同方向的连续滚动帧；反向程序位移不能沿用旧意图。
+    const userScroll = Date.now() <= scrollIntentUntilRef.current
+      && (scrollIntentDirectionRef.current === 0 || direction === scrollIntentDirectionRef.current);
+    if (!userScroll) {
+      scrollIntentUntilRef.current = 0;
+      scrollIntentDirectionRef.current = 0;
+      if (atTop) leftTopRef.current = false;
+      return;
     }
-  }, [autoLoadMore, hasMore, loading, loadingMore, onFollowingChange, onLoadMore]);
+    scrollIntentDirectionRef.current = direction;
+    scrollIntentUntilRef.current = Date.now() + 300;
+    if (!atTop) {
+      leftTopRef.current = true;
+      onStartReading?.();
+    } else if (leftTopRef.current) {
+      returnTimerRef.current = setTimeout(() => {
+        if (scroller.scrollTop <= 8) {
+          leftTopRef.current = false;
+          scrollIntentUntilRef.current = 0;
+          scrollIntentDirectionRef.current = 0;
+          onReturnToTop?.();
+        }
+      }, 300);
+    }
+    if (!atTop && autoLoadMore && hasMore && !loading && !loadingMore && onLoadMore && shouldLoadMoreRequestEvents(scroller)) {
+      handleLoadMore();
+    }
+  }, [autoLoadMore, handleLoadMore, hasMore, loading, loadingMore, onLoadMore, onReturnToTop, onStartReading, onTablePositionChange]);
   useEffect(() => {
     const scroller = requestEventsTableWrapperRef.current;
-    if (!scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
-    if (shouldLoadMoreRequestEvents(scroller)) {
-      onLoadMore();
-    }
-  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore, rows.length]);
+    if (!reading || !scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
+    if (shouldLoadMoreRequestEvents(scroller)) handleLoadMore();
+  }, [autoLoadMore, handleLoadMore, hasMore, loading, loadingMore, onLoadMore, reading, rows.length]);
   useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
@@ -798,11 +850,13 @@ export function RequestEventsDetailsCard({
     () => new Set<RequestEventColumnId>(effectiveVisibleColumnIds),
     [effectiveVisibleColumnIds]
   );
+  const measuredColumnsRef = useRef(effectiveVisibleColumnIds);
   useLayoutEffect(() => {
-    if (virtualizeRows) {
+    if (measuredColumnsRef.current !== effectiveVisibleColumnIds) {
+      measuredColumnsRef.current = effectiveVisibleColumnIds;
       eventRowVirtualizer.measure();
     }
-  }, [effectiveVisibleColumnIds, eventRowVirtualizer, virtualizeRows]);
+  }, [effectiveVisibleColumnIds, eventRowVirtualizer]);
   const effectiveColumnOrder = useMemo(
     () => normalizeRequestEventColumnOrder(selectedColumnOrder),
     [selectedColumnOrder]
@@ -1222,7 +1276,7 @@ export function RequestEventsDetailsCard({
         subtitle={t('usage_stats.request_events_subtitle')}
         titleMeta={
           <span className={styles.requestEventsCountBadge}>
-            {t('usage_stats.request_events_snapshot_count', { count: totalCount })}
+            {t('usage_stats.request_events_total_count', { count: totalCount })}
           </span>
         }
         extra={
@@ -1312,21 +1366,6 @@ export function RequestEventsDetailsCard({
               </Button>
             </div>
           </div>
-          {connectionStatus && (
-            <div className={styles.requestEventsLiveStatus}>
-              <span role="status">{t(`usage_stats.request_events_live_${connectionStatus}`)}</span>
-              {(pendingCount > 0 || connectionStatus === 'needs_sync') && (
-                <Button type="button" variant="secondary" size="sm" appearance="action" onClick={() => {
-                  requestEventsTableWrapperRef.current?.scrollTo({ top: 0 });
-                  onViewLatest?.();
-                }}>
-                  {connectionStatus === 'needs_sync'
-                    ? t('usage_stats.request_events_live_sync_latest')
-                    : t('usage_stats.request_events_live_new', { count: pendingCount })}
-                </Button>
-              )}
-            </div>
-          )}
         </div>
 
         {loading && rows.length === 0 ? (
@@ -1338,8 +1377,20 @@ export function RequestEventsDetailsCard({
           />
         ) : (
           <>
-            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper} data-virtualized={virtualizeRows} data-loaded-row-count={rows.length} onScroll={handleTableScroll}>
-              <table className={styles.table} aria-rowcount={-1}>
+            <div
+              ref={requestEventsTableWrapperRef}
+              className={styles.requestEventsTableWrapper}
+              data-virtualized={virtualizeRows}
+              data-loaded-row-count={rows.length}
+              onScroll={handleTableScroll}
+              onWheel={(event) => { if (event.deltaY !== 0) markScrollIntent(); }}
+              onTouchStart={markScrollIntent}
+              onTouchMove={markScrollIntent}
+              onPointerDown={markScrollIntent}
+              onPointerMove={(event) => { if (event.buttons) markScrollIntent(); }}
+              onKeyDown={(event) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markScrollIntent(); }}
+            >
+              <table className={styles.table} aria-rowcount={totalCount + 1}>
                 <thead>
                   <tr>
                     {visibleColumns.map((column) => (
@@ -1381,8 +1432,8 @@ export function RequestEventsDetailsCard({
                         </tr>
                       )}
                     </>
-                  ) : rows.map((row) => (
-                    <RequestEventTableRow key={row.id} row={row} columns={visibleColumns} />
+                  ) : rows.map((row, index) => (
+                    <RequestEventTableRow key={row.id} row={row} columns={visibleColumns} virtualIndex={index} measureElement={eventRowVirtualizer.measureElement} />
                   ))}
                 </tbody>
               </table>
@@ -1396,12 +1447,15 @@ export function RequestEventsDetailsCard({
                     role="status"
                     aria-live="polite"
                     aria-atomic="true"
-                    aria-label={t('usage_stats.request_events_loaded_only', { loaded: rows.length })}
+                    aria-label={t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
                   >
                     <span className={styles.requestEventsPaginationLabel}>
                       {t('usage_stats.request_events_loaded_label')}
                     </span>
                     <strong className={styles.requestEventsPaginationLoaded}>{rows.length}</strong>
+                    <span className={styles.requestEventsPaginationTotal} aria-hidden="true">
+                      / {totalCount}
+                    </span>
                   </span>
                   {hasMore && (
                     <Button
@@ -1409,9 +1463,9 @@ export function RequestEventsDetailsCard({
                       variant="secondary"
                       size="sm"
                       appearance="action"
-                      onClick={onLoadMore}
+                      onClick={handleLoadMore}
                       loading={loadingMore}
-                      disabled={loading}
+                      disabled={loading && !restoring}
                     >
                       {loadingMore ? t('common.loading') : t('usage_stats.request_events_load_more')}
                     </Button>
