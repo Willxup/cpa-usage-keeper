@@ -14,10 +14,10 @@ describe('request events SSE reader', () => {
     const input = bytes.encode(': ping\r\nid: 1\r\nevent: append\r\ndata: {"model":\r\ndata: "模型"}\r\n\r\nid: 2\r\nevent: append\r\ndata: {"unfinished":');
     const frames: RequestEventsSSEFrame[] = [];
     await readRequestEventsSSE(streamChunks(Array.from(input, (value) => Uint8Array.of(value))), (frame) => frames.push(frame), () => undefined);
-    expect(frames).toEqual([{ id: '1', event: 'append', data: '{"model":\n"模型"}' }]);
+    expect(frames).toEqual([{ event: 'append', data: '{"model":\n"模型"}' }]);
     const crFrames: RequestEventsSSEFrame[] = [];
     await readRequestEventsSSE(streamChunks([bytes.encode('id: 3\revent: checkpoint\rdata: {}\r\r')]), (frame) => crFrames.push(frame), () => undefined);
-    expect(crFrames).toEqual([{ id: '3', event: 'checkpoint', data: '{}' }]);
+    expect(crFrames).toEqual([{ event: 'checkpoint', data: '{}' }]);
   });
 
   it('bounds untrusted frames instead of buffering an unlimited stream', async () => {

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, fetchUsageEvents, isCostsBusy, openUsageEventsLive, type FetchUsageEventsOptions } from '@/lib/api';
-import type { UsageEvent, UsageEventsResponse, UsageRangeRequest } from '@/lib/types';
+import type { UsageEvent, UsageRangeRequest } from '@/lib/types';
 import { readRequestEventsSSE, type RequestEventsSSEFrame } from './requestEventsSSE';
 
 const FLUSH_INTERVAL_MS = 250;
 const INACTIVE_TIMEOUT_MS = 45_000;
 
 type Bounds = { range_start: string; range_end: string; end_exclusive: boolean };
-type View = {
+type FeedState = {
   scope: string; events: UsageEvent[]; totalCount: number; historyCursor: string | null;
-  loading: boolean; loadingMore: boolean; autoLoadMore: boolean; reading: boolean; restoring: boolean; error: string;
+  loading: boolean; loadingMore: boolean; autoLoadMore: boolean; error: string;
+  mode: 'latest' | 'reading' | 'restoring' | 'refreshing';
+  atTop: boolean; bounds: Bounds | null; mayHaveMore: boolean; token: object;
 };
 type FeedOptions = {
   enabled: boolean;
@@ -18,17 +20,9 @@ type FeedOptions = {
   onAuthRequired?: () => void;
   onRangeBoundsConflict?: (error: unknown) => boolean;
 };
-type FeedControls = {
-  refresh: () => Promise<void>;
-  loadMore: () => Promise<void>;
-  setAtTop: (atTop: boolean) => void;
-  startReading: () => void;
-  returnToTop: () => void;
-};
-
-const emptyView = (scope: string): View => ({
+const emptyState = (scope: string): FeedState => ({
   scope, events: [], totalCount: 0, historyCursor: null, loading: true, loadingMore: false,
-  autoLoadMore: true, reading: false, restoring: false, error: '',
+  autoLoadMore: true, error: '', mode: 'refreshing', atTop: true, bounds: null, mayHaveMore: false, token: {},
 });
 
 // 时间戳按 SQLite 的存储文本比较，ID 始终以十进制字符串比较，不能经过 Date 或 Number。
@@ -88,323 +82,251 @@ function readEvents(payload: Record<string, unknown>): UsageEvent[] {
   return payload.events as UsageEvent[];
 }
 
+function withBoundary(state: FeedState): FeedState {
+  const last = state.events.at(-1);
+  return { ...state, historyCursor: state.mayHaveMore && last ? eventCursor(last) : null };
+}
+
+function prune(state: FeedState): FeedState {
+  const { bounds, events } = state;
+  if (!bounds) return state;
+  const kept = events.filter((event) => insideBounds(event, bounds));
+  return withBoundary({ ...state, events: kept, mayHaveMore: state.mayHaveMore && (!events.length || kept.includes(events.at(-1)!)) });
+}
+
+function wantsStream(state: FeedState): boolean {
+  return state.mode === 'refreshing' || (state.mode !== 'reading' && state.atTop);
+}
+
 export function useRequestEventsFeed({ enabled, request, options, onAuthRequired, onRangeBoundsConflict }: FeedOptions) {
   const scope = JSON.stringify([request, options]);
-  const [view, setView] = useState<View>(() => emptyView(scope));
+  const [state, setState] = useState(() => emptyState(scope));
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   const callbacksRef = useRef({ onAuthRequired, onRangeBoundsConflict });
   callbacksRef.current = { onAuthRequired, onRangeBoundsConflict };
-  const controlsRef = useRef<FeedControls | null>(null);
+  const liveRef = useRef<AbortController | null>(null);
+  const historyRef = useRef<AbortController | null>(null);
+  const attemptsRef = useRef(0);
+  const refreshRef = useRef<{ token: object; resolve: () => void } | null>(null);
+  const settleRefresh = useCallback((token?: object) => {
+    if (refreshRef.current && (!token || refreshRef.current.token === token)) {
+      refreshRef.current.resolve();
+      refreshRef.current = null;
+    }
+  }, []);
+  const abortHistory = useCallback(() => { historyRef.current?.abort(); historyRef.current = null; }, []);
 
   useEffect(() => {
-    if (!enabled) { controlsRef.current = null; return; }
-    let active = true;
-    const state = emptyView(scope);
-    const pageSize = options.pageSize ?? 50;
-    let atTop = true;
-    let following = true;
-    let restoring = false;
-    let mayHaveMore = false;
-    let bounds: Bounds | null = null;
-    let pending: UsageEvent[] = [];
-    let controller: AbortController | null = null;
-    let historyController: AbortController | null = null;
-    let generation = 0;
-    let attempts = 0;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let flushTimer: ReturnType<typeof setTimeout> | undefined;
-    let refreshDone: (() => void) | undefined;
-    const publish = () => { if (active) setView({ ...state }); };
-    const settleRefresh = () => { refreshDone?.(); refreshDone = undefined; };
-    const clearRetry = () => { if (retryTimer !== undefined) clearTimeout(retryTimer); retryTimer = undefined; };
-    const clearPending = () => {
-      if (flushTimer !== undefined) clearTimeout(flushTimer);
-      flushTimer = undefined;
-      pending = [];
-    };
-    const stopConnection = () => {
-      generation++;
-      controller?.abort();
-      controller = null;
-      clearRetry();
-      clearPending();
-    };
-    const stopHistory = () => {
-      historyController?.abort();
-      historyController = null;
-      state.loadingMore = false;
-    };
-    const updateBoundary = () => {
-      const last = state.events.at(-1);
-      state.historyCursor = mayHaveMore && last ? eventCursor(last) : null;
-    };
-    const prune = () => {
-      if (!bounds) return;
-      const last = state.events.at(-1);
-      state.events = state.events.filter((event) => insideBounds(event, bounds!));
-      if (last && !state.events.includes(last)) mayHaveMore = false;
-    };
-    const flush = () => {
-      flushTimer = undefined;
-      if (!following || !atTop) { pending = []; return; }
-      prune();
-      const merged = mergeRequestEvents(state.events, pending.filter((event) => !bounds || insideBounds(event, bounds)));
-      if (merged.length > pageSize) mayHaveMore = true;
-      state.events = merged.slice(0, pageSize);
-      pending = [];
-      updateBoundary();
-      publish();
-    };
-    const scheduleFlush = () => {
-      if (flushTimer === undefined) flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
-    };
-    const fail = (error: unknown, receivedSnapshot: boolean) => {
-      state.loading = false;
-      settleRefresh();
-      if (callbacksRef.current.onRangeBoundsConflict?.(error)) { publish(); return true; }
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-        callbacksRef.current.onAuthRequired?.();
-        publish();
-        return true;
-      }
-      if (error instanceof ApiError && [400, 404, 405, 409, 501].includes(error.status)) {
-        state.error = error.message;
-        publish();
-        return true;
-      }
-      // 首屏失败沿用原错误展示；已建立的流断开仍静默重连。
-      state.error = isCostsBusy(error) ? 'COSTS_BUSY'
-        : receivedSnapshot ? '' : error instanceof Error ? error.message : 'Failed to load usage events';
-      publish();
-      return false;
-    };
-    const connect = () => {
-      if (!active || document.visibilityState === 'hidden' || (!following && !restoring)) return;
-      stopConnection();
-      const currentGeneration = generation;
-      const localController = new AbortController();
-      controller = localController;
-      let receivedSnapshot = false;
-      state.loading = true;
-      publish();
-      let timedOut = false;
-      let watchdog: ReturnType<typeof setTimeout> | undefined;
-      const touch = () => {
-        if (watchdog !== undefined) clearTimeout(watchdog);
-        watchdog = setTimeout(() => { timedOut = true; localController.abort(); }, INACTIVE_TIMEOUT_MS);
-      };
-      const isCurrent = () => active && generation === currentGeneration;
-      const receive = (frame: RequestEventsSSEFrame) => {
-        if (!isCurrent()) return;
-        const payload = framePayload(frame);
-        if (frame.event === 'reset') {
-          if (following && atTop && receivedSnapshot) {
-            stopConnection();
-            retryTimer = setTimeout(connect, 0);
-          } else {
-            restoring = false;
-            state.restoring = false;
-            state.loading = false;
-            settleRefresh();
-            stopConnection();
-            publish();
-          }
-          return;
-        }
-        if (frame.event === 'busy') return;
-        if (frame.event === 'heartbeat') {
-          if (!following || !atTop) return;
-          bounds = readBounds(payload);
-          if (typeof payload.total_count === 'number') state.totalCount = payload.total_count;
-          state.error = '';
-          attempts = 0;
-          prune();
-          updateBoundary();
-          publish();
-          return;
-        }
-        if (!['snapshot', 'append', 'checkpoint'].includes(frame.event)) return;
-        if (!frame.id) throw new Error('Live event cursor is missing');
-        const nextBounds = readBounds(payload);
-        if (frame.event === 'snapshot') {
-          const events = readEvents(payload);
-          if (typeof payload.total_count !== 'number') throw new Error('Invalid live snapshot');
-          if (restoring && !atTop) return;
-          stopHistory();
-          bounds = nextBounds;
-          state.events = mergeRequestEvents([], events).slice(0, pageSize);
-          // 空结果不再有滚动容器，旧阅读位置不能阻止最新流继续接收。
-          if (state.events.length === 0) atTop = true;
-          receivedSnapshot = true;
-          state.totalCount = payload.total_count;
-          mayHaveMore = payload.has_more === true;
-          state.historyCursor = mayHaveMore && typeof payload.next_cursor === 'string' ? payload.next_cursor : null;
-          following = true;
-          restoring = false;
-          state.restoring = false;
-          state.reading = false;
-          state.loading = false;
-          state.autoLoadMore = true;
-          state.error = '';
-          attempts = 0;
-          settleRefresh();
-          publish();
-          if (!atTop) stopConnection();
-          return;
-        }
-        if (!receivedSnapshot) throw new Error('Live event arrived before snapshot');
-        if (!following || !atTop) return;
-        bounds = nextBounds;
-        state.error = '';
-        attempts = 0;
-        if (frame.event === 'append') {
-          // 最新页只保留首屏候选，历史模式不接收也不缓存流。
-          pending = mergeRequestEvents(pending, readEvents(payload)).slice(0, pageSize + 1);
-          scheduleFlush();
-        } else {
-          prune();
-          updateBoundary();
-          publish();
-        }
-      };
-      void (async () => {
-        try {
-          touch();
-          const response = await openUsageEventsLive(request, options, '', localController.signal);
-          if (!isCurrent()) return;
-          await readRequestEventsSSE(response.body!, receive, touch);
-          if (isCurrent()) throw new Error('Live stream disconnected');
-        } catch (error) {
-          if (!isCurrent() || (localController.signal.aborted && !timedOut)) return;
-          const terminal = fail(error, receivedSnapshot);
-          if (terminal) {
-            restoring = false;
-            state.restoring = false;
-            publish();
-            return;
-          }
-          if (restoring) { state.loading = true; publish(); }
-          const delay = error instanceof ApiError && error.status === 429 && error.retryAfterMs
-            ? error.retryAfterMs
-            : Math.min(30_000, 1000 * 2 ** Math.min(attempts++, 5)) * (0.8 + Math.random() * 0.4);
-          // 断线时尚未刷新的小批次不推进阅读边界；重连首屏避免丢失这些记录。
-          retryTimer = setTimeout(connect, delay);
-        } finally {
-          if (watchdog !== undefined) clearTimeout(watchdog);
-          localController.abort();
-          if (isCurrent()) controller = null;
-        }
-      })();
-    };
-    const startReading = () => {
-      if (!following && !restoring) return;
-      following = false;
-      restoring = false;
-      state.restoring = false;
-      state.reading = true;
-      stopConnection();
-      state.loading = false;
-      settleRefresh();
-      publish();
-    };
-    const refresh = () => new Promise<void>((resolve) => {
-      settleRefresh();
-      refreshDone = resolve;
-      stopHistory();
-      following = true;
-      restoring = false;
-      state.restoring = false;
-      state.error = '';
-      state.loading = true;
-      if (document.visibilityState === 'hidden') {
-        stopConnection();
-        state.loading = false;
-        settleRefresh();
-        publish();
-      } else connect();
-    });
-    const loadMore = async () => {
-      startReading();
-      const historyCursor = state.historyCursor;
-      if (!historyCursor || historyController || state.loading) return;
-      const localController = new AbortController();
-      historyController = localController;
-      state.loadingMore = true;
-      state.error = '';
-      publish();
-      try {
-        const response: UsageEventsResponse = await fetchUsageEvents(request, localController.signal, { ...options, cursor: historyCursor });
-        if (!active || historyController !== localController) return;
-        state.events = appendHistory(state.events, response.events);
-        state.historyCursor = response.has_more === true ? response.next_cursor?.trim() || null : null;
-        state.autoLoadMore = true;
-      } catch (error) {
-        if (!active || localController.signal.aborted) return;
-        state.autoLoadMore = false;
-        if (!callbacksRef.current.onRangeBoundsConflict?.(error)) {
-          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) callbacksRef.current.onAuthRequired?.();
-          else state.error = isCostsBusy(error) ? 'COSTS_BUSY' : error instanceof Error ? error.message : 'Failed to load more usage events';
-        }
-      } finally {
-        if (historyController === localController) { historyController = null; state.loadingMore = false; publish(); }
-      }
-    };
-    const returnToTop = () => {
-      if (following || restoring || !atTop || document.visibilityState === 'hidden') return;
-      stopHistory();
-      restoring = true;
-      state.restoring = true;
-      connect();
-    };
-    const setAtTop = (value: boolean) => {
-      if (atTop === value) return;
-      atTop = value;
-      if (!atTop) {
-        if (controller || retryTimer !== undefined) stopConnection();
-        restoring = false;
-        state.restoring = false;
-        if (state.loading) { state.loading = false; settleRefresh(); publish(); }
-      } else if (following && !controller && document.visibilityState !== 'hidden') connect();
-    };
+    attemptsRef.current = 0;
+    setState((current) => enabled && current.scope === scope ? current : emptyState(scope));
+    return () => { abortHistory(); settleRefresh(); };
+  }, [enabled, scope, abortHistory, settleRefresh]);
+
+  useEffect(() => {
     const resume = () => {
-      if (!active || !following || !atTop || document.visibilityState === 'hidden' || controller) return;
-      clearRetry();
-      connect();
+      if (document.visibilityState === 'hidden' || liveRef.current) return;
+      setState((current) => (current.mode === 'latest' || current.mode === 'refreshing') && current.atTop
+        ? { ...current, token: {} } : current);
     };
     const visibility = () => {
-      if (document.visibilityState === 'hidden') {
-        stopConnection();
-        restoring = false;
-        state.restoring = false;
-        state.loading = false;
-        settleRefresh();
-        publish();
-      } else resume();
+      const shown = document.visibilityState !== 'hidden';
+      setVisible(shown);
+      if (!shown) setState((current) => ({
+        ...current, token: {}, mode: current.mode === 'restoring' ? 'reading' : current.mode === 'refreshing' ? 'latest' : current.mode, loading: false,
+      }));
     };
-    controlsRef.current = { refresh, loadMore, setAtTop, startReading, returnToTop };
-    publish();
-    if (document.visibilityState === 'hidden') visibility();
-    else connect();
+    visibility();
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('online', resume);
     window.addEventListener('pageshow', resume);
     return () => {
-      active = false;
-      stopConnection();
-      stopHistory();
-      settleRefresh();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('online', resume);
       window.removeEventListener('pageshow', resume);
-      controlsRef.current = null;
     };
-    // scope 是所有筛选的稳定值；回调始终从 ref 读取。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, scope]);
+  }, []);
 
-  const refresh = useCallback(() => controlsRef.current?.refresh() ?? Promise.resolve(), []);
-  const loadMore = useCallback(() => controlsRef.current?.loadMore() ?? Promise.resolve(), []);
-  const setAtTop = useCallback((atTop: boolean) => controlsRef.current?.setAtTop(atTop), []);
-  const startReading = useCallback(() => controlsRef.current?.startReading(), []);
-  const returnToTop = useCallback(() => controlsRef.current?.returnToTop(), []);
-  return { ...(view.scope === scope ? view : emptyView(scope)), refresh, loadMore, setAtTop, startReading, returnToTop };
+  const { token } = state;
+  const connect = enabled && state.scope === scope && visible && wantsStream(state);
+  useEffect(() => {
+    if (!connect) { settleRefresh(token); return; }
+    abortHistory();
+    const controller = new AbortController();
+    liveRef.current = controller;
+    const pageSize = options.pageSize ?? 50;
+    let disposed = false;
+    let receivedSnapshot = false;
+    let timedOut = false;
+    let pending: UsageEvent[] = [];
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const update = (change: (current: FeedState) => FeedState) => setState((current) => (
+      !disposed && current.scope === scope && current.token === token && wantsStream(current) ? change(current) : current
+    ));
+    const touch = () => {
+      if (disposed) return;
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => { timedOut = true; controller.abort(); }, INACTIVE_TIMEOUT_MS);
+    };
+    const receive = (frame: RequestEventsSSEFrame) => {
+      if (disposed || controller.signal.aborted) return;
+      const payload = framePayload(frame);
+      if (frame.event === 'reset') {
+        update((current) => receivedSnapshot && current.mode === 'latest' && current.atTop
+          ? { ...current, token: {} }
+          : { ...current, mode: current.mode === 'restoring' ? 'reading' : 'latest', loading: false });
+        settleRefresh(token);
+        controller.abort();
+        return;
+      }
+      if (frame.event === 'busy') return;
+      if (!['snapshot', 'append', 'checkpoint', 'heartbeat'].includes(frame.event)) return;
+      const bounds = readBounds(payload);
+      if (frame.event === 'snapshot') {
+        const events = mergeRequestEvents([], readEvents(payload)).slice(0, pageSize);
+        if (typeof payload.total_count !== 'number') throw new Error('Invalid live snapshot');
+        const totalCount = payload.total_count;
+        receivedSnapshot = true;
+        attemptsRef.current = 0;
+        update((current) => ({
+          ...current, events, bounds, totalCount, atTop: !events.length || current.atTop, mode: 'latest',
+          mayHaveMore: payload.has_more === true,
+          historyCursor: payload.has_more === true && typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
+          loading: false, loadingMore: false, autoLoadMore: true, error: '',
+        }));
+        settleRefresh(token);
+        return;
+      }
+      if (frame.event !== 'heartbeat' && !receivedSnapshot) throw new Error('Live event arrived before snapshot');
+      const events = frame.event === 'append' ? readEvents(payload) : null;
+      attemptsRef.current = 0;
+      update((current) => {
+        if (current.mode !== 'latest' || !current.atTop) return current;
+        const next = {
+          ...current, bounds, error: '',
+          totalCount: frame.event === 'heartbeat' && typeof payload.total_count === 'number' ? payload.total_count : current.totalCount,
+        };
+        return events ? next : prune(next);
+      });
+      if (events) {
+        // 只缓存本连接的首屏候选；离开最新模式时由effect cleanup丢弃。
+        pending = mergeRequestEvents(pending, events).slice(0, pageSize + 1);
+        if (flushTimer === undefined) flushTimer = setTimeout(() => {
+          flushTimer = undefined;
+          const batch = pending;
+          pending = [];
+          update((current) => {
+            if (current.mode !== 'latest' || !current.atTop) return current;
+            const pruned = prune(current);
+            const merged = mergeRequestEvents(pruned.events, batch.filter((event) => !pruned.bounds || insideBounds(event, pruned.bounds)));
+            return withBoundary({ ...pruned, events: merged.slice(0, pageSize), mayHaveMore: pruned.mayHaveMore || merged.length > pageSize });
+          });
+        }, FLUSH_INTERVAL_MS);
+      }
+    };
+    update((current) => ({ ...current, loading: true }));
+    void (async () => {
+      try {
+        touch();
+        const response = await openUsageEventsLive(request, options, controller.signal);
+        if (disposed) return;
+        await readRequestEventsSSE(response.body!, receive, touch);
+        if (!disposed && !controller.signal.aborted) throw new Error('Live stream disconnected');
+      } catch (error) {
+        if (disposed || (controller.signal.aborted && !timedOut)) return;
+        const conflict = callbacksRef.current.onRangeBoundsConflict?.(error);
+        const unauthorized = error instanceof ApiError && [401, 403].includes(error.status);
+        if (!conflict && unauthorized) callbacksRef.current.onAuthRequired?.();
+        const handled = conflict || unauthorized;
+        const terminal = handled || (error instanceof ApiError && [400, 404, 405, 409, 501].includes(error.status));
+        update((current) => ({
+          ...current, loading: !terminal && current.mode === 'restoring',
+          mode: terminal && current.mode === 'restoring' ? 'reading' : current.mode,
+          error: handled ? current.error : isCostsBusy(error) ? 'COSTS_BUSY'
+            : terminal || !receivedSnapshot ? error instanceof Error ? error.message : 'Failed to load usage events' : '',
+        }));
+        settleRefresh(token);
+        if (!terminal) {
+          const delay = error instanceof ApiError && error.status === 429 && error.retryAfterMs
+            ? error.retryAfterMs
+            : Math.min(30_000, 1000 * 2 ** Math.min(attemptsRef.current++, 5)) * (0.8 + Math.random() * 0.4);
+          retryTimer = setTimeout(() => update((current) => ({ ...current, token: {} })), delay);
+        }
+      } finally {
+        clearTimeout(watchdog);
+        controller.abort();
+        if (liveRef.current === controller) liveRef.current = null;
+      }
+    })();
+    return () => {
+      disposed = true;
+      controller.abort();
+      if (liveRef.current === controller) liveRef.current = null;
+      clearTimeout(watchdog);
+      clearTimeout(retryTimer);
+      clearTimeout(flushTimer);
+      settleRefresh(token);
+    };
+    // scope代表全部请求参数；数据更新不重建连接，只有请求身份/连接条件变化才替换effect。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connect, scope, token, abortHistory, settleRefresh]);
+
+  const startReading = useCallback(() => {
+    settleRefresh();
+    setState((current) => ({ ...current, mode: 'reading', loading: false }));
+  }, [settleRefresh]);
+  const setAtTop = useCallback((atTop: boolean) => setState((current) => current.atTop === atTop ? current : ({
+    ...current, atTop, token: {}, loading: atTop && current.loading,
+    mode: !atTop && current.mode === 'restoring' ? 'reading' : !atTop && current.mode === 'refreshing' ? 'latest' : current.mode,
+  })), []);
+  const returnToTop = useCallback(() => setState((current) => (
+    current.mode === 'reading' && current.atTop && document.visibilityState !== 'hidden'
+      ? { ...current, mode: 'restoring', token: {}, loading: true, loadingMore: false } : current
+  )), []);
+  const refresh = useCallback(() => new Promise<void>((resolve) => {
+    if (!enabled) { resolve(); return; }
+    settleRefresh();
+    abortHistory();
+    const token = {};
+    refreshRef.current = { token, resolve };
+    setState((current) => ({
+      ...(current.scope === scope ? current : emptyState(scope)), token,
+      mode: document.visibilityState === 'hidden' ? 'latest' : 'refreshing', loading: document.visibilityState !== 'hidden', loadingMore: false, error: '',
+    }));
+  }), [enabled, scope, abortHistory, settleRefresh]);
+  const loadMore = useCallback(async () => {
+    if (!enabled || state.scope !== scope) return;
+    startReading();
+    if (!state.historyCursor || historyRef.current) return;
+    const controller = new AbortController();
+    historyRef.current = controller;
+    setState((current) => ({ ...current, loadingMore: true, error: '' }));
+    try {
+      const response = await fetchUsageEvents(request, controller.signal, { ...options, cursor: state.historyCursor });
+      if (historyRef.current !== controller) return;
+      setState((current) => current.scope === scope && current.mode === 'reading' ? {
+        ...current, events: appendHistory(current.events, response.events), autoLoadMore: true,
+        historyCursor: response.has_more === true ? response.next_cursor?.trim() || null : null,
+      } : current);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      let message = '';
+      if (!callbacksRef.current.onRangeBoundsConflict?.(error)) {
+        if (error instanceof ApiError && [401, 403].includes(error.status)) callbacksRef.current.onAuthRequired?.();
+        else message = isCostsBusy(error) ? 'COSTS_BUSY' : error instanceof Error ? error.message : 'Failed to load more usage events';
+      }
+      setState((current) => current.scope === scope ? { ...current, autoLoadMore: false, error: message } : current);
+    } finally {
+      if (historyRef.current === controller) {
+        historyRef.current = null;
+        setState((current) => current.scope === scope ? { ...current, loadingMore: false } : current);
+      }
+    }
+    // scope代表request/options，游标来自当前画面；分页不管理SSE连接。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, scope, state.scope, state.historyCursor, startReading]);
+
+  const current = state.scope === scope ? state : emptyState(scope);
+  return { ...current, reading: current.mode === 'reading' || current.mode === 'restoring', restoring: current.mode === 'restoring', refresh, loadMore, setAtTop, startReading, returnToTop };
 }

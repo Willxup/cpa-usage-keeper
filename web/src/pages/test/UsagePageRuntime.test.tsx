@@ -36,7 +36,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchCurrentPricingRecalculation: async () => null,
   fetchUsageEventModelFilterOptions: async () => ({ models: [] }),
   fetchUsageEventSourceFilterOptions: async () => ({ sources: [] }),
-  openUsageEventsLive: async (_request: unknown, _options: unknown, _after: string, signal: AbortSignal): Promise<Response> => requestEventsLiveSnapshot({
+  openUsageEventsLive: async (_request: unknown, _options: unknown, signal: AbortSignal): Promise<Response> => requestEventsLiveSnapshot({
     events: [{
       id: '42',
       request_id: 'req-42',

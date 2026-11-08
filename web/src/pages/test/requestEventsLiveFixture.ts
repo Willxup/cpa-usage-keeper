@@ -10,7 +10,7 @@ export function requestEventsLiveSnapshot(page: UsageEventsResponse, signal: Abo
   };
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(new TextEncoder().encode(`id: snapshot-cursor\nevent: snapshot\ndata: ${JSON.stringify(data)}\n\n`));
+      controller.enqueue(new TextEncoder().encode(`event: snapshot\ndata: ${JSON.stringify(data)}\n\n`));
       const abort = () => controller.error(new DOMException('Aborted', 'AbortError'));
       if (signal.aborted) abort();
       else signal.addEventListener('abort', abort, { once: true });

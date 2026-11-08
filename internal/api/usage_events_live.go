@@ -2,16 +2,11 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,10 +32,8 @@ const (
 var errLiveBusy = errors.New("costs busy")
 
 type usageEventsLiveCursor struct {
-	Version int       `json:"v"`
-	ID      int64     `json:"id"`
-	Anchor  time.Time `json:"anchor"`
-	Scope   string    `json:"scope"`
+	ID     int64
+	Anchor time.Time
 }
 
 type usageEventsLiveBounds struct {
@@ -72,34 +65,6 @@ func (s *usageEventsLiveSlots) acquire(key string) (func(), bool) {
 			delete(s.bySession, key)
 		}
 	}, true
-}
-
-func usageEventsLiveScope(values url.Values) string {
-	canonical := url.Values{}
-	for _, key := range []string{"range", "unit", "start", "end", "api_key_id", "model", "source", "auth_index", "auth_type", "result"} {
-		if value := strings.TrimSpace(values.Get(key)); value != "" {
-			canonical.Set(key, value)
-		}
-	}
-	hash := sha256.Sum256([]byte(canonical.Encode()))
-	return hex.EncodeToString(hash[:])
-}
-
-func encodeUsageEventsLiveCursor(cursor usageEventsLiveCursor) string {
-	data, _ := json.Marshal(cursor)
-	return base64.RawURLEncoding.EncodeToString(data)
-}
-
-func decodeUsageEventsLiveCursor(value, scope string, now time.Time) (usageEventsLiveCursor, bool) {
-	var cursor usageEventsLiveCursor
-	if len(value) > 1024 {
-		return cursor, false
-	}
-	data, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil || json.Unmarshal(data, &cursor) != nil || cursor.Version != 1 || cursor.ID < 0 || cursor.Scope != scope || cursor.Anchor.IsZero() || cursor.Anchor.After(now.Add(time.Minute)) || cursor.Anchor.Before(now.Add(-90*24*time.Hour)) {
-		return cursor, false
-	}
-	return cursor, true
 }
 
 func liveBounds(filter servicedto.UsageFilter) usageEventsLiveBounds {
@@ -176,53 +141,38 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 		wake, unsubscribe := notifier.Subscribe()
 		defer unsubscribe()
 		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, identities: identities, keys: keys}
-		scope := usageEventsLiveScope(c.Request.URL.Query())
-		cursor := usageEventsLiveCursor{Version: 1, Anchor: now, Scope: scope}
-		after := strings.TrimSpace(c.Query("after"))
-		if after != "" {
-			var valid bool
-			cursor, valid = decodeUsageEventsLiveCursor(after, scope, now)
-			if !valid {
-				stream.open()
-				_ = stream.send("reset", "", gin.H{"code": "invalid_cursor"})
-				return
-			}
-		} else {
-			var page *servicedto.UsageEventsPage
-			err = stream.batch(func(ctx context.Context) error {
-				var high int64
-				page, high, err = provider.LiveSnapshot(ctx, filter)
-				if err != nil {
-					return err
-				}
-				cursor.ID = high
-				events, err := stream.buildEvents(ctx, page.Events)
-				if err != nil {
-					return err
-				}
-				next := ""
-				if page.HasMore && len(page.Events) > 0 {
-					last := page.Events[len(page.Events)-1]
-					next = encodeUsageEventsCursor(last.Timestamp, last.ID)
-				}
-				stream.open()
-				return stream.send("snapshot", encodeUsageEventsLiveCursor(cursor), gin.H{
-					"events": events, "total_count": page.TotalCount,
-					"page": page.Page, "page_size": page.PageSize, "total_pages": page.TotalPages,
-					"next_cursor": next, "has_more": page.HasMore, "range_start": liveBounds(filter).RangeStart,
-					"range_end": liveBounds(filter).RangeEnd, "end_exclusive": filter.EndExclusive, "snapshot_at": timeutil.FormatStorageTime(now),
-				})
-			})
+		cursor := usageEventsLiveCursor{Anchor: now}
+		err = stream.batch(func(ctx context.Context) error {
+			page, high, err := provider.LiveSnapshot(ctx, filter)
 			if err != nil {
-				if errors.Is(err, errLiveBusy) {
-					c.JSON(http.StatusServiceUnavailable, gin.H{"code": "costs_busy", "message": "Cost statistics are being updated. Please try again shortly."})
-				} else if !c.Writer.Written() {
-					writeInternalError(c, "load live usage snapshot failed", err)
-				}
-				return
+				return err
 			}
+			cursor.ID = high
+			events, err := stream.buildEvents(ctx, page.Events)
+			if err != nil {
+				return err
+			}
+			next := ""
+			if page.HasMore && len(page.Events) > 0 {
+				last := page.Events[len(page.Events)-1]
+				next = encodeUsageEventsCursor(last.Timestamp, last.ID)
+			}
+			stream.open()
+			return stream.send("snapshot", gin.H{
+				"events": events, "total_count": page.TotalCount,
+				"page": page.Page, "page_size": page.PageSize, "total_pages": page.TotalPages,
+				"next_cursor": next, "has_more": page.HasMore, "range_start": liveBounds(filter).RangeStart,
+				"range_end": liveBounds(filter).RangeEnd, "end_exclusive": filter.EndExclusive, "snapshot_at": timeutil.FormatStorageTime(now),
+			})
+		})
+		if err != nil {
+			if errors.Is(err, errLiveBusy) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"code": "costs_busy", "message": "Cost statistics are being updated. Please try again shortly."})
+			} else if !c.Writer.Written() {
+				writeInternalError(c, "load live usage snapshot failed", err)
+			}
+			return
 		}
-		stream.open()
 		stream.run(cursor, wake)
 	})
 }
@@ -234,7 +184,6 @@ type usageEventsLiveStream struct {
 	auth       *authHandler
 	identities service.UsageIdentityProvider
 	keys       service.CPAAPIKeyProvider
-	opened     bool
 }
 
 // 每批非空事件使用当前活跃来源和 API Key 映射，避免长连接复用建流时的旧展示信息。
@@ -265,16 +214,12 @@ func (s *usageEventsLiveStream) buildEvents(ctx context.Context, rows []serviced
 }
 
 func (s *usageEventsLiveStream) open() {
-	if s.opened {
-		return
-	}
 	s.c.Header("Content-Type", "text/event-stream; charset=utf-8")
 	s.c.Header("Cache-Control", "no-cache, no-transform")
 	s.c.Header("X-Accel-Buffering", "no")
-	s.opened = true
 }
 
-func (s *usageEventsLiveStream) send(event, id string, payload any) error {
+func (s *usageEventsLiveStream) send(event string, payload any) error {
 	if !liveSessionValid(s.c, s.auth) {
 		return context.Canceled
 	}
@@ -287,11 +232,6 @@ func (s *usageEventsLiveStream) send(event, id string, payload any) error {
 		return err
 	}
 	defer controller.SetWriteDeadline(time.Time{})
-	if id != "" {
-		if _, err = fmt.Fprintf(s.c.Writer, "id: %s\n", id); err != nil {
-			return err
-		}
-	}
 	if _, err = fmt.Fprintf(s.c.Writer, "event: %s\ndata: %s\n\n", event, data); err != nil {
 		return err
 	}
@@ -331,7 +271,7 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 				return
 			}
 			if !busy {
-				if s.send("busy", "", gin.H{"code": "costs_busy", "retry_ms": 2000}) != nil {
+				if s.send("busy", gin.H{"code": "costs_busy", "retry_ms": 2000}) != nil {
 					return
 				}
 				busy = true
@@ -339,7 +279,7 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 		} else {
 			if busy {
 				filter, filterErr := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()))
-				if filterErr != nil || s.send("heartbeat", "", liveBounds(filter)) != nil {
+				if filterErr != nil || s.send("heartbeat", liveBounds(filter)) != nil {
 					return
 				}
 			}
@@ -359,7 +299,7 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 		case <-heartbeat.C:
 			filter, err := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()))
 			if err != nil {
-				_ = s.send("reset", "", gin.H{"code": "range_changed"})
+				_ = s.send("reset", gin.H{"code": "range_changed"})
 				return
 			}
 			bounds := liveBounds(filter)
@@ -371,11 +311,11 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 					return countErr
 				}
 				payload["total_count"] = total
-				return s.send("heartbeat", "", payload)
+				return s.send("heartbeat", payload)
 			})
 			if errors.Is(err, errLiveBusy) {
 				payload["busy"] = true
-				err = s.send("heartbeat", "", payload)
+				err = s.send("heartbeat", payload)
 			}
 			if err != nil {
 				return
@@ -389,16 +329,16 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 	now := timeutil.NormalizeStorageTime(started)
 	current, err := liveFilter(s.c, now)
 	if err != nil {
-		_ = s.send("reset", "", gin.H{"code": "range_changed"})
+		_ = s.send("reset", gin.H{"code": "range_changed"})
 		return err
 	}
 	old, err := liveFilter(s.c, cursor.Anchor)
 	if err != nil {
-		_ = s.send("reset", "", gin.H{"code": "range_changed"})
+		_ = s.send("reset", gin.H{"code": "range_changed"})
 		return err
 	}
 	if (current.Range == "today" || current.Range == "yesterday") && !current.StartTime.Equal(*old.StartTime) {
-		_ = s.send("reset", "", gin.H{"code": "range_changed"})
+		_ = s.send("reset", gin.H{"code": "range_changed"})
 		return context.Canceled
 	}
 	var high int64
@@ -406,13 +346,13 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 		return err
 	}
 	if cursor.ID > high {
-		_ = s.send("reset", "", gin.H{"code": "invalid_cursor"})
+		_ = s.send("reset", gin.H{"code": "invalid_cursor"})
 		return context.Canceled
 	}
 	scanned := 0
 	for cursor.ID < high {
 		if scanned >= liveReplayLimit || time.Since(started) > liveReplayTimeout {
-			_ = s.send("reset", "", gin.H{"code": "replay_limit"})
+			_ = s.send("reset", gin.H{"code": "replay_limit"})
 			return context.Canceled
 		}
 		err = s.batch(func(ctx context.Context) error {
@@ -436,7 +376,7 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 				kind = "append"
 				payload["events"] = events
 			}
-			if e = s.send(kind, encodeUsageEventsLiveCursor(nextCursor), payload); e != nil {
+			if e = s.send(kind, payload); e != nil {
 				return e
 			}
 			*cursor = nextCursor
@@ -452,7 +392,7 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 		var lastID int64
 		for {
 			if scanned >= liveReplayLimit || time.Since(started) > liveReplayTimeout {
-				_ = s.send("reset", "", gin.H{"code": "replay_limit"})
+				_ = s.send("reset", gin.H{"code": "replay_limit"})
 				return context.Canceled
 			}
 			var count int
@@ -468,7 +408,7 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 					if buildErr != nil {
 						return buildErr
 					}
-					if e = s.send("append", encodeUsageEventsLiveCursor(*cursor), gin.H{"events": events, "range_start": liveBounds(current).RangeStart, "range_end": liveBounds(current).RangeEnd, "end_exclusive": current.EndExclusive}); e != nil {
+					if e = s.send("append", gin.H{"events": events, "range_start": liveBounds(current).RangeStart, "range_end": liveBounds(current).RangeEnd, "end_exclusive": current.EndExclusive}); e != nil {
 						return e
 					}
 				}
@@ -485,7 +425,7 @@ func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 		next := *cursor
 		next.Anchor = now
 		err = s.batch(func(context.Context) error {
-			return s.send("checkpoint", encodeUsageEventsLiveCursor(next), liveBounds(current))
+			return s.send("checkpoint", liveBounds(current))
 		})
 		if err != nil {
 			return err

@@ -62,7 +62,7 @@ describe('UsagePage complete pricing integration', () => {
       tokens: { input_tokens: 1, output_tokens: 1, reasoning_tokens: 0,
         cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 2 },
     }], total_count: 1, page: 1, page_size: 50, total_pages: 1, has_more: false, next_cursor: undefined }
-    api.openUsageEventsLive.mockReset().mockImplementation(async (_request, _options, _after, signal) => requestEventsLiveSnapshot(page, signal))
+    api.openUsageEventsLive.mockReset().mockImplementation(async (_request, _options, signal) => requestEventsLiveSnapshot(page, signal))
     api.fetchAnalysis.mockReset().mockResolvedValue({
       granularity: 'hourly', timezone: 'America/New_York', token_usage: [],
       api_key_composition: [], model_composition: [], credentials_composition: [], ai_provider_composition: [],
@@ -106,7 +106,10 @@ describe('UsagePage complete pricing integration', () => {
     await act(async () => root.render(<UsagePage />))
     expect(container.textContent).toContain('historic-fee-model')
     api.openUsageEventsLive.mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
-    await act(async () => triggerHeaderRefresh())
+    let refresh!: Promise<void>
+    // 先提交刷新状态，让连接effect启动；再等待原刷新Promise完成。
+    await act(async () => { refresh = triggerHeaderRefresh() })
+    await act(async () => { await refresh })
     expect(api.openUsageEventsLive).toHaveBeenCalledTimes(2)
     expect(container.textContent).toContain('historic-fee-model')
     expect(container.textContent).toContain('Cost statistics are being updated')

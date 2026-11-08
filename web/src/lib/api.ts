@@ -580,9 +580,8 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
 }
 
 // 实时流继续使用 apiFetch，以保留 cookie、CPAMC header 与 base path 合同。
-export async function openUsageEventsLive(request: UsageRangeRequest, options: FetchUsageEventsOptions, after: string, signal: AbortSignal): Promise<Response> {
+export async function openUsageEventsLive(request: UsageRangeRequest, options: FetchUsageEventsOptions, signal: AbortSignal): Promise<Response> {
   const params = buildUsageEventsParams(request, options)
-  if (after) params.set('after', after)
   const response = await apiFetch(`${apiPath('/usage/events/live')}?${params.toString()}`, { signal, cache: 'no-store', headers: { Accept: 'text/event-stream' } })
   if (response.status === 429) {
     const value = response.headers.get('Retry-After') ?? ''

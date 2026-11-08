@@ -197,6 +197,68 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     expect(scroller.scrollTop).toBe(180);
   });
 
+  it('does not restore the removed container position when an empty page grows again', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+      return new DOMRect(0, 0, 1200, this instanceof HTMLTableRowElement ? 79 : 600);
+    });
+    vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(function (...args) {
+      const options = args[0] as ScrollToOptions;
+      const rowCount = Number(this.dataset.loadedRowCount ?? 0);
+      this.scrollTop = Math.min(options.top ?? 0, Math.max(0, rowCount * 79 - 600));
+    });
+    const onTablePositionChange = vi.fn();
+    const onStartReading = vi.fn();
+    const props = { onTablePositionChange, onStartReading };
+    const events = Array.from({ length: 50 }, (_, index) => buildEvent(index));
+    const original = await renderEvents(events, props);
+    await scrollTo(original, 220);
+    expect(onTablePositionChange).toHaveBeenLastCalledWith(false);
+    await renderEvents([], props);
+    expect(container.querySelector('[class*="requestEventsTableWrapper"]')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1100));
+    const next = await renderEvents([buildEvent(50)], props);
+    expect(next).not.toBe(original);
+    expect(next.scrollTop).toBe(0);
+    onTablePositionChange.mockClear();
+    await renderEvents(Array.from({ length: 50 }, (_, index) => buildEvent(index + 50)), props);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(next.scrollTop).toBe(0);
+    expect(onTablePositionChange).not.toHaveBeenCalledWith(false);
+    onStartReading.mockClear();
+    await scrollTo(next, 220);
+    expect(onTablePositionChange).toHaveBeenLastCalledWith(false);
+    expect(onStartReading).toHaveBeenCalledOnce();
+  });
+
+  it('does not carry the removed container input intent into a programmatic scroll', async () => {
+    const onTablePositionChange = vi.fn();
+    const onStartReading = vi.fn();
+    const props = { onTablePositionChange, onStartReading };
+    const events = Array.from({ length: 50 }, (_, index) => buildEvent(index));
+    const original = await renderEvents(events, props);
+    await scrollTo(original, 220);
+    expect(onStartReading).toHaveBeenCalledOnce();
+    await renderEvents([], props);
+    const next = await renderEvents(events, props);
+    onTablePositionChange.mockClear();
+    onStartReading.mockClear();
+    await scrollTo(next, 300, false);
+    expect(onTablePositionChange).toHaveBeenLastCalledWith(false);
+    expect(onStartReading).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending return when the scroll container becomes empty', async () => {
+    const onReturnToTop = vi.fn();
+    const props = { onReturnToTop };
+    const events = Array.from({ length: 50 }, (_, index) => buildEvent(index));
+    const original = await renderEvents(events, props);
+    await scrollTo(original, 220);
+    await scrollTo(original, 0);
+    await renderEvents([], props);
+    await act(async () => vi.advanceTimersByTimeAsync(400));
+    expect(onReturnToTop).not.toHaveBeenCalled();
+  });
+
   it('does not automatically load history when the latest page fits without scrolling', async () => {
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(400);

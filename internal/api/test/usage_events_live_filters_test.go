@@ -1,8 +1,8 @@
 package test
 
 import (
-	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,7 +21,7 @@ func TestUsageEventsLiveFiltersMatchListAndCheckpointUnmatchedIDs(t *testing.T) 
 	if err := repository.SyncCPAAPIKeys(db, []string{"sk-live-keep", "sk-live-other"}, now); err != nil {
 		t.Fatal(err)
 	}
-	seed := liveTestInsert(t, db, []entities.UsageEvent{
+	liveTestInsert(t, db, []entities.UsageEvent{
 		{Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-live-keep", Model: "match", AuthIndex: "identity-a", AuthType: "oauth", Failed: true},
 		{Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-live-keep", Model: "match", AuthIndex: "identity-b", AuthType: "oauth", Failed: true},
 		{Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-live-other", Model: "match", AuthIndex: "identity-a", AuthType: "oauth", Failed: true},
@@ -56,27 +56,20 @@ func TestUsageEventsLiveFiltersMatchListAndCheckpointUnmatchedIDs(t *testing.T) 
 	}
 	unmatched := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-live-keep", Model: "other", AuthIndex: "identity-a", AuthType: "oauth", Failed: true}})
 	notifier.NotifyUsageEventsCommitted(unmatched)
-	for i := 0; i < 10; i++ {
+	for {
 		frame := readLiveTestFrame(t, reader)
 		if frame.kind == "append" {
 			t.Fatalf("unmatched event sent as append: %+v", frame)
 		}
-		if frame.kind != "checkpoint" {
-			continue
-		}
-		decoded, err := base64.RawURLEncoding.DecodeString(frame.id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var cursor struct {
-			ID int64 `json:"id"`
-		}
-		if err := json.Unmarshal(decoded, &cursor); err != nil {
-			t.Fatal(err)
-		}
-		if cursor.ID == unmatched[0].ID && cursor.ID > seed[0].ID {
-			return
+		if frame.kind == "checkpoint" {
+			break
 		}
 	}
-	t.Fatal("unmatched committed IDs did not advance checkpoint")
+	matched := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-live-keep", Model: "match", AuthIndex: "identity-a", AuthType: "oauth", Failed: true}})
+	notifier.NotifyUsageEventsCommitted(matched)
+	frame := liveTestReadKind(t, reader, "append")
+	rows := frame.data["events"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["id"] != fmt.Sprint(matched[0].ID) {
+		t.Fatalf("filtered checkpoint did not advance to matched event: %+v", frame.data)
+	}
 }

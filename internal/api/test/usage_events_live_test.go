@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,7 +25,6 @@ import (
 
 type liveTestFrame struct {
 	kind string
-	id   string
 	data map[string]any
 }
 
@@ -48,8 +46,8 @@ func readLiveTestFrame(t *testing.T, reader *bufio.Reader) liveTestFrame {
 		switch {
 		case strings.HasPrefix(line, "event: "):
 			frame.kind = strings.TrimPrefix(line, "event: ")
-		case strings.HasPrefix(line, "id: "):
-			frame.id = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "id:"):
+			t.Fatalf("unexpected SSE transport id: %s", line)
 		case strings.HasPrefix(line, "data: "):
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &frame.data); err != nil {
 				t.Fatalf("decode live data: %v", err)
@@ -63,7 +61,7 @@ func liveTestReadKind(t *testing.T, reader *bufio.Reader, kind string) liveTestF
 	for i := 0; i < 20; i++ {
 		frame := readLiveTestFrame(t, reader)
 		if frame.kind == "snapshot" && kind != "snapshot" {
-			t.Fatal("resume unexpectedly sent snapshot")
+			t.Fatal("unexpected snapshot after connection initialized")
 		}
 		if frame.kind == kind {
 			return frame
@@ -108,7 +106,7 @@ func liveTestConnect(t *testing.T, client *http.Client, target string, headers h
 	return resp, bufio.NewReader(resp.Body)
 }
 
-func TestUsageEventsLiveSnapshotResumeAndCostGate(t *testing.T) {
+func TestUsageEventsLiveSnapshotReconnectAndCostGate(t *testing.T) {
 	db := openAPITestDatabase(t)
 	now := time.Now()
 	seed := liveTestInsert(t, db, []entities.UsageEvent{
@@ -139,8 +137,8 @@ func TestUsageEventsLiveSnapshotResumeAndCostGate(t *testing.T) {
 	late := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-2 * time.Hour), Model: "match", RequestID: "same"}, {Timestamp: now, Model: "other"}})
 	notifier.NotifyUsageEventsCommitted(late)
 	busy := liveTestReadKind(t, reader, "busy")
-	if busy.id != "" {
-		t.Fatalf("busy advanced cursor: %+v", busy)
+	if busy.data["code"] != "costs_busy" {
+		t.Fatalf("unexpected busy response: %+v", busy)
 	}
 	resume()
 	appendFrame := liveTestReadKind(t, reader, "append")
@@ -151,16 +149,21 @@ func TestUsageEventsLiveSnapshotResumeAndCostGate(t *testing.T) {
 	resp.Body.Close()
 	missed := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-3 * time.Hour), Model: "match", RequestID: "same"}})
 	notifier.NotifyUsageEventsCommitted(missed)
-	resumed, resumedReader := liveTestConnect(t, client, target+"&after="+url.QueryEscape(appendFrame.id), nil)
-	defer resumed.Body.Close()
-	frame := liveTestReadKind(t, resumedReader, "append")
-	if got := frame.data["events"].([]any)[0].(map[string]any)["id"]; got != fmt.Sprint(missed[0].ID) {
-		t.Fatalf("replay id=%v", got)
+	reconnected, reconnectedReader := liveTestConnect(t, client, target, nil)
+	defer reconnected.Body.Close()
+	fresh := liveTestReadKind(t, reconnectedReader, "snapshot")
+	found := false
+	for _, row := range fresh.data["events"].([]any) {
+		found = found || row.(map[string]any)["id"] == fmt.Sprint(missed[0].ID)
 	}
-	bad, badReader := liveTestConnect(t, client, strings.Replace(target, "model=match", "model=other", 1)+"&after="+url.QueryEscape(frame.id), nil)
-	defer bad.Body.Close()
-	if reset := liveTestReadKind(t, badReader, "reset"); reset.data["code"] != "invalid_cursor" {
-		t.Fatalf("scope mismatch: %+v", reset)
+	if !found {
+		t.Fatalf("reconnect snapshot omitted event committed while disconnected: %+v", fresh.data)
+	}
+	next := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-4 * time.Hour), Model: "match"}})
+	notifier.NotifyUsageEventsCommitted(next)
+	frame := liveTestReadKind(t, reconnectedReader, "append")
+	if got := frame.data["events"].([]any)[0].(map[string]any)["id"]; got != fmt.Sprint(next[0].ID) {
+		t.Fatalf("reconnected append id=%v", got)
 	}
 }
 
