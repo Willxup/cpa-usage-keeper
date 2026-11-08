@@ -134,9 +134,16 @@ func liveSessionValid(c *gin.Context, handler *authHandler) bool {
 	return valid && session.Role == auth.RoleAdmin && sessionMatchesResolvedSource(session, resolved)
 }
 
-func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvider, identities service.UsageIdentityProvider, keys service.CPAAPIKeyProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler) {
+func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvider, identities service.UsageIdentityProvider, keys service.CPAAPIKeyProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler, lifecycleCtx context.Context) {
 	slots := &usageEventsLiveSlots{bySession: make(map[string]int)}
 	router.GET("/usage/events/live", func(c *gin.Context) {
+		if lifecycleCtx != nil {
+			// 仅长连接跟随应用取消；客户端断开仍通过原请求 context 传播。
+			ctx, cancel := context.WithCancel(c.Request.Context())
+			stop := context.AfterFunc(lifecycleCtx, cancel)
+			defer func() { stop(); cancel() }()
+			c.Request = c.Request.WithContext(ctx)
+		}
 		provider, ok := usage.(service.UsageEventsLiveProvider)
 		if !ok || notifier == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"code": "live_unavailable"})

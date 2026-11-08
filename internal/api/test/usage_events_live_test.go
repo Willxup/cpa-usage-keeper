@@ -250,6 +250,64 @@ func TestUsageEventsLiveIdentityLookupFailureDoesNotEmitMislabelledEvents(t *tes
 	}
 }
 
+type blockingLiveIdentityProvider struct {
+	service.UsageIdentityProvider
+	started  chan struct{}
+	canceled chan error
+}
+
+func (p *blockingLiveIdentityProvider) ListActiveUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {
+	close(p.started)
+	<-ctx.Done()
+	p.canceled <- ctx.Err()
+	return nil, ctx.Err()
+}
+
+func TestUsageEventsLiveApplicationCancellationStopsInFlightLookup(t *testing.T) {
+	db := openAPITestDatabase(t)
+	notifier := service.NewUsageEventsNotifier()
+	gate := service.NewCostReadGate()
+	identities := &blockingLiveIdentityProvider{
+		UsageIdentityProvider: service.NewUsageIdentityService(db), started: make(chan struct{}), canceled: make(chan error, 1),
+	}
+	lifecycle, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
+	server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{
+		UsageEventsLive: notifier, UsageEventsLiveContext: lifecycle, UsageIdentity: identities, CostReadGate: gate,
+	}))
+	defer server.Close()
+	resp, reader := liveTestConnect(t, &http.Client{Timeout: 5 * time.Second}, server.URL+"/api/v1/usage/events/live?range=24h", nil)
+	defer resp.Body.Close()
+	liveTestReadKind(t, reader, "snapshot")
+	inserted := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now().Add(-time.Minute), Model: "new", AuthIndex: "credential"}})
+	notifier.NotifyUsageEventsCommitted(inserted)
+	select {
+	case <-identities.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("identity lookup did not start")
+	}
+	cancel()
+	select {
+	case err := <-identities.canceled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("lookup cancellation: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("application cancellation did not reach the lookup")
+	}
+	if _, err := io.ReadAll(reader); err != nil {
+		t.Fatalf("live stream did not finish: %v", err)
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), time.Second)
+	defer drainCancel()
+	release, err := gate.BlockAndDrain(drainCtx)
+	if err != nil {
+		t.Fatalf("canceled batch retained cost-read permit: %v", err)
+	}
+	release()
+}
+
 func TestUsageEventsLiveRollingWindowFindsPreviouslyFutureEvent(t *testing.T) {
 	db := openAPITestDatabase(t)
 	notifier := service.NewUsageEventsNotifier()
