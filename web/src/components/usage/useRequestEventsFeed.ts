@@ -230,6 +230,8 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
           stopHistory();
           bounds = nextBounds;
           state.events = mergeRequestEvents([], events).slice(0, pageSize);
+          // 空结果不再有滚动容器，旧阅读位置不能阻止最新流继续接收。
+          if (state.events.length === 0) atTop = true;
           receivedSnapshot = true;
           state.totalCount = payload.total_count;
           mayHaveMore = payload.has_more === true;

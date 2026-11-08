@@ -138,6 +138,20 @@ describe('useRequestEventsFeed', () => {
     expect(latest.historyCursor).toBe('snapshot-cursor');
   });
 
+  it('keeps live updates after a non-top reading view is manually refreshed to an empty snapshot', async () => {
+    await emit(0, 'snapshot', 's1', snapshot([event('5')]));
+    await act(async () => { latest.setAtTop(false); latest.startReading(); });
+    let done = false;
+    await act(async () => { void latest.refresh().then(() => { done = true; }); await wait(); });
+    await emit(1, 'snapshot', 'empty', snapshot([], false, 0));
+    expect(done).toBe(true);
+    expect(latest.events).toEqual([]);
+    expect(vi.mocked(openUsageEventsLive).mock.calls[1][3].aborted).toBe(false);
+    await emit(1, 'append', 'new', { ...bounds, events: [event('6')] });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    expect(latest.events.map((row) => row.id)).toEqual(['6']);
+  });
+
   it('manual refresh aborts in-flight history and ignores the old response', async () => {
     await emit(0, 'snapshot', 's1', snapshot([event('5')]));
     let resolveHistory!: (value: UsageEventsResponse) => void;
