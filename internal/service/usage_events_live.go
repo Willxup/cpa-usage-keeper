@@ -12,6 +12,7 @@ import (
 // UsageEventsLiveProvider 只供请求事件流使用，不扩大普通 UsageProvider 合同。
 type UsageEventsLiveProvider interface {
 	LiveSnapshot(context.Context, servicedto.UsageFilter) (*servicedto.UsageEventsPage, int64, error)
+	LiveCount(context.Context, servicedto.UsageFilter) (int64, error)
 	LiveHighID(context.Context) (int64, error)
 	LiveIDBatch(context.Context, servicedto.UsageFilter, int64, int) ([]servicedto.UsageEventRecord, int64, int, error)
 	LiveTimeBatch(context.Context, servicedto.UsageFilter, int64, time.Time, time.Time, *time.Time, int64, int) ([]servicedto.UsageEventRecord, *time.Time, int64, int, error)
@@ -46,6 +47,14 @@ func (s *usageService) LiveSnapshot(ctx context.Context, filter servicedto.Usage
 		return nil, 0, err
 	}
 	return &servicedto.UsageEventsPage{Events: liveRecords(page.Events), TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, high, nil
+}
+
+func (s *usageService) LiveCount(ctx context.Context, filter servicedto.UsageFilter) (int64, error) {
+	query, err := s.liveFilter(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+	return repository.UsageEventsLiveCount(s.db.WithContext(ctx), query)
 }
 
 func (s *usageService) LiveHighID(ctx context.Context) (int64, error) {

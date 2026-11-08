@@ -340,7 +340,21 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 				return
 			}
 			bounds := liveBounds(filter)
-			if s.send("heartbeat", "", gin.H{"range_start": bounds.RangeStart, "range_end": bounds.RangeEnd, "end_exclusive": bounds.EndExclusive, "busy": busy}) != nil {
+			payload := gin.H{"range_start": bounds.RangeStart, "range_end": bounds.RangeEnd, "end_exclusive": bounds.EndExclusive, "busy": busy}
+			// 总数只在既有心跳节奏下查询，许可不跨越下一次通知等待。
+			err = s.batch(func(ctx context.Context) error {
+				total, countErr := s.provider.LiveCount(ctx, filter)
+				if countErr != nil {
+					return countErr
+				}
+				payload["total_count"] = total
+				return s.send("heartbeat", "", payload)
+			})
+			if errors.Is(err, errLiveBusy) {
+				payload["busy"] = true
+				err = s.send("heartbeat", "", payload)
+			}
+			if err != nil {
 				return
 			}
 		}

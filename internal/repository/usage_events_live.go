@@ -29,6 +29,16 @@ func UsageEventsLiveSnapshot(db *gorm.DB, filter dto.UsageQueryFilter, snapshot 
 	return page, high, err
 }
 
+// UsageEventsLiveCount 使用与历史首屏相同的筛选统计当前范围。
+func UsageEventsLiveCount(db *gorm.DB, filter dto.UsageQueryFilter) (int64, error) {
+	var total int64
+	err := applyUsageEventListQuery(queryUsageEvents(db), filter).Count(&total).Error
+	if err != nil {
+		return 0, fmt.Errorf("count live usage events: %w", err)
+	}
+	return total, nil
+}
+
 // UsageEventsLiveHighID 使用主键索引读取当前提交上界，空表以零表示。
 func UsageEventsLiveHighID(db *gorm.DB) (int64, error) {
 	var high int64

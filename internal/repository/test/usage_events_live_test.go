@@ -2,6 +2,7 @@ package test
 
 import (
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -33,6 +35,58 @@ func TestUsageEventsLiveTimeBatchCountsUnmatchedRows(t *testing.T) {
 	rows, _, _, count, err = repository.UsageEventsLiveTimeBatch(db, filter, events[2].ID, start, end, nextTime, nextID, 2, emptyPricingSnapshotForTest())
 	if err != nil || count != 1 || len(rows) != 1 || rows[0].ID != events[2].ID {
 		t.Fatalf("matched row after unmatched window missing: rows=%+v count=%d err=%v", rows, count, err)
+	}
+}
+
+// 最新首屏合并后以实际末行分页；UTC 的无小数 Z 与小数时间必须按数据库文本顺序比较。
+func TestUsageEventsLiveTextOrderAndHistoryBoundary(t *testing.T) {
+	db := openTestDatabase(t)
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	const firstID int64 = 9007199254740993
+	var events []entities.UsageEvent
+	for i := 0; i < 50; i++ {
+		events = append(events, entities.UsageEvent{ID: firstID + int64(i), Timestamp: base.Add(900*time.Millisecond + time.Duration(i+1)), Model: "seed"})
+	}
+	events = append(events, entities.UsageEvent{ID: firstID + 50, Timestamp: base.Add(-500 * time.Millisecond), Model: "older"})
+	events = requestEventFixtureWithZeroFees(events)
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatal(err)
+	}
+	start, end := base.Add(-time.Hour), base.Add(time.Hour)
+	filter := dto.UsageQueryFilter{StartTime: &start, EndTime: &end, CursorMode: true, PageSize: 50}
+	snapshot, high, err := repository.UsageEventsLiveSnapshot(db, filter, emptyPricingSnapshotForTest())
+	if err != nil || len(snapshot.Events) != 50 || !snapshot.HasMore {
+		t.Fatalf("snapshot: %+v, %v", snapshot, err)
+	}
+	late := requestEventFixtureWithZeroFees([]entities.UsageEvent{{ID: firstID + 51, Timestamp: base, Model: "late"}})
+	if _, _, err := repository.InsertUsageEvents(db, late); err != nil {
+		t.Fatal(err)
+	}
+	added, _, _, err := repository.UsageEventsLiveIDBatch(db, filter, high, 100, emptyPricingSnapshotForTest())
+	if err != nil || len(added) != 1 {
+		t.Fatalf("live batch: %+v, %v", added, err)
+	}
+	merged := append(snapshot.Events, added...)
+	sort.Slice(merged, func(i, j int) bool {
+		a, b := timeutil.FormatStorageTime(merged[i].Timestamp), timeutil.FormatStorageTime(merged[j].Timestamp)
+		return a > b || (a == b && merged[i].ID > merged[j].ID)
+	})
+	visible := merged[:50]
+	last := visible[len(visible)-1]
+	filter.CursorTimestamp, filter.CursorID = &last.Timestamp, last.ID
+	history, err := repository.ListUsageEventsWithFilter(db, filter, emptyPricingSnapshotForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[int64]bool)
+	for _, row := range append(visible, history.Events...) {
+		if ids[row.ID] {
+			t.Fatalf("duplicate ID %d across latest and history", row.ID)
+		}
+		ids[row.ID] = true
+	}
+	if len(ids) != 52 || !ids[late[0].ID] || !ids[events[50].ID] {
+		t.Fatalf("latest and history missed events: count=%d late=%t older=%t", len(ids), ids[late[0].ID], ids[events[50].ID])
 	}
 }
 

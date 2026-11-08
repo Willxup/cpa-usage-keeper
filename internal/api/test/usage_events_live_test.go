@@ -246,3 +246,32 @@ func TestUsageEventsLiveAdminEmbedLimitAndRevocation(t *testing.T) {
 		t.Fatal("revoked session received live data")
 	}
 }
+
+func TestUsageEventsLiveHeartbeatCountsCurrentFilteredRange(t *testing.T) {
+	db := openAPITestDatabase(t)
+	notifier := service.NewUsageEventsNotifier()
+	gate := service.NewCostReadGate()
+	now := time.Now()
+	liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-time.Minute), Model: "match"}, {Timestamp: now.Add(-time.Minute), Model: "other"}})
+	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
+	server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier, CostReadGate: gate}))
+	defer server.Close()
+	resp, reader := liveTestConnect(t, &http.Client{Timeout: 20 * time.Second}, server.URL+"/api/v1/usage/events/live?range=24h&model=match", nil)
+	defer resp.Body.Close()
+	if first := liveTestReadKind(t, reader, "snapshot"); first.data["total_count"] != float64(1) {
+		t.Fatalf("snapshot count: %+v", first.data)
+	}
+	added := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now, Model: "match"}, {Timestamp: now, Model: "other"}})
+	notifier.NotifyUsageEventsCommitted(added)
+	liveTestReadKind(t, reader, "append")
+	if heartbeat := liveTestReadKind(t, reader, "heartbeat"); heartbeat.data["total_count"] != float64(2) {
+		t.Fatalf("heartbeat count must use the same filter: %+v", heartbeat.data)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	release, err := gate.BlockAndDrain(ctx)
+	if err != nil {
+		t.Fatalf("heartbeat retained the cost permit: %v", err)
+	}
+	release()
+}
