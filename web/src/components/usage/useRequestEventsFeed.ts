@@ -157,7 +157,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     const scheduleFlush = () => {
       if (flushTimer === undefined) flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
     };
-    const fail = (error: unknown) => {
+    const fail = (error: unknown, receivedSnapshot: boolean) => {
       state.loading = false;
       settleRefresh();
       if (callbacksRef.current.onRangeBoundsConflict?.(error)) { publish(); return true; }
@@ -171,7 +171,9 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
         publish();
         return true;
       }
-      state.error = isCostsBusy(error) ? 'COSTS_BUSY' : '';
+      // 首屏失败沿用原错误展示；已建立的流断开仍静默重连。
+      state.error = isCostsBusy(error) ? 'COSTS_BUSY'
+        : receivedSnapshot ? '' : error instanceof Error ? error.message : 'Failed to load usage events';
       publish();
       return false;
     };
@@ -273,7 +275,7 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
           if (isCurrent()) throw new Error('Live stream disconnected');
         } catch (error) {
           if (!isCurrent() || (localController.signal.aborted && !timedOut)) return;
-          const terminal = fail(error);
+          const terminal = fail(error, receivedSnapshot);
           if (terminal) {
             restoring = false;
             state.restoring = false;

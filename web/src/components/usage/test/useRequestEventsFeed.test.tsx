@@ -227,6 +227,19 @@ describe('useRequestEventsFeed', () => {
     expect(vi.mocked(openUsageEventsLive).mock.calls[1][1].model).toBe('other');
   });
 
+  it('reports an initial 500 until the existing retry receives a snapshot', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const error = new ApiError('live database failure', 500);
+    await act(async () => { streams[0].error(error); await wait(); });
+    expect(latest.loading).toBe(false);
+    expect(latest.error).toBe('live database failure');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1050)); });
+    expect(openUsageEventsLive).toHaveBeenCalledTimes(2);
+    await emit(1, 'snapshot', 'fresh', snapshot([event('5')]));
+    expect(latest.events.map((row) => row.id)).toEqual(['5']);
+    expect(latest.error).toBe('');
+  });
+
   it('aborts the connection on malformed frames without losing the visible page', async () => {
     await emit(0, 'snapshot', 's1', snapshot([event('5')]));
     await emit(0, 'append', 'bad', 'not an object');
