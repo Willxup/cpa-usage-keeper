@@ -188,7 +188,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
     {editorKey > 0 ? <ModelPricingEditor key={editorKey} open={editorOpen} initialConfig={editorConfig}
       modelOptions={availableModels} timezone={timezone} locked={pricingLocked} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}
     <CompletePricingSyncModal open={syncOpen} models={pricing.models} locked={pricingLocked} onClose={() => setSyncOpen(false)}
-      onRefreshPricing={pricing.loadPricing} onNotice={setNotice} onAuthRequired={onAuthRequired}
+      onRefreshPricing={pricing.refreshAfterMutation} onNotice={setNotice} onAuthRequired={onAuthRequired}
       onPricingBusy={() => void recalculation.refreshCurrent()} />
     <PricingRecalculationModal open={recalculationOpen} models={pricing.models} configRevision={pricing.configRevision}
       task={recalculation.task} starting={recalculation.starting} error={recalculation.error}

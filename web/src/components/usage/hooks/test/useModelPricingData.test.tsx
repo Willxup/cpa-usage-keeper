@@ -104,19 +104,43 @@ describe('useModelPricingData', () => {
     expect(latest!.models).toEqual([]);
   });
 
-  it('saves the complete configuration once and reports a later refresh failure separately', async () => {
+  it.each(['save', 'delete'] as const)('recovers a successful %s after its follow-up read fails and Models is reopened', async (operation) => {
     await act(async () => root.render(<Harness />));
+    const updated = { ...config, base_prices: { ...config.base_prices, input: 4.5 } };
+    const updatedModels = operation === 'save' ? [updated] : [];
     vi.mocked(api.savePricingModel).mockResolvedValueOnce({ model: config.model, config_revision: 8 });
+    vi.mocked(api.deletePricingModel).mockResolvedValueOnce({ config_revision: 8 });
     vi.mocked(api.fetchPricingModels).mockRejectedValueOnce(new Error('list unavailable'));
 
-    let outcome: Awaited<ReturnType<NonNullable<typeof latest>['saveModel']>> | undefined;
-    await act(async () => { outcome = await latest!.saveModel(config); });
-    expect(api.savePricingModel).toHaveBeenCalledOnce();
-    expect(api.savePricingModel).toHaveBeenCalledWith(config);
-    expect(outcome).toEqual({ result: { model: config.model, config_revision: 8 }, refreshed: false });
+    await act(async () => {
+      const outcome = operation === 'save'
+        ? await latest!.saveModel(updated)
+        : await latest!.deleteModel(config.model);
+      expect(outcome.refreshed).toBe(false);
+      expect(outcome.result.config_revision).toBe(8);
+    });
+    if (operation === 'save') {
+      expect(api.savePricingModel).toHaveBeenCalledOnce();
+      expect(api.savePricingModel).toHaveBeenCalledWith(updated);
+    } else {
+      expect(api.deletePricingModel).toHaveBeenCalledOnce();
+      expect(api.deletePricingModel).toHaveBeenCalledWith(config.model);
+    }
     expect(latest!.error).toBe('list unavailable');
     expect(latest!.models).toEqual([config]);
     expect(latest!.configRevision).toBe(7);
+
+    vi.mocked(api.fetchPricingModels).mockResolvedValueOnce({ models: updatedModels, config_revision: 8 });
+    await act(async () => root.render(<Harness enabled={false} />));
+    await act(async () => root.render(<Harness />));
+    expect(latest!.models).toEqual(updatedModels);
+    expect(latest!.configRevision).toBe(8);
+    expect(latest!.error).toBe('');
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(3);
+
+    await act(async () => root.render(<Harness enabled={false} />));
+    await act(async () => root.render(<Harness />));
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(3);
   });
 
   it('deletes once, refreshes, and preserves a mutation error without changing the list', async () => {

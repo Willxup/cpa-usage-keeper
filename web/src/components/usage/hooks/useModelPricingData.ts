@@ -19,6 +19,7 @@ export interface UseModelPricingDataReturn {
   loading: boolean;
   error: string;
   loadPricing: () => Promise<boolean>;
+  refreshAfterMutation: () => Promise<boolean>;
   saveModel: (config: ModelPricingConfig) => Promise<ModelPricingMutationResult<SavePricingModelResponse>>;
   deleteModel: (model: string) => Promise<ModelPricingMutationResult<DeletePricingModelResponse>>;
 }
@@ -77,7 +78,13 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
     }
   }, []);
 
-  // 成功读取后在页面内保留配置；初次读取未成功时再次进入仍重新加载。
+  // 写入后旧快照不再有效；保留展示，重读失败时下次进入仍会恢复读取。
+  const refreshAfterMutation = useCallback(() => {
+    loadedRef.current = false;
+    return loadPricing();
+  }, [loadPricing]);
+
+  // 仅复用已成功读取且未被写入失效的配置。
   useEffect(() => {
     mountedRef.current = true;
     if (enabled && !loadedRef.current) {
@@ -101,8 +108,8 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
       if (writeError instanceof ApiError && writeError.status === 401) onAuthRequiredRef.current?.();
       throw writeError;
     }
-    return { result, refreshed: await loadPricing() };
-  }, [loadPricing]);
+    return { result, refreshed: await refreshAfterMutation() };
+  }, [refreshAfterMutation]);
 
   // 删除只移除当前配置，成功后从服务端重读列表和修订。
   const deleteModel = useCallback(async (model: string): Promise<ModelPricingMutationResult<DeletePricingModelResponse>> => {
@@ -113,8 +120,8 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
       if (writeError instanceof ApiError && writeError.status === 401) onAuthRequiredRef.current?.();
       throw writeError;
     }
-    return { result, refreshed: await loadPricing() };
-  }, [loadPricing]);
+    return { result, refreshed: await refreshAfterMutation() };
+  }, [refreshAfterMutation]);
 
-  return { models, modelOptions, configRevision, loading, error, loadPricing, saveModel, deleteModel };
+  return { models, modelOptions, configRevision, loading, error, loadPricing, refreshAfterMutation, saveModel, deleteModel };
 }

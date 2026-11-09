@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
   fetchPricingModels: vi.fn(),
   fetchPricingModelOptions: vi.fn(),
   savePricingModel: vi.fn(),
+  fetchPricingSync: vi.fn(),
+  applyPricingSync: vi.fn(),
   fetchCurrentPricingRecalculation: vi.fn(),
   openUsageEventsLive: vi.fn(),
   fetchAnalysis: vi.fn(),
@@ -67,6 +69,8 @@ describe('UsagePage complete pricing integration', () => {
     api.fetchPricingModels.mockReset().mockResolvedValue({ models: [pricingConfig], config_revision: 3 })
     api.fetchPricingModelOptions.mockReset().mockResolvedValue({ models: ['model-a'] })
     api.savePricingModel.mockReset().mockResolvedValue({ model: 'model-a', config_revision: 4 })
+    api.fetchPricingSync.mockReset()
+    api.applyPricingSync.mockReset()
     api.fetchCurrentPricingRecalculation.mockReset().mockResolvedValue(null)
     const page = { events: [{
       id: '401', timestamp: '2026-09-23T12:00:00Z', model: 'historic-fee-model',
@@ -151,6 +155,38 @@ describe('UsagePage complete pricing integration', () => {
     await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
     expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain('$4.5')
     expect(api.fetchPricingModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers synced prices on returning to Models when the post-sync read failed', async () => {
+    const updated = { ...pricingConfig, base_prices: { ...pricingConfig.base_prices, input: 4.5 } }
+    api.fetchPricingSync.mockResolvedValue({
+      source: 'models-dev', unmatched_models: [],
+      matches: [{ model: updated.model, matched_model: updated.model, provider: 'OpenAI',
+        pricing_style: updated.pricing_style, base_prices: updated.base_prices }],
+    })
+    api.applyPricingSync.mockResolvedValue({ models: [updated], config_revision: 4 })
+    await act(async () => root.render(<UsagePage />))
+    const clickButton = async (key: string) => {
+      const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+        .find((candidate) => candidate.textContent?.trim().startsWith(i18n.t(key)))!
+      await act(async () => button.click())
+    }
+    await clickButton('usage_stats.pricing_settings_sync_title')
+    await clickButton('usage_stats.pricing_settings_sync_fetch')
+    api.fetchPricingModels.mockRejectedValueOnce(new Error('list unavailable'))
+    await clickButton('usage_stats.pricing_settings_sync_apply')
+    expect(api.applyPricingSync).toHaveBeenCalledOnce()
+    const pricing = () => container.querySelector('section[aria-label="Model Pricing Settings"]')
+    expect(pricing()?.textContent).toContain('$1')
+    expect(pricing()?.textContent).toContain('list unavailable')
+
+    api.fetchPricingModels.mockResolvedValueOnce({ models: [updated], config_revision: 4 })
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/credentials"]')!.click())
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+    expect(pricing()?.textContent).toContain('$4.5')
+    expect(pricing()?.textContent).not.toContain('list unavailable')
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(3)
+    expect(api.fetchAvailableModels).toHaveBeenCalledTimes(1)
   })
 
   it('rereads complete model pricing through the existing page refresh action after returning to Models', async () => {
