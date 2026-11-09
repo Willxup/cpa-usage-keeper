@@ -303,6 +303,71 @@ func TestNormalizeAntigravityQuotaRowsCanonicalizesKnownGroupLabelVariants(t *te
 	}
 }
 
+func TestNormalizeAntigravityQuotaRowsPreservesLegacyGroupNames(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "Gemini Future Models", want: "antigravity-gemini-models"},
+		{name: "Gemini 4 Argon Extra", want: "antigravity-gemini-models"},
+		{name: "GPT and Claude models", want: "antigravity-claude-and-gpt-models"},
+		{name: "Preview GPT / Claude", want: "antigravity-claude-and-gpt-models"},
+		{name: "Gemini and GPT models", want: "antigravity-gemini-and-gpt-models"},
+		{name: "Image Models", want: "antigravity-image-models"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{{
+				DisplayName: tc.name, Buckets: []quota.AntigravityQuotaBucket{{BucketID: "test-bucket", Window: "weekly", RemainingFraction: new(0.5)}},
+			}}}}})
+			if len(rows) != 1 || rows[0].GroupKey != tc.want || rows[0].Key != "bucket."+tc.want+".test-bucket" || rows[0].GroupLabel != tc.name {
+				t.Fatalf("legacy group name %q: got %#v, want group %q", tc.name, rows, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeAntigravityArgonAndUnknownGroups(t *testing.T) {
+	// Argon 的组、bucket 和描述来自公开 Pro 捕获；其余名称和重复 bucket 是合成回归用例。
+	description := "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans."
+	groups := []quota.AntigravityQuotaGroup{
+		{DisplayName: "Gemini Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared", Window: "weekly", RemainingFraction: new(0.5)}}},
+		{DisplayName: "Gemini 4 Argon", Description: description, Buckets: []quota.AntigravityQuotaBucket{{BucketID: "gemini-argon-wtu-weekly", DisplayName: "Gemini 4 Argon Weekly Limit", Window: "weekly", RemainingFraction: new(0.44056508), ResetTime: "2026-10-30T09:33:19Z"}, {BucketID: "shared", Window: "5h", RemainingFraction: new(0.0)}}},
+		{DisplayName: "Image Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared", Window: "weekly", RemainingFraction: new(1.0)}}},
+	}
+	normalize := func(groups []quota.AntigravityQuotaGroup) []quota.QuotaRow {
+		return quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: groups}}})
+	}
+	rows := normalize(groups)
+	if len(rows) != 4 || rows[0].GroupKey != "antigravity-gemini-models" || rows[1].GroupKey != "antigravity-gemini-4-argon" || rows[3].GroupKey != "antigravity-image-models" {
+		t.Fatalf("expected separate groups in upstream order, got %#v", rows)
+	}
+	argon := findQuotaRow(t, rows, "bucket.antigravity-gemini-4-argon.gemini-argon-wtu-weekly")
+	assertQuotaText(t, argon, "Weekly", "quota_group", "weekly")
+	assertFloatField(t, argon.RemainingFraction, 0.44056508, "argon remaining")
+	assertIntField(t, argon.Window.Seconds, 604800, "argon window")
+	if argon.GroupLabel != "Gemini 4 Argon" || argon.GroupDescription != description || argon.ResetAt != "2026-10-30T09:33:19Z" {
+		t.Fatalf("lost upstream Argon metadata: %#v", argon)
+	}
+	for _, key := range []string{"bucket.antigravity-gemini-models.shared", "bucket.antigravity-gemini-4-argon.shared", "bucket.antigravity-image-models.shared"} {
+		findQuotaRow(t, rows, key)
+	}
+	reversed := normalize([]quota.AntigravityQuotaGroup{groups[2], groups[1], groups[0]})
+	for _, row := range rows {
+		findQuotaRow(t, reversed, row.Key)
+	}
+
+	// 已知 bucket ID 优先于不可靠的组名；正常名称兼容不依赖 bucket ID。
+	for _, group := range []quota.AntigravityQuotaGroup{
+		{DisplayName: "Gemini Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "gemini-argon-wtu-weekly", Window: "weekly", RemainingFraction: new(1.0)}}},
+		{DisplayName: " Gemini 4 ARGON ", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "other", Window: "weekly", RemainingFraction: new(0.0)}}},
+	} {
+		got := normalize([]quota.AntigravityQuotaGroup{group})
+		if len(got) != 1 || got[0].GroupKey != "antigravity-gemini-4-argon" {
+			t.Fatalf("expected recognized Argon group, got %#v", got)
+		}
+	}
+}
+
 func TestNormalizeKimiQuotaRows(t *testing.T) {
 	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "kimi", Result: quota.KimiResult{Usage: &quota.KimiUsagePayload{
 		Usage: &quota.KimiUsageDetail{Used: 3, Limit: 10, Remaining: 7, Name: "monthly", Title: "Monthly", ResetAt: "2026-05-09T12:00:00Z", ResetIn: 3600},

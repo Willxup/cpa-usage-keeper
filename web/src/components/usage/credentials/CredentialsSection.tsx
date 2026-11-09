@@ -69,9 +69,11 @@ const CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING = 8
 
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
+const ANTIGRAVITY_ARGON_GROUP_KEY = 'antigravity-gemini-4-argon'
 const ANTIGRAVITY_QUOTA_GROUP_KEYS = new Set([
   'antigravity-gemini-models',
   'antigravity-claude-and-gpt-models',
+  ANTIGRAVITY_ARGON_GROUP_KEY,
 ])
 export const INSPECTION_RESULT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 const DEFAULT_INSPECTION_RESULT_PAGE_SIZE = INSPECTION_RESULT_PAGE_SIZE_OPTIONS[0]
@@ -1741,7 +1743,7 @@ function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = fals
   return (
     <div className={styles.credentialQuotaGroupBlock} data-quota-group={group.groupKey}>
       <div className={styles.credentialQuotaGroupHeader}>
-        <QuotaGroupLabel label={group.groupLabel} description={group.groupDescription} />
+        <QuotaGroupLabel label={group.groupLabel} description={group.groupKey === ANTIGRAVITY_ARGON_GROUP_KEY ? undefined : group.groupDescription} />
       </div>
       <div className={styles.credentialQuotaGroupBars}>
         {group.quotas.map((quota, index) => (

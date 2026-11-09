@@ -50,6 +50,7 @@ func (p antigravityProvider) checkQuota(ctx context.Context, input ProviderInput
 	// 多个候选 endpoint 按配置顺序尝试，直到解析到可用 quota 为止。
 	var lastErr error
 	var emptyQuota *AntigravityQuotaPayload
+	var hasSeparateArgon bool
 	for _, config := range p.quotaConfigs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -70,6 +71,9 @@ func (p antigravityProvider) checkQuota(ctx context.Context, input ProviderInput
 			lastErr = err
 			continue
 		}
+		// 较早响应中不可展示的独立组证据仍用于后续 fallback 的统计归属。
+		hasSeparateArgon = hasSeparateArgon || quota.hasSeparateArgon
+		quota.hasSeparateArgon = hasSeparateArgon
 		if len(quota.Groups) == 0 {
 			// 空 groups 是成功响应，继续尝试 fallback；全部为空时再返回成功空结果。
 			emptyQuota = quota
