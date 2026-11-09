@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageIdentity, fetchVersion, isCostsBusy, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat, type CpaApiKeyOptionsRequest } from '@/lib/api';
 import { useScopedAPIKeyOptions } from '@/components/usage/hooks/useScopedAPIKeyOptions';
 import { useRequestEventsFeed } from '@/components/usage/useRequestEventsFeed';
+import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -20,6 +21,7 @@ import { updateCredentialDetailStats } from '@/components/usage/credentials/cred
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
 import { PricingSettings, type PricingSettingsHandle } from '@/components/usage/pricing/PricingSettings';
 import { ModelCatalog, type ModelCatalogHandle } from '@/components/usage/models/ModelCatalog';
+import { useModelCatalogData } from '@/components/usage/models/useModelCatalogData';
 import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -696,6 +698,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
+  const modelCatalog = useModelCatalogData({ enabled: activeTab === 'models', onAuthRequired });
+  const modelPricing = useModelPricingData({ enabled: activeTab === 'models', onAuthRequired });
   const pricingSettingsRef = useRef<PricingSettingsHandle | null>(null);
   const modelCatalogRef = useRef<ModelCatalogHandle | null>(null);
   const [loadedTimeRange] = useState(loadTimeRange);
@@ -2207,8 +2211,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'models' && (
               <div className={styles.settingsSections}>
-                <ModelCatalog ref={modelCatalogRef} onAuthRequired={onAuthRequired} />
-                <PricingSettings ref={pricingSettingsRef} timezone={status?.timezone} onAuthRequired={onAuthRequired}
+                <ModelCatalog ref={modelCatalogRef} catalog={modelCatalog} />
+                <PricingSettings ref={pricingSettingsRef} pricing={modelPricing} timezone={status?.timezone} onAuthRequired={onAuthRequired}
                   onRecalculationSettled={() => { void credentialsData.refreshAfterRecalculation() }} />
               </div>
             )}
