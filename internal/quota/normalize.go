@@ -17,6 +17,8 @@ const (
 	quotaWindowAverageMonthSeconds int64 = 365 * 24 * 60 * 60 / 12
 	antigravityGeminiGroupKey            = "antigravity-gemini-models"
 	antigravityClaudeGPTGroupKey         = "antigravity-claude-and-gpt-models"
+	antigravityArgonGroupKey             = "antigravity-gemini-4-argon"
+	antigravityArgonWeeklyBucketID       = "gemini-argon-wtu-weekly"
 )
 
 func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
@@ -279,13 +281,24 @@ func appendGeminiCLICredits(rows []QuotaRow, keyPrefix string, tier *GeminiCliUs
 	return rows
 }
 
+func antigravitySeparateArgonObserved(output ProviderOutput) bool {
+	var result *AntigravityResult
+	switch value := output.Result.(type) {
+	case AntigravityResult:
+		result = &value
+	case *AntigravityResult:
+		result = value
+	}
+	return result != nil && result.Quota != nil && result.Quota.hasSeparateArgon
+}
+
 func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	if result.Quota == nil {
 		return nil
 	}
 	rows := make([]QuotaRow, 0)
 	for groupIndex, group := range result.Quota.Groups {
-		groupKey := antigravityQuotaGroupKey(group.DisplayName, groupIndex)
+		groupKey := antigravityQuotaGroupKey(group, groupIndex)
 		groupLabel := firstNonEmpty(group.DisplayName, fmt.Sprintf("Quota Group %d", groupIndex+1))
 		groupRows := make([]QuotaRow, 0, len(group.Buckets))
 		for bucketIndex, bucket := range group.Buckets {
@@ -315,7 +328,14 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	return rows
 }
 
-func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
+func antigravityQuotaGroupKey(group AntigravityQuotaGroup, groupIndex int) string {
+	// 具体 bucket ID 比可变显示名更能证明是独立 Argon 额度组。
+	for _, bucket := range group.Buckets {
+		if strings.EqualFold(strings.TrimSpace(bucket.BucketID), antigravityArgonWeeklyBucketID) {
+			return antigravityArgonGroupKey
+		}
+	}
+	displayName := group.DisplayName
 	if knownKey, ok := knownAntigravityQuotaGroupKey(displayName); ok {
 		return knownKey
 	}
@@ -344,24 +364,14 @@ func knownAntigravityQuotaGroupKey(displayName string) (string, bool) {
 	words := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(displayName)), func(value rune) bool {
 		return (value < 'a' || value > 'z') && (value < '0' || value > '9')
 	})
-	hasGemini := false
-	hasClaude := false
-	hasGPT := false
-	for _, word := range words {
-		switch word {
-		case "gemini":
-			hasGemini = true
-		case "claude":
-			hasClaude = true
-		case "gpt":
-			hasGPT = true
-		}
-	}
-	switch {
-	case hasGemini && !hasClaude && !hasGPT:
+	// 只归一已知完整名称，避免新 Gemini 额度组被并进旧组。
+	switch strings.Join(words, " ") {
+	case "gemini", "gemini model", "gemini models":
 		return antigravityGeminiGroupKey, true
-	case hasClaude && hasGPT && !hasGemini:
+	case "claude gpt", "claude gpt model", "claude gpt models", "claude and gpt", "claude and gpt model", "claude and gpt models":
 		return antigravityClaudeGPTGroupKey, true
+	case "gemini 4 argon":
+		return antigravityArgonGroupKey, true
 	default:
 		return "", false
 	}

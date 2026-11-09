@@ -129,6 +129,7 @@ type CheckResponse struct {
 	Subscription                        *SubscriptionInfo       `json:"subscription,omitempty"`
 	RateLimitResetCreditsAvailableCount *int                    `json:"rateLimitResetCreditsAvailableCount,omitempty"`
 	ClaudeResetGrants                   *ClaudeResetGrantStatus `json:"claudeResetGrants,omitempty"`
+	antigravityHasSeparateArgon         bool
 }
 
 // NewService 构造额度服务；窗口费用读取已存事件金额，不需要价格目录。
@@ -369,9 +370,10 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		}
 	}
 	response := CheckResponse{
-		ID:           authIndex,
-		Quota:        NormalizeQuotaRows(providerOutput),
-		Subscription: NormalizeSubscription(providerOutput),
+		ID:                          authIndex,
+		Quota:                       NormalizeQuotaRows(providerOutput),
+		Subscription:                NormalizeSubscription(providerOutput),
+		antigravityHasSeparateArgon: antigravitySeparateArgonObserved(providerOutput),
 	}
 	if result, ok := providerOutput.Result.(ClaudeResult); ok && result.Usage != nil {
 		response.ClaudeResetGrants = result.Usage.ResetGrants

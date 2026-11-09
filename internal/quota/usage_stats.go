@@ -45,6 +45,7 @@ func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIn
 	// 同一个 quota response 可能包含多个相同窗口，按 start/end 去重后再查询数据库。
 	statsByWindow := make(map[quotaUsageWindowKey]repository.UsageWindowStats)
 	groupedStatsByWindow := make(map[quotaUsageWindowKey]quotaGroupedUsageWindowResult)
+	argonGroupKey := antigravityArgonUsageGroupKey(response)
 	// 遍历每一条 quota row，只对没有完整 provider 用量的普通窗口补 token/cost。
 	for index := range response.Quota {
 		if groupKey, ok := antigravityQuotaUsageGroupKey(response.Quota[index]); ok {
@@ -62,7 +63,9 @@ func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIn
 			result, cached := groupedStatsByWindow[key]
 			if !cached {
 				var err error
-				result.stats, err = statsProvider.SumGroupsByAuthIndex(ctx, authIndex, windowStart, &windowEnd, antigravityUsageGroupForModel)
+				result.stats, err = statsProvider.SumGroupsByAuthIndex(ctx, authIndex, windowStart, &windowEnd, func(model string) (string, bool) {
+					return antigravityUsageGroupForModel(model, argonGroupKey)
+				})
 				result.failed = err != nil
 				// 失败结果也按窗口缓存，避免同一响应内重复查询后只发布部分模型组。
 				groupedStatsByWindow[key] = result
@@ -150,16 +153,35 @@ func antigravityQuotaUsageGroupKey(row QuotaRow) (string, bool) {
 		return "", false
 	}
 	switch groupKey {
-	case antigravityGeminiGroupKey, antigravityClaudeGPTGroupKey:
+	case antigravityGeminiGroupKey, antigravityClaudeGPTGroupKey, antigravityArgonGroupKey:
 		return groupKey, true
 	default:
 		return "", false
 	}
 }
 
-func antigravityUsageGroupForModel(model string) (string, bool) {
+func antigravityArgonUsageGroupKey(response CheckResponse) string {
+	// 独立组优先；只有明确 Ultra 才按公开描述把 Argon 合并进 Gemini。
+	if response.antigravityHasSeparateArgon {
+		return antigravityArgonGroupKey
+	}
+	for _, row := range response.Quota {
+		if row.GroupKey == antigravityArgonGroupKey && strings.EqualFold(strings.TrimSpace(row.Scope), "quota_group") && strings.HasPrefix(strings.TrimSpace(row.Key), "bucket."+antigravityArgonGroupKey+".") {
+			return antigravityArgonGroupKey
+		}
+	}
+	if response.Subscription != nil && strings.EqualFold(strings.TrimSpace(response.Subscription.Provider), "antigravity") && strings.EqualFold(strings.TrimSpace(response.Subscription.Plan), "ultra") {
+		return antigravityGeminiGroupKey
+	}
+	return ""
+}
+
+func antigravityUsageGroupForModel(model string, argonGroupKey string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	switch {
+	case normalized == "gemini-4-argon", strings.HasPrefix(normalized, "gemini-4-argon-"):
+		// 无法确认归属时沿用未知模型的完整性规则，不发布低估的组统计。
+		return argonGroupKey, argonGroupKey != ""
 	case strings.HasPrefix(normalized, "gemini-"):
 		return antigravityGeminiGroupKey, true
 	case strings.HasPrefix(normalized, "claude-"), strings.HasPrefix(normalized, "gpt-"):
