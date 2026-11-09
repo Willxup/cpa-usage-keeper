@@ -120,9 +120,9 @@ describe('credential compact card data', () => {
       label, scope: 'quota_group', groupKey, groupLabel, groupDescription: `${groupLabel} explanation`,
     })
     const rawQuotas = [
-      groupQuota('bucket.antigravity-gemini-models.gemini-5h', '5h', 'antigravity-gemini-models', 'Gemini Models'),
-      groupQuota('bucket.antigravity-gemini-models.gemini-weekly', 'Weekly', 'antigravity-gemini-models', 'Gemini Models'),
-      groupQuota('bucket.antigravity-claude-and-gpt-models.claude-5h', '5h', 'antigravity-claude-and-gpt-models', 'Claude and GPT models'),
+      groupQuota('bucket.gemini.5h', '5h', 'antigravity-gemini-models', 'Gemini Models'),
+      groupQuota('bucket.gemini.weekly', 'Weekly', 'antigravity-gemini-models', 'Gemini Models'),
+      groupQuota('bucket.claude.5h', '5h', 'antigravity-claude-and-gpt-models', 'Claude and GPT models'),
       groupQuota('bucket.other.5h', 'Other 5h', 'other-provider-group', 'Other Provider Group'),
     ]
     const row = buildCredentialRows([identity], new Map([[identity.identity, { id: identity.identity, quota: rawQuotas }]]))[0]
@@ -152,8 +152,11 @@ describe('credential compact card data', () => {
         groupDescription: 'For paid Pro plans, Argon quota is separate.', usedPercent: undefined, remainingFraction: fraction,
         resetAt: '2099-10-30T09:33:19Z', window_usage_tokens: 100, window_usage_cost: 0.5,
       }),
-      quota('bucket.antigravity-gemini-future-models.future-weekly', 604_800, {
-        label: 'Weekly', scope: 'quota_group', groupKey: 'antigravity-gemini-future-models', groupLabel: 'Gemini Future Models', groupDescription: 'Future group explanation',
+      quota('bucket.antigravity-image-models.image-weekly', 604_800, {
+        label: 'Image Weekly', scope: 'quota_group', groupKey: 'antigravity-image-models', groupLabel: 'Image Models', groupDescription: 'Image group explanation',
+      }),
+      quota('bucket.antigravity-other-models.other-weekly', 604_800, {
+        label: 'Other Weekly', scope: 'quota_group', groupKey: 'antigravity-other-models', groupLabel: 'Other Models', groupDescription: 'Other group explanation',
       }),
     ]
     const row = buildCredentialRows([identity], new Map([[identity.identity, { id: identity.identity, quota: rawQuotas }]]))[0]
@@ -161,8 +164,16 @@ describe('credential compact card data', () => {
     await render('current')
 
     expect(Array.from(container.querySelectorAll('[data-quota-group]'), (group) => group.getAttribute('data-quota-group'))).toEqual([
-      'antigravity-gemini-models', 'antigravity-gemini-4-argon', 'antigravity-gemini-future-models',
+      'antigravity-gemini-models', 'antigravity-gemini-4-argon',
     ])
+    expect(Array.from(container.querySelectorAll('[data-quota-key]'), (bar) => bar.getAttribute('data-quota-key'))).toEqual(rawQuotas.map((item) => item.key))
+    const image = container.querySelector<HTMLElement>('[data-quota-key="bucket.antigravity-image-models.image-weekly"]')!
+    const other = container.querySelector<HTMLElement>('[data-quota-key="bucket.antigravity-other-models.other-weekly"]')!
+    expect(image.closest('[data-quota-group]')).toBeNull()
+    expect(other.closest('[data-quota-group]')).toBeNull()
+    expect(image.textContent).toContain('Image Models')
+    expect(other.textContent).toContain('Other Models')
+    expect(other.className).toContain('credentialQuotaBarTooltipRight')
     const argon = container.querySelector<HTMLElement>('[data-quota-group="antigravity-gemini-4-argon"]')!
     const bar = argon.querySelector<HTMLElement>('[data-quota-key]')!
     expect(argon.textContent).toContain('Gemini 4 Argon')
@@ -173,7 +184,8 @@ describe('credential compact card data', () => {
     expect(argon.querySelector('[role="tooltip"]')).toBeNull()
     expect(container.textContent).not.toContain('For paid Pro plans')
     expect(container.textContent).toContain('Gemini explanation')
-    expect(container.textContent).toContain('Future group explanation')
+    expect(container.textContent).toContain('Image group explanation')
+    expect(container.textContent).toContain('Other group explanation')
     const gemini = container.querySelector<HTMLElement>('[data-quota-group="antigravity-gemini-models"]')!
     expect(gemini.textContent).toContain('200')
     expect(gemini.textContent).toContain('$1.00')
@@ -217,14 +229,17 @@ describe('credential compact card data', () => {
     expect(container.textContent).not.toContain('Argon')
   })
 
-  it('does not group another provider using Antigravity-like metadata', async () => {
+  it('preserves canonical grouping without provider or row-key restrictions', async () => {
     const identity = createSectionIdentity({ type: 'codex', provider: 'codex' })
-    const row = buildCredentialRows([identity], new Map([[identity.identity, { id: identity.identity, quota: [quota('bucket.antigravity-gemini-models.gemini-weekly', 604_800, {
-      scope: 'quota_group', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models',
-    })] }]]))[0]
+    const row = buildCredentialRows([identity], new Map([[identity.identity, { id: identity.identity, quota: [
+      quota('legacy.gemini', 604_800, { scope: 'quota_group', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' }),
+      quota('legacy.claude', 604_800, { scope: 'quota_group', groupKey: 'antigravity-claude-and-gpt-models', groupLabel: 'Claude and GPT models' }),
+    ] }]]))[0]
     await act(async () => root.render(<CredentialQuotaPanel row={row} quotaUsageMode="current" variant="compact" />))
-    expect(container.querySelector('[data-quota-group]')).toBeNull()
-    expect(container.querySelectorAll('[data-quota-key]')).toHaveLength(1)
+    expect(Array.from(container.querySelectorAll('[data-quota-group]'), (group) => group.getAttribute('data-quota-group'))).toEqual([
+      'antigravity-gemini-models', 'antigravity-claude-and-gpt-models',
+    ])
+    expect(container.querySelectorAll('[data-quota-key]')).toHaveLength(2)
     expect(container.textContent).not.toContain('Argon')
   })
 

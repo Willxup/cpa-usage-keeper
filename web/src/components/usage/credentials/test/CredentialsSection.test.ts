@@ -288,7 +288,6 @@ describe('CredentialsSection quota usage mode rendering', () => {
   it('renders each canonical Antigravity group once above its window bars', () => {
     const groupedRow = {
       ...row,
-      identity: { ...row.identity, type: 'antigravity', provider: 'antigravity' },
       displayQuotas: [
         {
           ...quota,
@@ -364,7 +363,6 @@ describe('CredentialsSection quota usage mode rendering', () => {
   it('preserves non-adjacent canonical group segments and resets flat tooltip columns after a group', () => {
     const mixedRow = {
       ...row,
-      identity: { ...row.identity, type: 'antigravity', provider: 'antigravity' },
       displayQuotas: [
         {
           ...quota,

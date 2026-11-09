@@ -79,6 +79,8 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		plan           string
+		geminiName     string
+		claudeGPTName  string
 		dedicated      bool
 		argonUsage     bool
 		argonAvailable bool
@@ -90,6 +92,7 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 		missingArgon   bool
 	}{
 		{name: "dedicated Pro", plan: "pro", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
+		{name: "legacy names retain grouped stats with Argon", plan: "pro", geminiName: "Gemini Future Models", claudeGPTName: "GPT and Claude models", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
 		{name: "dedicated takes precedence over Ultra", plan: "ultra", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
 		{name: "synthetic Ultra shared pool", plan: "ultra", argonUsage: true, argonAvailable: true, wantGemini: 400, wantGeminiCost: 2},
 		{name: "Pro missing group is uncertain", plan: "pro", argonUsage: true, argonAvailable: true, wantMissing: true},
@@ -118,9 +121,16 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 			service := NewServiceWithRegistry(db.Session(&gorm.Session{Logger: counter}), NewProviderRegistry(nil))
 			defer service.StopRefreshTasks()
 			reset := timeutil.FormatStorageTime(resetAt)
+			geminiName, claudeGPTName := tc.geminiName, tc.claudeGPTName
+			if geminiName == "" {
+				geminiName = "Gemini Models"
+			}
+			if claudeGPTName == "" {
+				claudeGPTName = "Claude and GPT models"
+			}
 			groups := []AntigravityQuotaGroup{
-				{DisplayName: "Gemini Models", Buckets: []AntigravityQuotaBucket{{BucketID: "gemini-weekly", Window: "weekly", RemainingFraction: new(.4), ResetTime: reset}}},
-				{DisplayName: "Claude and GPT models", Buckets: []AntigravityQuotaBucket{{BucketID: "claude-weekly", Window: "weekly", RemainingFraction: new(.8), ResetTime: reset}}},
+				{DisplayName: geminiName, Buckets: []AntigravityQuotaBucket{{BucketID: "gemini-weekly", Window: "weekly", RemainingFraction: new(.4), ResetTime: reset}}},
+				{DisplayName: claudeGPTName, Buckets: []AntigravityQuotaBucket{{BucketID: "claude-weekly", Window: "weekly", RemainingFraction: new(.8), ResetTime: reset}}},
 			}
 			if tc.dedicated {
 				groups = append(groups, AntigravityQuotaGroup{DisplayName: "Gemini 4 Argon", Buckets: []AntigravityQuotaBucket{{BucketID: "gemini-argon-wtu-weekly", Window: "weekly", RemainingFraction: new(.6), ResetTime: reset}}})
