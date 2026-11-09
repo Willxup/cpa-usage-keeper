@@ -230,7 +230,7 @@ type TopNoticeKind = 'success' | 'info' | 'error';
 
 export const getUpdateCheckToastDuration = (kind: TopNoticeKind) => (kind === 'error' ? 6_000 : 4_000);
 
-export const shouldAutoRefreshUsageTab = ({ activeTab }: { activeTab: UsageTab; eventsPage?: number }) => (
+export const shouldAutoRefreshUsageTab = ({ activeTab }: { activeTab: UsageTab }) => (
   activeTab === 'overview' || activeTab === 'realtime'
 );
 

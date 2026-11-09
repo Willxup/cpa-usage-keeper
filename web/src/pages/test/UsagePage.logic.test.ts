@@ -465,21 +465,20 @@ describe('UsagePage visibility guard', () => {
 });
 
 describe('UsagePage active tab auto-refresh guard', () => {
-  it('leaves Request Events updates to the live feed on every history page', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2 })).toBe(false);
+  it('leaves Request Events updates to the live feed', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events' })).toBe(false);
   });
 
   it('does not auto-refresh credential detail tabs', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'ai-provider', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials' })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'ai-provider' })).toBe(false);
   });
 
   it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 })).toBe(true);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'realtime', eventsPage: 2 })).toBe(true);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'overview' })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'realtime' })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis' })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'settings' })).toBe(false);
   });
 });
 
