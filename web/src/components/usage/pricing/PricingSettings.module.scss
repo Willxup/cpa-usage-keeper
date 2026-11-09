@@ -32,6 +32,13 @@
   flex-wrap: wrap;
 }
 
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .listHeader h2 {
   margin: 0;
   font-size: 18px;
@@ -48,6 +55,19 @@
   font-size: 12px;
 }
 
+.priceUnit {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.searchEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .recalculationBanner {
   display: flex;
   align-items: center;
@@ -59,10 +79,6 @@
   border-radius: 14px;
   background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
   font-size: 12px;
-}
-
-.listLabel strong {
-  color: var(--text-primary);
 }
 
 .modelList {

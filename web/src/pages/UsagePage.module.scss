@@ -1757,6 +1757,45 @@
   border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  --api-key-item-shadow-hover: 0 3px 6px -1px rgba(0, 0, 0, 0.08), 0 10px 20px -3px rgba(0, 0, 0, 0.12);
+  --api-key-item-border-hover: color-mix(in srgb, var(--border-primary) 45%, var(--border-color));
+}
+
+:global([data-theme='dark']) .apiKeySettingsItem {
+  --api-key-item-shadow-hover: 0 4px 8px -1px rgba(0, 0, 0, 0.35), 0 12px 24px -4px rgba(0, 0, 0, 0.48);
+  --api-key-item-border-hover: color-mix(in srgb, var(--border-primary) 45%, var(--border-color));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apiKeySettingsList {
+    // 为卡片上移与阴影预留紧凑边界空间，避免滚动容器裁切或留白过大。
+    padding: 4px 2px 8px;
+  }
+
+  .apiKeySettingsItem {
+    // 浮起位移与过渡沿用 Overview，结合层次阴影与克制边框反馈。
+    transition:
+      transform $transition-fast,
+      box-shadow $transition-fast,
+      border-color $transition-fast;
+
+    &:hover {
+      z-index: 1;
+      transform: translateY(-2px);
+      box-shadow: var(--api-key-item-shadow-hover);
+      border-color: var(--api-key-item-border-hover);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apiKeySettingsItem {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
 }
 
 .apiKeySettingsHeader,

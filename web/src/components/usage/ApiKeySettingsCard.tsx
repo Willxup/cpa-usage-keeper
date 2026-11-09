@@ -150,13 +150,13 @@ function ApiKeyAliasModal({ item, displayName, onSaveAlias, onClose }: {
   );
 }
 
-function ApiKeyIdentityCard({ item, saving, copied, onCopy, onSaveAlias, renderText }: {
+function ApiKeyIdentityCard({ item, saving, copied, onCopy, onSaveAlias, renderSourceText }: {
   item: CpaApiKeySettingsItem;
   saving: boolean;
   copied: boolean;
   onCopy: (item: CpaApiKeySettingsItem) => Promise<void>;
   onSaveAlias: ApiKeySettingsCardProps['onSaveAlias'];
-  renderText: (value: string, className?: string) => ReactNode;
+  renderSourceText: (value: string) => ReactNode;
 }) {
   const { t } = useTranslation();
   const [revealed, setRevealed] = useState(false);
@@ -183,19 +183,20 @@ function ApiKeyIdentityCard({ item, saving, copied, onCopy, onSaveAlias, renderT
         </div>}
       </div>
       <div className={styles.apiKeySettingsName}>
-        <CredentialAliasEditor identityId={item.id} displayName={renderText(name)} disabled={saving}
-          onEdit={() => setEditing(true)} />
+        {/* 保存期间保留编辑按钮节点供弹窗回焦，且不重复打开弹窗。 */}
+        <CredentialAliasEditor identityId={item.id} displayName={<span className={styles.apiKeySettingsText} tabIndex={0}>{name}</span>}
+          onEdit={() => { if (!saving) setEditing(true); }} />
       </div>
       <div className={styles.apiKeySettingsMeta}>
         <div className={styles.apiKeySettingsKeySpace}>
-          {plugin ? renderText(identityName) : revealed
+          {plugin ? <span className={styles.apiKeySettingsText} tabIndex={0}>{identityName}</span> : revealed
             ? <span className={styles.apiKeySettingsRevealedKey} tabIndex={0}>{visibleKey}</span>
-            : renderText(visibleKey, styles.apiKeySettingsKey)}
+            : <span className={`${styles.apiKeySettingsText} ${styles.apiKeySettingsKey}`} tabIndex={0}>{visibleKey}</span>}
         </div>
         <div className={styles.apiKeySettingsFooter}>
           {plugin ? <div className={styles.apiKeySettingsSource}>
             <span>{t('usage_stats.api_key_settings_source')}</span>
-            {renderText(item.accessProvider.replace(/^plugin:/, ''))}
+            {renderSourceText(item.accessProvider.replace(/^plugin:/, ''))}
           </div> : item.lastSyncedAt && <span>{t('usage_stats.api_key_settings_last_synced')} <time dateTime={item.lastSyncedAt}>{(formatCredentialTimestamp(item.lastSyncedAt) ?? item.lastSyncedAt).replace(/ UTC(?:[+-]\d{2}:\d{2})?$/, '')}</time></span>}
         </div>
       </div>
@@ -228,8 +229,8 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
       onNotice?.('error', t('usage_stats.api_key_settings_copy_failed'));
     }
   }, [onNotice, t]);
-  const renderText = (value: string, className = '') => (
-    <span className={`${styles.apiKeySettingsText} ${className}`.trim()} tabIndex={0}
+  const renderSourceText = (value: string) => (
+    <span className={styles.apiKeySettingsText} tabIndex={0}
       aria-describedby={tooltip.tooltip?.lines[0] === value ? tooltipId : undefined}
       onMouseEnter={(event) => tooltip.showOnMouseEnter([value], event.currentTarget)}
       onMouseLeave={(event) => tooltip.hideOnMouseLeave(event.currentTarget)}
@@ -249,7 +250,7 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
         ) : (
           <div className={styles.apiKeySettingsList}>
             {apiKeys.map((item) => <ApiKeyIdentityCard key={item.id} item={item} saving={savingId === item.id}
-              copied={copiedId === item.id} onCopy={handleCopyApiKey} onSaveAlias={onSaveAlias} renderText={renderText} />)}
+              copied={copiedId === item.id} onCopy={handleCopyApiKey} onSaveAlias={onSaveAlias} renderSourceText={renderSourceText} />)}
           </div>
         )}
       </div>

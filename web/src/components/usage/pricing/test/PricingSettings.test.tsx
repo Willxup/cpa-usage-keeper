@@ -1,11 +1,13 @@
 import { selectOption } from './selectOption'
 // @vitest-environment happy-dom
 
-import { act } from 'react'
+import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricingConfig, PricingRecalculationTask } from '@/lib/types'
-import { PricingSettings } from '../PricingSettings'
+import { ModelCatalog, type ModelCatalogHandle } from '../../models/ModelCatalog'
+import { PricingSettings, type PricingSettingsHandle } from '../PricingSettings'
+import filterStyles from '../../credentials/CredentialSections.module.scss'
 
 vi.mock('react-i18next', () => ({
   Trans: ({ i18nKey, values }: { i18nKey: string; values: Record<string, number> }) => `${i18nKey}:${JSON.stringify(values)}`,
@@ -71,6 +73,9 @@ describe('PricingSettings', () => {
         return Response.json({ models: ['provider/claude-sonnet', 'openai/gpt-5', 'gemini/3'] })
       }
       if (url.pathname.endsWith('/pricing/recalculations/current')) return Response.json(currentTask)
+      if (url.pathname === '/api/v1/models') return Response.json({ data: [
+        { id: 'claude-model', owned_by: 'anthropic' }, { id: 'gpt-model' },
+      ] })
       if (!url.pathname.endsWith('/pricing/models')) throw new Error(`unexpected pricing request ${url}`)
       if (init?.method === 'PUT') {
         const config = JSON.parse(String(init.body)) as ModelPricingConfig
@@ -104,6 +109,127 @@ describe('PricingSettings', () => {
     await act(async () => root.render(<PricingSettings {...props} />))
   }
 
+  const priceCount = () => container.querySelector('h2')?.nextElementSibling
+
+  it('places the saved price count beside the title using the provider filter badge style', async () => {
+    await renderSettings()
+    expect(container.querySelector('h2')?.textContent).toBe('usage_stats.model_price_settings_title')
+    expect(priceCount()?.textContent).toBe('1')
+    expect(priceCount()?.classList.contains(filterStyles.credentialProviderFilterCount)).toBe(true)
+    expect(container.textContent).not.toContain('usage_stats.saved_prices')
+    expect(container.textContent).toContain('usage_stats.pricing_settings_price_unit')
+  })
+
+  it('filters the complete list locally by model name without changing the total or making requests', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' }, { ...structuredClone(existing), model: 'fast-alias' })
+    await renderSettings()
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    expect(input).not.toBeNull()
+    const requestCount = vi.mocked(globalThis.fetch).mock.calls.length
+    const names = () => [...container.querySelectorAll('article')].map((card) => card.querySelector('strong')?.textContent)
+    const list = container.querySelector('article')!.parentElement!
+    list.scrollTop = 200
+    await setInput(input, '  GPT-5  ')
+    expect(names()).toEqual(['openai/gpt-5'])
+    expect(list.scrollTop).toBe(0)
+    await setInput(input, 'PROVIDER/')
+    expect(names()).toEqual(['provider/claude-sonnet'])
+    await setInput(input, 'claude')
+    expect(names()).toEqual(['provider/claude-sonnet'])
+    await setInput(input, 'no-match')
+    expect(names()).toEqual([])
+    expect(container.textContent).toContain('usage_stats.models_no_matches')
+    expect(container.textContent).not.toContain('usage_stats.model_price_empty')
+    const clear = button('usage_stats.models_clear_filters')
+    clear.focus()
+    expect(document.activeElement).toBe(clear)
+    await act(async () => clear.click())
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('')
+    expect(names()).toHaveLength(3)
+    await setInput(input, '   ')
+    expect(names()).toHaveLength(3)
+    expect(priceCount()?.textContent).toBe('3')
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(requestCount)
+  })
+
+  it('restores focus to each card independently without stealing it during refresh or input', async () => {
+    localStorage.clear()
+    const modelRef = createRef<ModelCatalogHandle>()
+    const pricingRef = createRef<PricingSettingsHandle>()
+    const page = () => <><ModelCatalog ref={modelRef} /><PricingSettings ref={pricingRef} /></>
+    await act(async () => root.render(page()))
+    const modelCard = container.querySelector<HTMLElement>('section[aria-label="usage_stats.models_catalog_title"]')!
+    const pricingCard = container.querySelector<HTMLElement>('section[aria-label="usage_stats.model_price_settings_title"]')!
+    const modelInput = modelCard.querySelector<HTMLInputElement>('input[type="search"]')!
+    const pricingInput = pricingCard.querySelector<HTMLInputElement>('input[type="search"]')!
+    const claude = [...modelCard.querySelectorAll('button')].find((item) => item.textContent?.includes('Claude'))!
+    await act(async () => claude.click())
+    claude.focus()
+    await setInput(modelInput, 'no-model')
+    await setInput(pricingInput, 'no-price')
+    expect(document.activeElement).toBe(claude)
+    await act(async () => Promise.all([modelRef.current!.refresh(), pricingRef.current!.refresh()]))
+    await act(async () => root.render(page()))
+    expect(document.activeElement).toBe(claude)
+    const modelClear = [...modelCard.querySelectorAll('button')].find((item) => item.textContent?.includes('usage_stats.models_clear_filters'))!
+    modelClear.focus()
+    expect(document.activeElement).toBe(modelClear)
+    await act(async () => modelClear.click())
+    expect(document.activeElement).toBe(modelInput)
+    expect(modelInput.value).toBe('')
+    expect(modelCard.querySelector('button[aria-pressed="true"]')?.textContent).toContain('usage_stats.models_all')
+    expect(modelCard.querySelectorAll('article')).toHaveLength(2)
+    expect(pricingInput.value).toBe('no-price')
+    expect(pricingCard.querySelectorAll('article')).toHaveLength(0)
+    await setInput(modelInput, 'gpt')
+    const openai = [...modelCard.querySelectorAll('button')].find((item) => item.textContent?.includes('OpenAI'))!
+    await act(async () => openai.click())
+    const pricingClear = [...pricingCard.querySelectorAll('button')].find((item) => item.textContent?.includes('usage_stats.models_clear_filters'))!
+    pricingClear.focus()
+    expect(document.activeElement).toBe(pricingClear)
+    await act(async () => pricingClear.click())
+    expect(document.activeElement).toBe(pricingInput)
+    expect(pricingInput.value).toBe('')
+    expect(pricingCard.querySelectorAll('article')).toHaveLength(1)
+    expect(modelInput.value).toBe('gpt')
+    expect(openai.getAttribute('aria-pressed')).toBe('true')
+    expect(modelCard.querySelectorAll('article')).toHaveLength(1)
+    expect(modelCard.querySelector('h3')?.textContent).toBe('gpt-model')
+  })
+
+  it('keeps all saved models excluded from the add picker while search hides some rows', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' })
+    await renderSettings()
+    await setInput(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'claude')
+    await act(async () => button('usage_stats.pricing_settings_add').click())
+    expect(document.querySelector('[data-pricing-field="model"]')?.textContent).toBe('gemini/3')
+    expect(priceCount()?.textContent).toBe('2')
+  })
+
+  it('retains the name query after editing and reloading saved prices', async () => {
+    configs.push({ ...structuredClone(existing), model: 'openai/gpt-5' })
+    await renderSettings()
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    await setInput(input, 'sonnet')
+    await act(async () => button('common.edit').click())
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '4.5')
+    await act(async () => button('common.save').click())
+    expect(input.value).toBe('sonnet')
+    expect(container.querySelectorAll('article')).toHaveLength(1)
+    expect(container.querySelector('article')?.textContent).toContain('$4.5')
+    expect(priceCount()?.textContent).toBe('2')
+  })
+
+  it('distinguishes an empty saved list from a search with no matches', async () => {
+    configs = []
+    await renderSettings()
+    await setInput(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'anything')
+    expect(container.textContent).toContain('usage_stats.model_price_empty')
+    expect(container.textContent).not.toContain('usage_stats.models_no_matches')
+    expect(priceCount()?.textContent).toBe('0')
+  })
+
   it('loads complete saved prices and adds a model with free-text conditions in one save', async () => {
     await renderSettings()
     expect(document.body.textContent).toContain('provider/claude-sonnet')
@@ -132,6 +258,7 @@ describe('PricingSettings', () => {
       branches: [],
     })
     expect(document.body.textContent).toContain('openai/gpt-5')
+    expect(priceCount()?.textContent).toBe('2')
   })
 
   it('discards an edit draft and later saves the original branches and legal condition values', async () => {
@@ -440,11 +567,13 @@ describe('PricingSettings', () => {
     expect(writes[0].url.pathname).toBe('/api/v1/pricing/models')
     expect(writes[0].url.searchParams.get('model')).toBe('provider/claude-sonnet')
     expect(document.body.textContent).toContain('usage_stats.model_price_empty')
+    expect(priceCount()?.textContent).toBe('0')
   })
 
   it('keeps the all-model recalculation entry available after every price configuration is deleted', async () => {
     configs = []
     await renderSettings()
+    expect(priceCount()?.textContent).toBe('0')
     const recalculate = button('usage_stats.pricing_recalculation_title')
     expect(recalculate.disabled).toBe(false)
   })

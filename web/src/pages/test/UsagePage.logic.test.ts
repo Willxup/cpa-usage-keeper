@@ -719,6 +719,7 @@ for (const [tab, expected] of [
   ['events', true],
   ['credentials', false],
   ['ai-provider', false],
+  ['models', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} range controls visibility`, () => {
@@ -733,6 +734,7 @@ for (const [tab, expected] of [
   ['events', true],
   ['credentials', false],
   ['ai-provider', false],
+  ['models', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} API Key filter visibility`, () => {
@@ -751,6 +753,7 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',
       'translated:usage_stats.tab_ai_provider',
+      'translated:usage_stats.tab_models',
       'translated:usage_stats.tab_settings',
     ]);
   });
