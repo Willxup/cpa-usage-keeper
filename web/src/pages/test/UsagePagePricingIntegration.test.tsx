@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh'
 import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
+import { requestEventsLiveSnapshot } from './requestEventsLiveFixture'
 
 const api = vi.hoisted(() => ({
   fetchAvailableModels: vi.fn(),
   fetchPricingModels: vi.fn(),
   fetchPricingModelOptions: vi.fn(),
   fetchCurrentPricingRecalculation: vi.fn(),
-  fetchUsageEvents: vi.fn(),
+  openUsageEventsLive: vi.fn(),
   fetchAnalysis: vi.fn(),
   fetchAnalysisLatency: vi.fn(),
 }))
@@ -57,12 +58,13 @@ describe('UsagePage complete pricing integration', () => {
     }], config_revision: 3 })
     api.fetchPricingModelOptions.mockReset().mockResolvedValue({ models: ['model-a'] })
     api.fetchCurrentPricingRecalculation.mockReset().mockResolvedValue(null)
-    api.fetchUsageEvents.mockReset().mockResolvedValue({ events: [{
+    const page = { events: [{
       id: '401', timestamp: '2026-09-23T12:00:00Z', model: 'historic-fee-model',
       source: 'source-a', failed: false, latency_ms: 30, cost_usd: 3.14, cost_available: true,
       tokens: { input_tokens: 1, output_tokens: 1, reasoning_tokens: 0,
         cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 2 },
-    }], total_count: 1, page: 1, page_size: 50, total_pages: 1, has_more: false, next_cursor: null })
+    }], total_count: 1, page: 1, page_size: 50, total_pages: 1, has_more: false, next_cursor: undefined }
+    api.openUsageEventsLive.mockReset().mockImplementation(async (_request, _options, signal) => requestEventsLiveSnapshot(page, signal))
     api.fetchAnalysis.mockReset().mockResolvedValue({
       granularity: 'hourly', timezone: 'America/New_York', token_usage: [],
       api_key_composition: [], model_composition: [], credentials_composition: [], ai_provider_composition: [],
@@ -115,9 +117,12 @@ describe('UsagePage complete pricing integration', () => {
     window.history.replaceState(null, '', '/request-events')
     await act(async () => root.render(<UsagePage />))
     expect(container.textContent).toContain('historic-fee-model')
-    api.fetchUsageEvents.mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
-    await act(async () => triggerHeaderRefresh())
-    expect(api.fetchUsageEvents).toHaveBeenCalledTimes(2)
+    api.openUsageEventsLive.mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
+    let refresh!: Promise<void>
+    // 先提交刷新状态，让连接effect启动；再等待原刷新Promise完成。
+    await act(async () => { refresh = triggerHeaderRefresh() })
+    await act(async () => { await refresh })
+    expect(api.openUsageEventsLive).toHaveBeenCalledTimes(2)
     expect(container.textContent).toContain('historic-fee-model')
     expect(container.textContent).toContain('Cost statistics are being updated')
   })

@@ -389,6 +389,11 @@ export interface RequestEventsDetailsCardProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   autoLoadMore?: boolean;
+  reading?: boolean;
+  restoring?: boolean;
+  onTablePositionChange?: (atTop: boolean) => void;
+  onStartReading?: () => void;
+  onReturnToTop?: () => void;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
   initialColumnOrder?: readonly RequestEventColumnId[];
   visibleColumnIds?: readonly RequestEventColumnId[];
@@ -573,6 +578,212 @@ function RequestEventsExportMenu({
   );
 }
 
+// 只有非空表格挂载此组件；位置、输入意图和虚拟器与其DOM一起销毁。
+function RequestEventsViewport({
+  rows,
+  columns,
+  totalCount,
+  loading,
+  loadingMore,
+  hasMore,
+  autoLoadMore,
+  reading,
+  restoring,
+  onLoadMore,
+  onStartReading,
+  onReturnToTop,
+  onTablePositionChange,
+}: Pick<RequestEventsDetailsCardProps,
+  'totalCount' | 'loading' | 'loadingMore' | 'hasMore' | 'autoLoadMore' | 'reading' | 'restoring'
+  | 'onLoadMore' | 'onStartReading' | 'onReturnToTop' | 'onTablePositionChange'
+> & { rows: RequestEventRow[]; columns: readonly RequestEventColumnDefinition[] }) {
+  const { t } = useTranslation();
+  const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
+  const lastScrollTopRef = useRef(0);
+  const scrollIntentUntilRef = useRef(0);
+  const scrollIntentDirectionRef = useRef(0);
+  const leftTopRef = useRef(false);
+  const returnTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(returnTimerRef.current), []);
+  const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
+  // 首屏也提前测量，首次切换虚拟列表时不对既有行的估值误差补偿滚动位置。
+  // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const eventRowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => requestEventsTableWrapperRef.current,
+    estimateSize: () => REQUEST_EVENT_VIRTUAL_ROW_HEIGHT,
+    overscan: REQUEST_EVENT_VIRTUAL_OVERSCAN,
+    getItemKey: (index) => rows[index]?.id ?? index,
+    initialRect: { width: 0, height: REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT },
+    useAnimationFrameWithResizeObserver: true,
+  });
+  useLayoutEffect(() => {
+    // 只移除已离开列表的尺寸；保留当前行的测量以平稳切换虚拟化。
+    const currentKeys = new Set<React.Key>(rows.map((row) => row.id));
+    for (const key of eventRowVirtualizer.itemSizeCache.keys()) {
+      if (!currentKeys.has(key)) eventRowVirtualizer.itemSizeCache.delete(key);
+    }
+  }, [eventRowVirtualizer, rows]);
+  const columnKey = columns.map((column) => column.id).sort().join(',');
+  const measuredColumnsRef = useRef(columnKey);
+  useLayoutEffect(() => {
+    if (measuredColumnsRef.current !== columnKey) {
+      measuredColumnsRef.current = columnKey;
+      eventRowVirtualizer.measure();
+    }
+  }, [columnKey, eventRowVirtualizer]);
+  const virtualRows = eventRowVirtualizer.getVirtualItems();
+  const displayedRows = virtualizeRows ? virtualRows : rows.map((row, index) => ({ key: row.id, index }));
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const virtualPaddingBottom = virtualRows.length > 0
+    ? Math.max(eventRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end, 0)
+    : 0;
+  const markScrollIntent = () => {
+    scrollIntentUntilRef.current = Date.now() + 1000;
+    scrollIntentDirectionRef.current = 0;
+  };
+  const handleLoadMore = useCallback(() => {
+    clearTimeout(returnTimerRef.current);
+    if ((requestEventsTableWrapperRef.current?.scrollTop ?? 0) <= 8) leftTopRef.current = false;
+    onStartReading?.();
+    onLoadMore?.();
+  }, [onLoadMore, onStartReading]);
+  const handleTableScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const top = scroller.scrollTop;
+    const direction = Math.sign(top - lastScrollTopRef.current);
+    if (!direction) return;
+    lastScrollTopRef.current = top;
+    const atTop = top <= 8;
+    onTablePositionChange?.(atTop);
+    clearTimeout(returnTimerRef.current);
+    // 一次输入允许同方向的连续滚动帧；反向程序位移不能沿用旧意图。
+    const userScroll = Date.now() <= scrollIntentUntilRef.current
+      && (scrollIntentDirectionRef.current === 0 || direction === scrollIntentDirectionRef.current);
+    if (!userScroll) {
+      scrollIntentUntilRef.current = 0;
+      scrollIntentDirectionRef.current = 0;
+      if (atTop) leftTopRef.current = false;
+      return;
+    }
+    scrollIntentDirectionRef.current = direction;
+    scrollIntentUntilRef.current = Date.now() + 300;
+    if (!atTop) {
+      leftTopRef.current = true;
+      onStartReading?.();
+    } else if (leftTopRef.current) {
+      returnTimerRef.current = setTimeout(() => {
+        if (scroller.scrollTop <= 8) {
+          leftTopRef.current = false;
+          scrollIntentUntilRef.current = 0;
+          scrollIntentDirectionRef.current = 0;
+          onReturnToTop?.();
+        }
+      }, 300);
+    }
+    if (!atTop && autoLoadMore && hasMore && !loading && !loadingMore && onLoadMore && shouldLoadMoreRequestEvents(scroller)) {
+      handleLoadMore();
+    }
+  }, [autoLoadMore, handleLoadMore, hasMore, loading, loadingMore, onLoadMore, onReturnToTop, onStartReading, onTablePositionChange]);
+  useEffect(() => {
+    const scroller = requestEventsTableWrapperRef.current;
+    if (!reading || !scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
+    if (shouldLoadMoreRequestEvents(scroller)) handleLoadMore();
+  }, [autoLoadMore, handleLoadMore, hasMore, loading, loadingMore, onLoadMore, reading, rows.length]);
+  useScrollBoundaryContainment(requestEventsTableWrapperRef, true);
+
+  return (
+    <>
+      <div
+        ref={requestEventsTableWrapperRef}
+        className={styles.requestEventsTableWrapper}
+        data-virtualized={virtualizeRows}
+        data-loaded-row-count={rows.length}
+        onScroll={handleTableScroll}
+        onWheel={(event) => { if (event.deltaY !== 0) markScrollIntent(); }}
+        onTouchStart={markScrollIntent}
+        onTouchMove={markScrollIntent}
+        onPointerDown={markScrollIntent}
+        onPointerMove={(event) => { if (event.buttons) markScrollIntent(); }}
+        onKeyDown={(event) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markScrollIntent(); }}
+      >
+        <table className={styles.table} aria-rowcount={totalCount + 1}>
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <React.Fragment key={column.id}>{column.header}</React.Fragment>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {virtualizeRows && virtualPaddingTop > 0 && (
+              <tr
+                className={styles.requestEventsVirtualSpacerRow}
+                style={{ height: `${virtualPaddingTop}px` }}
+                aria-hidden="true"
+              >
+                <td colSpan={columns.length} />
+              </tr>
+            )}
+            {displayedRows.map(({ key, index }) => (
+              <RequestEventTableRow
+                key={key}
+                row={rows[index]}
+                columns={columns}
+                virtualIndex={index}
+                measureElement={eventRowVirtualizer.measureElement}
+              />
+            ))}
+            {virtualizeRows && virtualPaddingBottom > 0 && (
+              <tr
+                className={styles.requestEventsVirtualSpacerRow}
+                style={{ height: `${virtualPaddingBottom}px` }}
+                aria-hidden="true"
+              >
+                <td colSpan={columns.length} />
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className={styles.requestEventsPaginationFooter}>
+        <div className={styles.requestEventsPaginationControls}>
+          <span
+            className={styles.requestEventsPaginationPage}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
+          >
+            <span className={styles.requestEventsPaginationLabel}>
+              {t('usage_stats.request_events_loaded_label')}
+            </span>
+            <strong className={styles.requestEventsPaginationLoaded}>{rows.length}</strong>
+            <span className={styles.requestEventsPaginationTotal} aria-hidden="true">
+              / {totalCount}
+            </span>
+          </span>
+          {hasMore && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              appearance="action"
+              onClick={handleLoadMore}
+              loading={loadingMore}
+              disabled={loading && !restoring}
+            >
+              {loadingMore ? t('common.loading') : t('usage_stats.request_events_load_more')}
+            </Button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -586,6 +797,11 @@ export function RequestEventsDetailsCard({
   hasMore = false,
   loadingMore = false,
   autoLoadMore = true,
+  reading = false,
+  restoring = false,
+  onTablePositionChange,
+  onStartReading,
+  onReturnToTop,
   initialVisibleColumnIds,
   initialColumnOrder,
   visibleColumnIds,
@@ -616,7 +832,6 @@ export function RequestEventsDetailsCard({
   } = usePortalTooltip();
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [columnSettingsSession, setColumnSettingsSession] = useState(0);
-  const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
@@ -732,39 +947,6 @@ export function RequestEventsDetailsCard({
       };
     });
   }, [events, t]);
-  const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
-  // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const eventRowVirtualizer = useVirtualizer({
-    count: virtualizeRows ? rows.length : 0,
-    getScrollElement: () => requestEventsTableWrapperRef.current,
-    estimateSize: () => REQUEST_EVENT_VIRTUAL_ROW_HEIGHT,
-    overscan: REQUEST_EVENT_VIRTUAL_OVERSCAN,
-    getItemKey: (index) => rows[index]?.id ?? index,
-    initialRect: { width: 0, height: REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT },
-    useAnimationFrameWithResizeObserver: true,
-  });
-  const virtualRows = eventRowVirtualizer.getVirtualItems();
-  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const virtualPaddingBottom = virtualRows.length > 0
-    ? Math.max(eventRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end, 0)
-    : 0;
-  const handleTableScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    if (!autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
-    const scroller = event.currentTarget;
-    if (shouldLoadMoreRequestEvents(scroller)) {
-      onLoadMore();
-    }
-  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore]);
-  useEffect(() => {
-    const scroller = requestEventsTableWrapperRef.current;
-    if (!scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
-    if (shouldLoadMoreRequestEvents(scroller)) {
-      onLoadMore();
-    }
-  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore, rows.length]);
-  useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);
-
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
     normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
   ));
@@ -788,11 +970,6 @@ export function RequestEventsDetailsCard({
     () => new Set<RequestEventColumnId>(effectiveVisibleColumnIds),
     [effectiveVisibleColumnIds]
   );
-  useLayoutEffect(() => {
-    if (virtualizeRows) {
-      eventRowVirtualizer.measure();
-    }
-  }, [effectiveVisibleColumnIds, eventRowVirtualizer, virtualizeRows]);
   const effectiveColumnOrder = useMemo(
     () => normalizeRequestEventColumnOrder(selectedColumnOrder),
     [selectedColumnOrder]
@@ -1312,92 +1489,21 @@ export function RequestEventsDetailsCard({
             description={t('usage_stats.request_events_empty_desc')}
           />
         ) : (
-          <>
-            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper} data-virtualized={virtualizeRows} data-loaded-row-count={rows.length} onScroll={handleTableScroll}>
-              <table className={styles.table} aria-rowcount={totalCount + 1}>
-                <thead>
-                  <tr>
-                    {visibleColumns.map((column) => (
-                      <React.Fragment key={column.id}>{column.header}</React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {virtualizeRows ? (
-                    <>
-                      {virtualPaddingTop > 0 && (
-                        <tr
-                          className={styles.requestEventsVirtualSpacerRow}
-                          style={{ height: `${virtualPaddingTop}px` }}
-                          aria-hidden="true"
-                        >
-                          <td colSpan={visibleColumns.length} />
-                        </tr>
-                      )}
-                      {virtualRows.map((virtualRow) => {
-                        const row = rows[virtualRow.index];
-                        return (
-                          <RequestEventTableRow
-                            key={virtualRow.key}
-                            row={row}
-                            columns={visibleColumns}
-                            virtualIndex={virtualRow.index}
-                            measureElement={eventRowVirtualizer.measureElement}
-                          />
-                        );
-                      })}
-                      {virtualPaddingBottom > 0 && (
-                        <tr
-                          className={styles.requestEventsVirtualSpacerRow}
-                          style={{ height: `${virtualPaddingBottom}px` }}
-                          aria-hidden="true"
-                        >
-                          <td colSpan={visibleColumns.length} />
-                        </tr>
-                      )}
-                    </>
-                  ) : rows.map((row) => (
-                    <RequestEventTableRow key={row.id} row={row} columns={visibleColumns} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className={styles.requestEventsPaginationFooter}>
-              <div className={styles.requestEventsPaginationControls}>
-                <>
-                  <span
-                    className={styles.requestEventsPaginationPage}
-                    role="status"
-                    aria-live="polite"
-                    aria-atomic="true"
-                    aria-label={t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
-                  >
-                    <span className={styles.requestEventsPaginationLabel}>
-                      {t('usage_stats.request_events_loaded_label')}
-                    </span>
-                    <strong className={styles.requestEventsPaginationLoaded}>{rows.length}</strong>
-                    <span className={styles.requestEventsPaginationTotal} aria-hidden="true">
-                      / {totalCount}
-                    </span>
-                  </span>
-                  {hasMore && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      appearance="action"
-                      onClick={onLoadMore}
-                      loading={loadingMore}
-                      disabled={loading}
-                    >
-                      {loadingMore ? t('common.loading') : t('usage_stats.request_events_load_more')}
-                    </Button>
-                  )}
-                </>
-              </div>
-            </div>
-          </>
+          <RequestEventsViewport
+            rows={rows}
+            columns={visibleColumns}
+            totalCount={totalCount}
+            loading={loading}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            autoLoadMore={autoLoadMore}
+            reading={reading}
+            restoring={restoring}
+            onLoadMore={onLoadMore}
+            onStartReading={onStartReading}
+            onReturnToTop={onReturnToTop}
+            onTablePositionChange={onTablePositionChange}
+          />
         )}
       </Card>
       <RequestEventsColumnSettingsModal

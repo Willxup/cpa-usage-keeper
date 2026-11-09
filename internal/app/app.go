@@ -134,6 +134,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 	// 单个 App 共享一把费用读取许可，供 HTTP 费用请求和后续手动重算协调。
 	costReadGate := service.NewCostReadGate()
+	usageEventsLive := service.NewUsageEventsNotifier()
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
@@ -164,6 +165,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。
 		UsageAggregationNotifier: usageAggregationRunner,
+		UsageEventsLive:          usageEventsLive,
 		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
 		UsageHeaderQuota: quotaService,
 		PluginAPIKeys:    pluginAPIKeyRunner,
@@ -276,12 +278,14 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 			authHandler,
 			cfg.AppBasePath,
 			api.OptionalProviders{
-				UsageIdentity: usageIdentityService,
-				CostReadGate:  costReadGate,
-				ErrorEvents:   errorEventService,
-				Quota:         quotaService,
-				CPAAPIKeys:    cpaAPIKeyService,
-				Credentials:   credentialsManagementService,
+				UsageIdentity:          usageIdentityService,
+				CostReadGate:           costReadGate,
+				UsageEventsLive:        usageEventsLive,
+				UsageEventsLiveContext: lifecycleCtx,
+				ErrorEvents:            errorEventService,
+				Quota:                  quotaService,
+				CPAAPIKeys:             cpaAPIKeyService,
+				Credentials:            credentialsManagementService,
 				// 凭证与 AI 供应商共用一个 service，路由层按类型分发。
 				CredentialStatus:   credentialStatusService,
 				CredentialPriority: credentialPriorityService,

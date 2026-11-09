@@ -497,6 +497,8 @@ location /cpa/ {
 
 Local Nginx needs no extra proxy trust settings. For containers, remote proxies, or CDNs, configure only the actual proxy networks in `TRUSTED_PROXY_CIDRS`; never trust all sources.
 
+Request Events uses a streaming SSE response with a heartbeat roughly every 15 seconds. Ensure every proxy/CDN in the path forwards batches without buffering and uses a read/idle timeout comfortably above the heartbeat interval (for example, 60 seconds). Keeper sends `X-Accel-Buffering: no`, but proxy or CDN configuration may override it. Verify the first snapshot and subsequent updates arrive without waiting for the connection to close.
+
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
