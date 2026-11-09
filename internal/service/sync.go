@@ -77,6 +77,7 @@ type SyncService struct {
 	usageRawRetentionDays int
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
+	usageEventsLive  *UsageEventsNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
 	pluginAPIKeys    PluginAPIKeyNotifier
@@ -106,6 +107,7 @@ type SyncServiceOptions struct {
 	UsageRawRetentionDays int
 	// UsageAggregationNotifier 注入 App 唯一的单 writer runner。
 	UsageAggregationNotifier UsageAggregationNotifier
+	UsageEventsLive          *UsageEventsNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
 	UsageHeaderQuota UsageHeaderSnapshotAppender
 	PluginAPIKeys    PluginAPIKeyNotifier
@@ -134,6 +136,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		usageRawRetentionDays: opts.UsageRawRetentionDays,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
+		usageEventsLive:  opts.UsageEventsLive,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
 		usageHeaderQuota: opts.UsageHeaderQuota,
 		pluginAPIKeys:    opts.PluginAPIKeys,
@@ -436,6 +439,10 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 事务已经同时提交 usage_events 与对应 inbox processed，只有此时事件级 Token 日志才代表真实入库事件。
 	logCommittedTokenProcessingEvents(normalizedItems)
 	if result.InsertedEvents > 0 {
+		// 实时订阅只接收提交后的最高 ID 唤醒；数据始终从数据库补齐。
+		if s.usageEventsLive != nil {
+			s.usageEventsLive.NotifyUsageEventsCommitted(events)
+		}
 		if s.pluginAPIKeys != nil && len(pluginIdentities) > 0 {
 			// 独立切片只包含真正提交的 ready 事件身份；登记失败不影响用量提交。
 			s.pluginAPIKeys.NotifyPluginAPIKeys(append([]entities.PluginAPIKeyIdentity(nil), pluginIdentities...))

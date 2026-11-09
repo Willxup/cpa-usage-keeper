@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import type { UsageEventsResponse } from '@/lib/types';
+import { requestEventsLiveSnapshot } from './requestEventsLiveFixture';
 
 const api = vi.hoisted(() => ({
   fetchCpaApiKeyOptions: vi.fn(),
   fetchUsageEvents: vi.fn(),
+  openUsageEventsLive: vi.fn(),
   exportUsageEvents: vi.fn(),
   fetchUsageOverview: vi.fn(),
   fetchUsageOverviewComparisons: vi.fn(),
@@ -71,6 +73,7 @@ describe('UsagePage top API Key request event filter', () => {
     api.fetchUsageEvents.mockReset().mockImplementation(async (_range, _signal, options) => options.cursor
       ? { ...firstPage, events: [{ ...firstPage.events[0], id: '100' }], has_more: false, next_cursor: null }
       : firstPage);
+    api.openUsageEventsLive.mockReset().mockImplementation(async (_range, _options, signal) => requestEventsLiveSnapshot(firstPage, signal));
     api.exportUsageEvents.mockReset().mockResolvedValue({ blob: new Blob(['events']), filename: 'events.csv' });
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(2000);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
@@ -103,23 +106,26 @@ describe('UsagePage top API Key request event filter', () => {
     await render();
     const filters = { model: 'gpt-5', apiKeyId: '11', source: 'source-1', result: 'failed' };
     const range = expect.objectContaining({ range: '24h' });
-    expect(api.fetchUsageEvents).toHaveBeenCalledExactlyOnceWith(range, expect.any(AbortSignal), expect.objectContaining(filters));
+    expect(api.openUsageEventsLive).toHaveBeenCalledExactlyOnceWith(range, expect.objectContaining(filters), expect.any(AbortSignal));
     expect(container.querySelector('input[aria-label="API Key"]')).toBeNull();
     await act(async () => button('Load more').click());
     expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(range, expect.any(AbortSignal), expect.objectContaining({ ...filters, cursor: 'cursor-101' }));
 
-    const calls = api.fetchUsageEvents.mock.calls.length;
+    const calls = api.openUsageEventsLive.mock.calls.length;
     await choose(topKey(), 'Other key');
-    expect(api.fetchUsageEvents).toHaveBeenCalledTimes(calls + 1);
-    expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(range, expect.any(AbortSignal), expect.objectContaining({ ...filters, apiKeyId: '33' }));
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    expect(api.openUsageEventsLive).toHaveBeenCalledTimes(calls + 1);
+    expect(api.openUsageEventsLive).toHaveBeenLastCalledWith(range, expect.objectContaining({ ...filters, apiKeyId: '33' }), expect.any(AbortSignal));
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('33');
     expect(storedFilters()).toEqual({ model: 'gpt-5', source: 'source-1', result: 'failed' });
 
-    await act(async () => triggerHeaderRefresh());
-    expect(api.fetchUsageEvents).toHaveBeenCalledTimes(calls + 2);
-    expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(range, expect.any(AbortSignal), expect.objectContaining({ ...filters, apiKeyId: '33' }));
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    let refresh!: Promise<void>;
+    // 先提交刷新状态，让连接effect启动；再等待原刷新Promise完成。
+    await act(async () => { refresh = triggerHeaderRefresh(); });
+    await act(async () => { await refresh; });
+    expect(api.openUsageEventsLive).toHaveBeenCalledTimes(calls + 2);
+    expect(api.openUsageEventsLive).toHaveBeenLastCalledWith(range, expect.objectContaining({ ...filters, apiKeyId: '33' }), expect.any(AbortSignal));
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
     await act(async () => button('Load more').click());
     expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(range, expect.any(AbortSignal), expect.objectContaining({ ...filters, apiKeyId: '33', cursor: 'cursor-101' }));
     await act(async () => button('Export').click());
@@ -134,18 +140,18 @@ describe('UsagePage top API Key request event filter', () => {
     root = createRoot(container);
     await render();
     expect(topKey().textContent).toContain('Other key');
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('33');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('33');
     await act(async () => button('Clear Filters').click());
     expect(storedFilters()).toEqual({ model: '__all__', source: '__all__', result: '__all__' });
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('33');
-    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '33', model: undefined, source: undefined, result: undefined });
+    expect(api.openUsageEventsLive.mock.lastCall![1]).toMatchObject({ apiKeyId: '33', model: undefined, source: undefined, result: undefined });
     expect(button('Clear Filters').disabled).toBe(true);
   });
 
   it('ignores a legacy list key when the top selection is All', async () => {
     localStorage.removeItem(TOP_KEY_STORAGE);
     await render();
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('');
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('');
     expect(storedFilters()).not.toHaveProperty('apiKeyId');
   });
@@ -158,10 +164,10 @@ describe('UsagePage top API Key request event filter', () => {
     await act(async () => triggerHeaderRefresh());
     await act(async () => button('Export').click());
     await act(async () => button('Export CSV').click());
-    expect(api.fetchUsageEvents).not.toHaveBeenCalled();
+    expect(api.openUsageEventsLive).not.toHaveBeenCalled();
     expect(api.exportUsageEvents).not.toHaveBeenCalled();
     await act(async () => resolveOptions(keyOptions));
-    expect(api.fetchUsageEvents).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.any(AbortSignal), expect.objectContaining({ apiKeyId: '11' }));
+    expect(api.openUsageEventsLive).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.objectContaining({ apiKeyId: '11' }), expect.any(AbortSignal));
     expect(storedFilters()).not.toHaveProperty('apiKeyId');
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('11');
   });
@@ -169,7 +175,7 @@ describe('UsagePage top API Key request event filter', () => {
   it('preserves the saved top key when loading options fails', async () => {
     api.fetchCpaApiKeyOptions.mockRejectedValue(new Error('offline'));
     await render();
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('11');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('11');
     expect(storedFilters()).not.toHaveProperty('apiKeyId');
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('11');
   });
@@ -177,8 +183,8 @@ describe('UsagePage top API Key request event filter', () => {
   it('clears a missing top key only after options load successfully', async () => {
     api.fetchCpaApiKeyOptions.mockResolvedValue({ options: [keyOptions.options[1]] });
     await render();
-    expect(api.fetchUsageEvents.mock.calls.every((call) => call[2].apiKeyId === '')).toBe(true);
-    expect(api.fetchUsageEvents).toHaveBeenCalled();
+    expect(api.openUsageEventsLive.mock.calls.every((call) => call[1].apiKeyId === '')).toBe(true);
+    expect(api.openUsageEventsLive).toHaveBeenCalled();
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('');
     expect(storedFilters()).not.toHaveProperty('apiKeyId');
   });
@@ -187,18 +193,18 @@ describe('UsagePage top API Key request event filter', () => {
     let resolveOld!: (value: UsageEventsResponse) => void;
     const oldResponse = new Promise<UsageEventsResponse>((resolve) => { resolveOld = resolve; });
     if (phase === 'initial load') {
-      api.fetchUsageEvents.mockReturnValueOnce(oldResponse);
+      api.openUsageEventsLive.mockImplementationOnce((_range, _options, signal) => oldResponse.then((page) => requestEventsLiveSnapshot(page, signal)));
       await render();
     } else {
       await render();
       api.fetchUsageEvents.mockReturnValueOnce(oldResponse);
       await act(async () => button('Load more').click());
     }
-    const oldSignal = api.fetchUsageEvents.mock.lastCall![1] as AbortSignal;
+    const oldSignal = (phase === 'initial load' ? api.openUsageEventsLive.mock.lastCall![2] : api.fetchUsageEvents.mock.lastCall![1]) as AbortSignal;
     await choose(topKey(), 'Other key');
     expect(oldSignal.aborted).toBe(true);
-    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '33' });
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    expect(api.openUsageEventsLive.mock.lastCall![1]).toMatchObject({ apiKeyId: '33' });
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
     await act(async () => resolveOld({
       ...firstPage, events: [{ ...firstPage.events[0], id: 'old-key-event', model: 'stale-model' }],
       next_cursor: 'stale-cursor',
@@ -208,7 +214,7 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '33', cursor: 'cursor-101' });
   });
 
-  it('resets pagination immediately while a new top key query is pending and resumes auto refresh on page one', async () => {
+  it('retires the old history cursor while a new top key snapshot is pending without starting polling', async () => {
     vi.useFakeTimers();
     await render();
     // 旧 Key 的第二批仍有下一页，才能验证切换时确实丢弃了旧游标。
@@ -220,16 +226,17 @@ describe('UsagePage top API Key request event filter', () => {
     await act(async () => button('Load more').click());
     expect(button('Load more').disabled).toBe(false);
     let resolveNew!: (value: UsageEventsResponse) => void;
-    api.fetchUsageEvents.mockReturnValueOnce(new Promise<UsageEventsResponse>((resolve) => { resolveNew = resolve; }));
+    const next = new Promise<UsageEventsResponse>((resolve) => { resolveNew = resolve; });
+    api.openUsageEventsLive.mockImplementationOnce((_range, _options, signal) => next.then((page) => requestEventsLiveSnapshot(page, signal)));
     await choose(topKey(), 'Other key');
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
     expect(button('Load more')).toBeUndefined();
     await act(async () => resolveNew({ ...firstPage, next_cursor: 'cursor-new-key' }));
-    const calls = api.fetchUsageEvents.mock.calls.length;
+    const calls = api.openUsageEventsLive.mock.calls.length;
     await act(async () => vi.advanceTimersByTimeAsync(15_000));
-    expect(api.fetchUsageEvents.mock.calls.length).toBeGreaterThan(calls);
-    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '33' });
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    expect(api.openUsageEventsLive).toHaveBeenCalledTimes(calls);
+    expect(api.openUsageEventsLive.mock.lastCall![1]).toMatchObject({ apiKeyId: '33' });
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
   });
 
   it('applies a changed top range together with the top key to queries and export', async () => {
@@ -237,14 +244,14 @@ describe('UsagePage top API Key request event filter', () => {
     await act(async () => button('Load more').click());
     await act(async () => container.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="yesterday"]')!.click());
-    expect(api.fetchUsageEvents).toHaveBeenLastCalledWith(expect.objectContaining({ range: 'yesterday' }), expect.any(AbortSignal), expect.objectContaining({ apiKeyId: '11' }));
-    expect(api.fetchUsageEvents.mock.lastCall![2].cursor).toBeUndefined();
+    expect(api.openUsageEventsLive).toHaveBeenLastCalledWith(expect.objectContaining({ range: 'yesterday' }), expect.objectContaining({ apiKeyId: '11' }), expect.any(AbortSignal));
+    expect(api.openUsageEventsLive.mock.lastCall![1].cursor).toBeUndefined();
     await act(async () => button('Export').click());
     await act(async () => button('Export JSON').click());
     expect(api.exportUsageEvents).toHaveBeenLastCalledWith(expect.objectContaining({ range: 'yesterday' }), 'json', expect.objectContaining({ apiKeyId: '11' }));
   });
 
-  it('invalidates candidates on automatic refresh and range changes, but fetches immediately on manual refresh', async () => {
+  it('keeps candidates without polling, invalidates them on range changes and refreshes manually', async () => {
     vi.useFakeTimers();
     await render();
     const scopedCalls = () => api.fetchCpaApiKeyOptions.mock.calls.filter((call) => call[1]);
@@ -259,32 +266,31 @@ describe('UsagePage top API Key request event filter', () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(scopedCalls()).toHaveLength(1);
-    let finish!: (value: typeof keyOptions) => void;
-    api.fetchCpaApiKeyOptions.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
     await toggleKey();
-    expect(scopedCalls()).toHaveLength(2);
+    expect(scopedCalls()).toHaveLength(1);
     expect(Array.from(document.querySelectorAll('[role="option"]'), (node) => node.textContent)).toEqual(['All', 'Overview key', 'Events key', 'Other key']);
-    await act(async () => finish(keyOptions));
     await toggleKey();
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="yesterday"]')!.click());
-    expect(scopedCalls()).toHaveLength(2);
+    expect(scopedCalls()).toHaveLength(1);
     await toggleKey();
-    expect(scopedCalls()).toHaveLength(3);
+    expect(scopedCalls()).toHaveLength(2);
     expect(scopedCalls().at(-1)![1]).toMatchObject({ scope: 'request-events', range: { range: 'yesterday' } });
     await toggleKey();
-    await act(async () => triggerHeaderRefresh());
-    expect(scopedCalls()).toHaveLength(4);
+    let refresh!: Promise<void>;
+    await act(async () => { refresh = triggerHeaderRefresh(); });
+    await act(async () => { await refresh; });
+    expect(scopedCalls()).toHaveLength(3);
     await toggleKey();
-    expect(scopedCalls()).toHaveLength(4);
+    expect(scopedCalls()).toHaveLength(3);
   });
 
   it('keeps a selected registered key when it has no events in the current scope', async () => {
     api.fetchCpaApiKeyOptions.mockImplementation(async (_signal, request) => request ? { options: [keyOptions.options[1]] } : keyOptions);
     await render();
     expect(topKey().textContent).toContain('Overview key');
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('11');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('11');
     await act(async () => topKey().click());
     const options = Array.from(document.querySelectorAll('[role="option"]')).map((node) => node.textContent);
     expect(options).toContain('Events key');
@@ -327,9 +333,9 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.fetchAnalysis).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');
     expect(api.fetchAnalysisLatency).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');
     await navigate('/request-events');
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('33');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('33');
     await choose(topKey(), 'All');
-    expect(api.fetchUsageEvents.mock.lastCall![2].apiKeyId).toBe('');
+    expect(api.openUsageEventsLive.mock.lastCall![1].apiKeyId).toBe('');
     expect(localStorage.getItem(TOP_KEY_STORAGE)).toBe('');
   });
 });

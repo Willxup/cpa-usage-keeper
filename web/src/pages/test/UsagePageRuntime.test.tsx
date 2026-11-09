@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import type { UsageEventRequestLogResponse, UsageEventsResponse } from '@/lib/types';
+import { requestEventsLiveSnapshot } from './requestEventsLiveFixture';
 
 const api = vi.hoisted(() => ({
   fetchUsageEventRequestLog: vi.fn(),
@@ -35,7 +36,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchCurrentPricingRecalculation: async () => null,
   fetchUsageEventModelFilterOptions: async () => ({ models: [] }),
   fetchUsageEventSourceFilterOptions: async () => ({ sources: [] }),
-  fetchUsageEvents: async (): Promise<UsageEventsResponse> => ({
+  openUsageEventsLive: async (_request: unknown, _options: unknown, signal: AbortSignal): Promise<Response> => requestEventsLiveSnapshot({
     events: [{
       id: '42',
       request_id: 'req-42',
@@ -57,7 +58,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
     page: 1,
     page_size: 50,
     total_pages: 1,
-  }),
+  } satisfies UsageEventsResponse, signal),
 }));
 
 import { UsagePage } from '../UsagePage';

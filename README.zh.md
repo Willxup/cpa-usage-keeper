@@ -497,6 +497,8 @@ location /cpa/ {
 
 本机 Nginx 无需额外配置代理信任；容器、远程代理或 CDN 场景请在 `TRUSTED_PROXY_CIDRS` 中仅配置实际代理网段，不要信任所有来源。
 
+请求事件页使用 SSE 流，约每 15 秒发送心跳。请确保链路中的每一级代理/CDN 不缓冲数据批次，读取/空闲超时明显大于心跳间隔（例如 60 秒）。Keeper 发送 `X-Accel-Buffering: no`，但代理或 CDN 配置可能覆盖该响应头。请验证首批快照和后续更新无需等待连接关闭即可到达。
+
 ## License
 
 本项目基于 [MIT License](./LICENSE) 开源。

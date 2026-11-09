@@ -8,6 +8,7 @@ export class ApiError extends Error {
   code?: string
   // 价格表单按字段路径标红，分支冲突用 branch_ids 指明双方。
   fields?: PricingFieldError[]
+  retryAfterMs?: number
 
   constructor(message: string, status: number, code?: string, fields?: PricingFieldError[]) {
     super(message)
@@ -576,6 +577,25 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
     await parseApiError(response, `Failed to load usage event source filters: ${response.status}`)
   }
   return response.json()
+}
+
+// 实时流继续使用 apiFetch，以保留 cookie、CPAMC header 与 base path 合同。
+export async function openUsageEventsLive(request: UsageRangeRequest, options: FetchUsageEventsOptions, signal: AbortSignal): Promise<Response> {
+  const params = buildUsageEventsParams(request, options)
+  const response = await apiFetch(`${apiPath('/usage/events/live')}?${params.toString()}`, { signal, cache: 'no-store', headers: { Accept: 'text/event-stream' } })
+  if (response.status === 429) {
+    const value = response.headers.get('Retry-After') ?? ''
+    const seconds = Number(value)
+    const delay = Number.isFinite(seconds) && value.trim() ? seconds * 1000 : Date.parse(value) - Date.now()
+    const error = new ApiError('Live connection capacity is full', 429)
+    error.retryAfterMs = Number.isFinite(delay) ? Math.max(delay, 1000) : 5000
+    throw error
+  }
+  if (!response.ok) await parseApiError(response, `Failed to connect to live usage events: ${response.status}`)
+  if (!response.body || !response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {
+    throw new ApiError('Live usage events are not supported by this server', 501)
+  }
+  return response
 }
 
 export async function fetchUsageEvents(request: UsageRangeRequest | undefined, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {

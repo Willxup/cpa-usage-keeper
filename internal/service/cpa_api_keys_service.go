@@ -29,8 +29,8 @@ func NewCPAAPIKeyService(db *gorm.DB) CPAAPIKeyProvider {
 	return &cpaAPIKeyService{db: db}
 }
 
-func (s *cpaAPIKeyService) ListCPAAPIKeys(context.Context) ([]entities.CPAAPIKey, error) {
-	return repository.ListActiveCPAAPIKeys(s.db)
+func (s *cpaAPIKeyService) ListCPAAPIKeys(ctx context.Context) ([]entities.CPAAPIKey, error) {
+	return repository.ListActiveCPAAPIKeys(s.db.WithContext(ctx))
 }
 
 func (s *cpaAPIKeyService) FindActiveCPAAPIKeyByValue(_ context.Context, apiKey string) (entities.CPAAPIKey, error) {
