@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { IconHistory, IconPlus, IconRefreshCw, IconTrash2 } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
-import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData'
+import type { UseModelPricingDataReturn } from '@/components/usage/hooks/useModelPricingData'
 import { ApiError } from '@/lib/api'
 import type { ModelPricingConfig, PricingBasePrices, PricingRecalculationTask } from '@/lib/types'
 import { CompletePricingSyncModal } from './CompletePricingSyncModal'
@@ -19,6 +19,7 @@ type PriceKey = keyof PricingBasePrices
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
 
 export interface PricingSettingsProps {
+  pricing: UseModelPricingDataReturn
   enabled?: boolean
   onAuthRequired?: () => void
   timezone?: string
@@ -31,11 +32,10 @@ export interface PricingSettingsHandle {
 
 // 完整模型配置列表负责添加、编辑与删除；写成功后重读配置，不改写历史费用。
 export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettingsProps>(function PricingSettings(
-  { enabled = true, onAuthRequired, timezone, onRecalculationSettled }: PricingSettingsProps,
+  { pricing, enabled = true, onAuthRequired, timezone, onRecalculationSettled }: PricingSettingsProps,
   ref,
 ) {
   const { t } = useTranslation()
-  const pricing = useModelPricingData({ enabled, onAuthRequired })
   const recalculation = usePricingRecalculation({ enabled, onAuthRequired, onSettled: (task) => {
     // 本页观测终态后实际重读当前价格列表；额度的旧本地响应由外层页面一并退休。
     void pricing.loadPricing()

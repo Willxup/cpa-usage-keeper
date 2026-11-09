@@ -34,6 +34,7 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
   const [configRevision, setConfigRevision] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const loadedRef = useRef(false);
   const requestRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
   const onAuthRequiredRef = useRef(onAuthRequired);
@@ -60,6 +61,7 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
       setModels(modelResponse.models);
       setConfigRevision(modelResponse.config_revision);
       setModelOptions(optionsResponse.models);
+      loadedRef.current = true;
       return true;
     } catch (readError) {
       if (requestRef.current !== controller || controller.signal.aborted || !mountedRef.current) return false;
@@ -75,11 +77,12 @@ export function useModelPricingData(options: UseModelPricingDataOptions = {}): U
     }
   }, []);
 
+  // 成功读取后在页面内保留配置；初次读取未成功时再次进入仍重新加载。
   useEffect(() => {
     mountedRef.current = true;
-    if (enabled) {
+    if (enabled && !loadedRef.current) {
       void loadPricing();
-    } else {
+    } else if (!enabled) {
       setLoading(false);
     }
     return () => {

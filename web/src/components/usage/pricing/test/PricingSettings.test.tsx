@@ -1,12 +1,14 @@
 import { selectOption } from './selectOption'
 // @vitest-environment happy-dom
 
-import { act, createRef } from 'react'
+import { act, createRef, forwardRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricingConfig, PricingRecalculationTask } from '@/lib/types'
-import { ModelCatalog, type ModelCatalogHandle } from '../../models/ModelCatalog'
-import { PricingSettings, type PricingSettingsHandle } from '../PricingSettings'
+import { ModelCatalog as ModelCatalogView, type ModelCatalogHandle } from '../../models/ModelCatalog'
+import { useModelCatalogData } from '../../models/useModelCatalogData'
+import { useModelPricingData } from '../../hooks/useModelPricingData'
+import { PricingSettings as PricingSettingsView, type PricingSettingsHandle, type PricingSettingsProps } from '../PricingSettings'
 import filterStyles from '../../credentials/CredentialSections.module.scss'
 
 vi.mock('react-i18next', () => ({
@@ -16,6 +18,18 @@ vi.mock('react-i18next', () => ({
     params ? `${key}:${JSON.stringify(params)}` : key
   ) }),
 }))
+
+const ModelCatalog = forwardRef<ModelCatalogHandle>(function ModelCatalogFixture(_, ref) {
+  const catalog = useModelCatalogData()
+  return <ModelCatalogView ref={ref} catalog={catalog} />
+})
+
+const PricingSettings = forwardRef<PricingSettingsHandle, Omit<PricingSettingsProps, 'pricing'>>(function PricingSettingsFixture(
+  { enabled = true, onAuthRequired, ...props }, ref,
+) {
+  const pricing = useModelPricingData({ enabled, onAuthRequired })
+  return <PricingSettingsView {...props} ref={ref} pricing={pricing} enabled={enabled} onAuthRequired={onAuthRequired} />
+})
 
 const existing: ModelPricingConfig = {
   model: 'provider/claude-sonnet', pricing_style: 'claude',

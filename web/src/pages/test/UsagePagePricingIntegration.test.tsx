@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh'
 import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
+import type { ModelPricingConfig } from '@/lib/types'
 
 const api = vi.hoisted(() => ({
   fetchAvailableModels: vi.fn(),
   fetchPricingModels: vi.fn(),
   fetchPricingModelOptions: vi.fn(),
+  savePricingModel: vi.fn(),
   fetchCurrentPricingRecalculation: vi.fn(),
   fetchUsageEvents: vi.fn(),
   fetchAnalysis: vi.fn(),
@@ -33,9 +35,23 @@ vi.mock('@/lib/api', async (original) => ({
   fetchUsageEventSourceFilterOptions: async () => ({ sources: [] }),
   fetchCpaApiKeySettings: async () => ({ items: [] }),
   fetchAuthSessions: async () => ({ sessions: [] }),
+  fetchUsageIdentitiesPage: async () => ({ identities: [], total_count: 0, total_pages: 0, type_counts: [] }),
+  fetchUsageQuotaCache: async () => ({ results: [] }),
+  fetchUsageQuotaInspectionStatus: async () => ({}),
+  fetchQuotaAutoRefreshSettings: async () => ({}),
+  fetchUsageQuotaResetCredits: async () => ({}),
 }))
 
 import { UsagePage } from '../UsagePage'
+
+const pricingConfig: ModelPricingConfig = {
+  model: 'model-a', pricing_style: 'openai',
+  base_prices: { input: 1, output: 2, cache_read: 0, cache_write: 0 },
+  model_multiplier: 1, conditional_multipliers: [],
+  branches: [{ id: 'night', name: 'Night', context: { type: 'all' },
+    period: { type: 'window', start: '22:00', end: '06:00' },
+    prices: { input: 0.5, output: 1, cache_read: 0, cache_write: 0 } }],
+}
 
 describe('UsagePage complete pricing integration', () => {
   let container: HTMLDivElement
@@ -47,15 +63,9 @@ describe('UsagePage complete pricing integration', () => {
     localStorage.clear()
     window.history.replaceState(null, '', '/models')
     api.fetchAvailableModels.mockReset().mockResolvedValue({ object: 'list', data: [{ id: 'model-a', owned_by: 'openai' }] })
-    api.fetchPricingModels.mockReset().mockResolvedValue({ models: [{
-      model: 'model-a', pricing_style: 'openai',
-      base_prices: { input: 1, output: 2, cache_read: 0, cache_write: 0 },
-      model_multiplier: 1, conditional_multipliers: [],
-      branches: [{ id: 'night', name: 'Night', context: { type: 'all' },
-        period: { type: 'window', start: '22:00', end: '06:00' },
-        prices: { input: 0.5, output: 1, cache_read: 0, cache_write: 0 } }],
-    }], config_revision: 3 })
+    api.fetchPricingModels.mockReset().mockResolvedValue({ models: [pricingConfig], config_revision: 3 })
     api.fetchPricingModelOptions.mockReset().mockResolvedValue({ models: ['model-a'] })
+    api.savePricingModel.mockReset().mockResolvedValue({ model: 'model-a', config_revision: 4 })
     api.fetchCurrentPricingRecalculation.mockReset().mockResolvedValue(null)
     api.fetchUsageEvents.mockReset().mockResolvedValue({ events: [{
       id: '401', timestamp: '2026-09-23T12:00:00Z', model: 'historic-fee-model',
@@ -92,23 +102,93 @@ describe('UsagePage complete pricing integration', () => {
     expect(document.body.textContent).toContain('America/New_York')
   })
 
-  it('rereads complete model pricing through the existing page refresh action', async () => {
+  it.each(['credentials', 'ai-provider'])('retains the loaded catalog and prices after visiting %s', async (tab) => {
     await act(async () => root.render(<UsagePage />))
+    const catalog = () => container.querySelector<HTMLElement>('section[aria-label="Models"]')
+    const pricing = () => container.querySelector<HTMLElement>('section[aria-label="Model Pricing Settings"]')
+    expect(catalog()?.textContent).toContain('model-a')
+    expect(pricing()?.textContent).toContain('$1')
+
+    await act(async () => container.querySelector<HTMLAnchorElement>(`a[href^="/${tab}"]`)!.click())
+    expect(catalog()).toBeNull()
+    expect(pricing()).toBeNull()
+    // 若切回时重读，保持请求进行中，让首次加载闪烁成为可观察的回归。
+    api.fetchAvailableModels.mockReturnValueOnce(new Promise(() => {}))
+    api.fetchPricingModels.mockReturnValueOnce(new Promise(() => {}))
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+
+    expect.soft(catalog()?.textContent).toContain('model-a')
+    expect.soft(pricing()?.textContent).toContain('model-a')
+    expect.soft(pricing()?.textContent).toContain('$1')
+    expect(catalog()?.querySelector('[aria-busy="false"]')).not.toBeNull()
+    expect(pricing()?.textContent).not.toContain(i18n.t('common.loading'))
+    expect(api.fetchAvailableModels).toHaveBeenCalledTimes(1)
     expect(api.fetchPricingModels).toHaveBeenCalledTimes(1)
-    expect(api.fetchCurrentPricingRecalculation).toHaveBeenCalledTimes(1)
-    await act(async () => triggerHeaderRefresh())
-    expect(api.fetchPricingModels).toHaveBeenCalledTimes(2)
-    expect(api.fetchCurrentPricingRecalculation).toHaveBeenCalledTimes(2)
-    expect(api.fetchAvailableModels).toHaveBeenCalledTimes(2)
+    expect(api.fetchPricingModelOptions).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps pricing out of Settings and positions Models before Settings', async () => {
+  it('retains price edits made after returning to Models', async () => {
+    await act(async () => root.render(<UsagePage />))
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/credentials"]')!.click())
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+    const edit = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Edit')!
+    await act(async () => edit.click())
+    const input = document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '4.5')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    api.fetchPricingModels.mockResolvedValueOnce({
+      models: [{ ...pricingConfig, base_prices: { ...pricingConfig.base_prices, input: 4.5 } }], config_revision: 4,
+    })
+    const save = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Save')!
+    await act(async () => save.click())
+    expect(api.savePricingModel).toHaveBeenCalledOnce()
+    expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain('$4.5')
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/ai-provider"]')!.click())
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+    expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain('$4.5')
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('rereads complete model pricing through the existing page refresh action after returning to Models', async () => {
+    await act(async () => root.render(<UsagePage />))
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/credentials"]')!.click())
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(1)
+    expect(api.fetchCurrentPricingRecalculation).toHaveBeenCalledTimes(2)
+    api.fetchAvailableModels.mockResolvedValueOnce({ object: 'list', data: [{ id: 'model-b', owned_by: 'openai' }] })
+    api.fetchPricingModels.mockResolvedValueOnce({
+      models: [{ ...pricingConfig, base_prices: { ...pricingConfig.base_prices, input: 4.5 } }], config_revision: 4,
+    })
+    await act(async () => triggerHeaderRefresh())
+    expect(api.fetchPricingModels).toHaveBeenCalledTimes(2)
+    expect(api.fetchCurrentPricingRecalculation).toHaveBeenCalledTimes(3)
+    expect(api.fetchAvailableModels).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('section[aria-label="Models"]')?.textContent).toContain('model-b')
+    expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain('$4.5')
+  })
+
+  it('keeps pricing out of Settings and loads Models on the first visit', async () => {
+    const catalogRequest = Promise.withResolvers<{ data: { id: string; owned_by: string }[] }>()
+    const pricingRequest = Promise.withResolvers<{ models: typeof pricingConfig[]; config_revision: number }>()
+    api.fetchAvailableModels.mockReturnValueOnce(catalogRequest.promise)
+    api.fetchPricingModels.mockReturnValueOnce(pricingRequest.promise)
     window.history.replaceState(null, '', '/settings')
     await act(async () => root.render(<UsagePage />))
     expect(api.fetchPricingModels).not.toHaveBeenCalled()
     expect(api.fetchAvailableModels).not.toHaveBeenCalled()
     const links = [...container.querySelectorAll('a')]
     expect(links.findIndex((link) => link.textContent === 'Models')).toBe(links.findIndex((link) => link.textContent === 'Settings') - 1)
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href^="/models"]')!.click())
+    expect(container.querySelector('section[aria-label="Models"] [aria-busy="true"]')).not.toBeNull()
+    expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain(i18n.t('common.loading'))
+    await act(async () => {
+      catalogRequest.resolve({ data: [{ id: 'model-a', owned_by: 'openai' }] })
+      pricingRequest.resolve({ models: [pricingConfig], config_revision: 3 })
+    })
+    expect(container.querySelector('section[aria-label="Models"]')?.textContent).toContain('model-a')
+    expect(container.querySelector('section[aria-label="Model Pricing Settings"]')?.textContent).toContain('$1')
   })
 
   it('keeps the displayed request cost on same-scope costs_busy and refreshes through the real page action', async () => {

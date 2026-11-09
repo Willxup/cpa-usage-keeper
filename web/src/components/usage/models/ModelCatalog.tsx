@@ -1,51 +1,26 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { Button } from '@/components/ui/Button'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { IconCopy, IconFilterAll, IconSearch } from '@/components/ui/icons'
-import { ApiError, fetchAvailableModels } from '@/lib/api'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { loadModelProviderFilter, modelProviderFromFilter, normalizeCatalog, persistModelProviderFilter, type CatalogModel, type ModelProvider } from './modelCatalog'
+import { loadModelProviderFilter, modelProviderFromFilter, persistModelProviderFilter, type ModelProvider } from './modelCatalog'
+import type { ModelCatalogData } from './useModelCatalogData'
 import filterStyles from '../credentials/CredentialSections.module.scss'
 import styles from './ModelCatalog.module.scss'
 
 export interface ModelCatalogHandle { refresh: () => Promise<void> }
 
-export const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: () => void }>(function ModelCatalog({ onAuthRequired }, ref) {
+export const ModelCatalog = forwardRef<ModelCatalogHandle, { catalog: ModelCatalogData }>(function ModelCatalog({ catalog }, ref) {
   const { t } = useTranslation()
-  const [models, setModels] = useState<CatalogModel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState(false)
+  const { models, loading, loaded, error, refresh } = catalog
   const [provider, setProvider] = useState(loadModelProviderFilter)
   const [search, setSearch] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
-  const request = useRef<AbortController | null>(null)
   const listViewport = useRef<HTMLDivElement | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
 
-  const refresh = useCallback(async () => {
-    request.current?.abort()
-    const controller = new AbortController()
-    request.current = controller
-    setLoading(true)
-    setError(false)
-    try {
-      const result = await fetchAvailableModels(controller.signal)
-      if (controller.signal.aborted) return
-      setModels(normalizeCatalog(result.data))
-      setLoaded(true)
-    } catch (failure) {
-      if (controller.signal.aborted) return
-      if (failure instanceof ApiError && failure.status === 401) onAuthRequired?.()
-      setError(true)
-    } finally {
-      if (!controller.signal.aborted) setLoading(false)
-    }
-  }, [onAuthRequired])
-
-  useEffect(() => { void refresh(); return () => request.current?.abort() }, [refresh])
   useImperativeHandle(ref, () => ({ refresh }), [refresh])
   useEffect(() => {
     if (!copyNotice) return

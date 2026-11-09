@@ -1,15 +1,21 @@
 // @vitest-environment happy-dom
-import { act, createRef } from 'react'
+import { act, createRef, forwardRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
-import { ModelCatalog, type ModelCatalogHandle } from '../ModelCatalog'
+import { ModelCatalog as ModelCatalogView, type ModelCatalogHandle } from '../ModelCatalog'
+import { useModelCatalogData } from '../useModelCatalogData'
 import { loadModelProviderFilter, modelProvider, MODEL_CATALOG_PREFERENCES_KEY, normalizeCatalog } from '../modelCatalog'
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), copy: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...await original<typeof import('@/lib/api')>(), fetchAvailableModels: mocks.fetch }))
 vi.mock('@/utils/clipboard', () => ({ copyTextToClipboard: mocks.copy }))
+
+const ModelCatalog = forwardRef<ModelCatalogHandle, { onAuthRequired?: () => void }>(function ModelCatalogFixture({ onAuthRequired }, ref) {
+  const catalog = useModelCatalogData({ onAuthRequired })
+  return <ModelCatalogView ref={ref} catalog={catalog} />
+})
 
 describe('model catalog', () => {
   let container: HTMLDivElement
