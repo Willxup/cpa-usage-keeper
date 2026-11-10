@@ -19,7 +19,8 @@ func TestDayBoundsUsesRealCalendarDate(t *testing.T) {
 		{"Australia/Lord_Howe", "2026-10-04", "2026-10-04T00:00:00+10:30", "2026-10-05T00:00:00+11:00"},
 		{"Australia/Lord_Howe", "2026-04-05", "2026-04-05T00:00:00+11:00", "2026-04-06T00:00:00+10:30"},
 		{"Asia/Kathmandu", "2026-03-08", "2026-03-08T00:00:00+05:45", "2026-03-09T00:00:00+05:45"},
-		{"America/Havana", "2026-11-01", "2026-11-01T00:00:00-04:00", "2026-11-02T00:00:00-05:00"},
+        // Use a historical fall-back day with a repeated midnight.
+        {"America/Havana", "2025-11-02", "2025-11-02T00:00:00-04:00", "2025-11-03T00:00:00-05:00"},
 	} {
 		t.Run(sample.zone+"/"+sample.date, func(t *testing.T) {
 			location, err := time.LoadLocation(sample.zone)
