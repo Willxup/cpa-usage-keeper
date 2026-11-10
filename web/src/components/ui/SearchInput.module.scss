@@ -19,6 +19,10 @@
   }
 }
 
+:global([data-theme='white']) .search input::-webkit-search-cancel-button {
+  filter: grayscale(1);
+}
+
 @media (max-width: 600px) {
   .search { width: 100%; }
 }
