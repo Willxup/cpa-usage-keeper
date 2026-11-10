@@ -6,7 +6,7 @@ import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
 import { ModelCatalog as ModelCatalogView, type ModelCatalogHandle } from '../ModelCatalog'
 import { useModelCatalogData } from '../useModelCatalogData'
-import { loadModelProviderFilter, modelProvider, MODEL_CATALOG_PREFERENCES_KEY, normalizeCatalog } from '../modelCatalog'
+import { loadModelProviderFilter, modelProvider, MODEL_CATALOG_PREFERENCES_KEY, normalizeCatalog } from '../modelCatalogUtils'
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), copy: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...await original<typeof import('@/lib/api')>(), fetchAvailableModels: mocks.fetch }))
