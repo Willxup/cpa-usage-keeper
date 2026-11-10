@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, fetchAvailableModels } from '@/lib/api'
-import { normalizeCatalog, type CatalogModel } from './modelCatalog'
+import { normalizeCatalog, type CatalogModel } from './modelCatalogUtils'
 
 export interface ModelCatalogData {
   models: CatalogModel[]
