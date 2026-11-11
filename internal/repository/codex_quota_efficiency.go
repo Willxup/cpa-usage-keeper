@@ -73,7 +73,7 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	if query.Provider == "" {
 		query.Provider = "codex"
 	}
-	if _, ok := repositorydto.QuotaWindowKey(query.Provider, "primary"); !ok {
+	if query.Provider != "codex" && query.Provider != "claude" && query.Provider != "antigravity" {
 		return result, fmt.Errorf("unsupported quota history provider %q", query.Provider)
 	}
 	if query.AuthIndex == "" {
@@ -296,7 +296,13 @@ func buildQuotaEfficiencyWindows(cycles []entities.QuotaCycle, provider string, 
 	}
 	// 确定性顺序让前端键盘切换稳定：Primary 固定优先，Secondary 固定随后。
 	sort.Slice(windows, func(left, right int) bool {
-		return windows[left].WindowRole == string(entities.CodexQuotaWindowRolePrimary) && windows[right].WindowRole != string(entities.CodexQuotaWindowRolePrimary)
+		if windows[left].WindowRole == string(entities.CodexQuotaWindowRolePrimary) && windows[right].WindowRole != string(entities.CodexQuotaWindowRolePrimary) {
+			return true
+		}
+		if windows[right].WindowRole == string(entities.CodexQuotaWindowRolePrimary) && windows[left].WindowRole != string(entities.CodexQuotaWindowRolePrimary) {
+			return false
+		}
+		return windows[left].WindowRole < windows[right].WindowRole
 	})
 	return windows
 }

@@ -356,7 +356,7 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		return CheckResponse{}, false, err
 	}
 	// 主动查询只从真实 provider 的账号主窗口提取可信观察；其它窗口不参与历史。
-	if provider := normalizeIdentityType(identity.Type); provider == "codex" || provider == "claude" {
+	if provider := normalizeIdentityType(identity.Type); provider == "codex" || provider == "claude" || provider == "antigravity" {
 		observations := BuildMainQuotaObservations(authIndex, providerOutput, time.Now())
 		if len(observations) > 0 && observations[0].Provider != provider {
 			observations = nil

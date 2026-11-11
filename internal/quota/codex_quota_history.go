@@ -42,6 +42,9 @@ func BuildMainQuotaObservations(authIndex string, output ProviderOutput, observe
 	if codexUsagePayloadFromProviderOutput(output) != nil {
 		return BuildCodexMainQuotaObservations(authIndex, output, observedAt)
 	}
+	if antigravityResult := antigravityResultFromProviderOutput(output); antigravityResult != nil {
+		return buildAntigravityMainQuotaObservations(strings.TrimSpace(authIndex), *antigravityResult, observedAt)
+	}
 	var usage *ClaudeUsagePayload
 	switch result := output.Result.(type) {
 	case ClaudeResult:
@@ -163,4 +166,59 @@ func buildCodexMainQuotaObservation(authIndex string, role string, window *Codex
 		ObservationCount: 1,
 	}
 	return observation, true
+}
+
+func antigravityResultFromProviderOutput(output ProviderOutput) *AntigravityResult {
+	switch result := output.Result.(type) {
+	case AntigravityResult:
+		return &result
+	case *AntigravityResult:
+		return result
+	}
+	return nil
+}
+
+func buildAntigravityMainQuotaObservations(authIndex string, result AntigravityResult, observedAt time.Time) []repositorydto.CodexMainQuotaObservation {
+	if result.Quota == nil {
+		return nil
+	}
+	observations := make([]repositorydto.CodexMainQuotaObservation, 0)
+	for groupIndex, group := range result.Quota.Groups {
+		groupKey := antigravityQuotaGroupKey(group.DisplayName, groupIndex)
+		for _, bucket := range group.Buckets {
+			if bucket.RemainingFraction == nil {
+				continue
+			}
+			_, metric, window := normalizeAntigravityQuotaWindow(bucket)
+			if window == nil || window.Seconds == nil || *window.Seconds <= 0 {
+				continue
+			}
+			resetAt, err := time.Parse(time.RFC3339Nano, bucket.ResetTime)
+			if err != nil || resetAt.IsZero() {
+				continue
+			}
+			remaining := *bucket.RemainingFraction * 100
+			if math.IsNaN(remaining) || math.IsInf(remaining, 0) {
+				continue
+			}
+			clamped := math.Max(0, math.Min(100, remaining))
+			remainingPercent := int(math.Round(clamped))
+
+			role := groupKey + "/" + metric
+			observations = append(observations, repositorydto.CodexMainQuotaObservation{
+				Provider:         "antigravity",
+				QuotaKey:         role,
+				AuthIndex:        authIndex,
+				WindowRole:       role,
+				WindowSeconds:    *window.Seconds,
+				ResetAtSource:    "absolute",
+				ResetAt:          resetAt,
+				RemainingPercent: remainingPercent,
+				FirstObservedAt:  observedAt,
+				LastObservedAt:   observedAt,
+				ObservationCount: 1,
+			})
+		}
+	}
+	return observations
 }

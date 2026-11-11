@@ -150,9 +150,6 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 	}
 	if request.WindowRole != nil {
 		role := strings.ToLower(strings.TrimSpace(*request.WindowRole))
-		if role != string(entities.CodexQuotaWindowRolePrimary) && role != string(entities.CodexQuotaWindowRoleSecondary) {
-			return response, fmt.Errorf("%w: window_role must be primary or secondary", ErrValidation)
-		}
 		request.WindowRole = &role
 	}
 	// 先确认当前仍是活跃 Credential，删除身份和 AI Provider 都不能借 auth_index 查询历史。
@@ -164,8 +161,14 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		return response, fmt.Errorf("get codex quota history identity: %w", err)
 	}
 	provider := normalizeIdentityType(identity.Type)
-	if provider != "codex" && provider != "claude" {
+	if provider != "codex" && provider != "claude" && provider != "antigravity" {
 		return response, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Type))
+	}
+	if request.WindowRole != nil && provider != "antigravity" {
+		role := *request.WindowRole
+		if role != string(entities.CodexQuotaWindowRolePrimary) && role != string(entities.CodexQuotaWindowRoleSecondary) {
+			return response, fmt.Errorf("%w: window_role must be primary or secondary", ErrValidation)
+		}
 	}
 
 	// now 在方法入口固定一次，当前周期截点和响应时间保持一致。
