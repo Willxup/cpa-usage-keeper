@@ -1386,7 +1386,6 @@ export function RequestEventsDetailsCard({
         className={styles.requestEventsCard}
         variant="flush"
         title={t('usage_stats.request_events_title')}
-        subtitle={t('usage_stats.request_events_subtitle')}
         titleMeta={
           <span className={styles.requestEventsCountBadge}>
             {t('usage_stats.request_events_total_count', { count: totalCount })}

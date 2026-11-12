@@ -65,6 +65,7 @@ describe('RequestEventsDetailsCard', () => {
   it('renders the event title, counts and load-more action', () => {
     const html = renderCard({ hasMore: true, totalCount: 500, onLoadMore: () => undefined });
     expect(html).toContain('Request Event Log');
+    expect(html).not.toContain('class="keeper-card-subtitle"');
     expect(html).toContain('500 total events');
     expect(html).toContain('Loaded 1 / 500');
     expect(html).toContain('aria-rowcount="501"');
