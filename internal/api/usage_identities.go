@@ -64,6 +64,11 @@ type usageIdentityResponse struct {
 	Priority                   *int                           `json:"priority,omitempty"`
 	Disabled                   bool                           `json:"disabled"`
 	Note                       *string                        `json:"note,omitempty"`
+	SIWCBindSupported          *bool                          `json:"siwc_bind_supported"`
+	SIWCBound                  *bool                          `json:"siwc_bound"`
+	UseSIWC                    *bool                          `json:"use_siwc"`
+	SIWCStatus                 *string                        `json:"siwc_status"`
+	SIWCExpiresAt              *time.Time                     `json:"siwc_expires_at"`
 	Subscription               *quota.SubscriptionInfo        `json:"subscription,omitempty"`
 	ActiveStart                *time.Time                     `json:"active_start,omitempty"`
 	ActiveUntil                *time.Time                     `json:"active_until,omitempty"`
@@ -335,6 +340,11 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		Priority:                   item.Priority,
 		Disabled:                   disabled,
 		Note:                       item.Note,
+		SIWCBindSupported:          item.SIWCBindSupported,
+		SIWCBound:                  item.SIWCBound,
+		UseSIWC:                    item.UseSIWC,
+		SIWCStatus:                 item.SIWCStatus,
+		SIWCExpiresAt:              item.SIWCExpiresAt,
 		Subscription:               quota.ResolveIdentitySubscription(item),
 		ActiveStart:                item.ActiveStart,
 		ActiveUntil:                item.ActiveUntil,

@@ -32,6 +32,12 @@ type UsageIdentity struct {
 	ProjectID    *string
 	XAIUserID    *string
 
+	SIWCBindSupported *bool      `gorm:"column:siwc_bind_supported"`
+	SIWCBound         *bool      `gorm:"column:siwc_bound"`
+	UseSIWC           *bool      `gorm:"column:use_siwc"`
+	SIWCStatus        *string    `gorm:"column:siwc_status"`
+	SIWCExpiresAt     *time.Time `gorm:"column:siwc_expires_at;serializer:storageTime"`
+
 	ActiveStart *time.Time `gorm:"serializer:storageTime"`
 	ActiveUntil *time.Time `gorm:"serializer:storageTime"`
 	PlanType    *string

@@ -18,34 +18,39 @@ type CredentialsResponse struct {
 
 // Credential 保存凭证列表中单个凭证的原始响应字段。
 type Credential struct {
-	AuthIndex   string                    `json:"auth_index"`
-	Name        string                    `json:"name"`
-	Path        string                    `json:"path"`
-	Email       string                    `json:"email"`
-	Type        string                    `json:"type"`
-	Provider    string                    `json:"provider"`
-	Label       string                    `json:"label"`
-	Status      string                    `json:"status"`
-	Source      string                    `json:"source"`
-	Prefix      string                    `json:"prefix"`
-	Priority    *int                      `json:"priority"`
-	Disabled    *bool                     `json:"disabled"`
-	Note        *string                   `json:"note"`
-	Unavailable bool                      `json:"unavailable"`
-	RuntimeOnly bool                      `json:"runtime_only"`
-	Account     string                    `json:"account,omitempty"`
-	ProjectID   string                    `json:"project_id,omitempty"`
-	Sub         *CredentialXAIUserIDValue `json:"sub,omitempty"`
-	Subject     *CredentialXAIUserIDValue `json:"subject,omitempty"`
-	UserID      *CredentialXAIUserIDValue `json:"user_id,omitempty"`
-	UserIDCamel *CredentialXAIUserIDValue `json:"userId,omitempty"`
-	Metadata    *CredentialClaims         `json:"metadata,omitempty"`
-	Attributes  *CredentialClaims         `json:"attributes,omitempty"`
-	OAuth       *CredentialOAuth          `json:"oauth,omitempty"`
-	User        *CredentialUser           `json:"user,omitempty"`
-	IDToken     *CredentialIDToken        `json:"id_token"`
-	xaiOAuthSet bool
-	xaiUserSet  bool
+	AuthIndex         string                    `json:"auth_index"`
+	Name              string                    `json:"name"`
+	Path              string                    `json:"path"`
+	Email             string                    `json:"email"`
+	Type              string                    `json:"type"`
+	Provider          string                    `json:"provider"`
+	Label             string                    `json:"label"`
+	Status            string                    `json:"status"`
+	Source            string                    `json:"source"`
+	Prefix            string                    `json:"prefix"`
+	Priority          *int                      `json:"priority"`
+	Disabled          *bool                     `json:"disabled"`
+	Note              *string                   `json:"note"`
+	SIWCBindSupported *bool                     `json:"siwc_bind_supported"`
+	SIWCBound         *bool                     `json:"siwc_bound"`
+	UseSIWC           *bool                     `json:"use_siwc"`
+	SIWCStatus        *string                   `json:"siwc_status"`
+	SIWCExpiresAt     *time.Time                `json:"siwc_expires_at"`
+	Unavailable       bool                      `json:"unavailable"`
+	RuntimeOnly       bool                      `json:"runtime_only"`
+	Account           string                    `json:"account,omitempty"`
+	ProjectID         string                    `json:"project_id,omitempty"`
+	Sub               *CredentialXAIUserIDValue `json:"sub,omitempty"`
+	Subject           *CredentialXAIUserIDValue `json:"subject,omitempty"`
+	UserID            *CredentialXAIUserIDValue `json:"user_id,omitempty"`
+	UserIDCamel       *CredentialXAIUserIDValue `json:"userId,omitempty"`
+	Metadata          *CredentialClaims         `json:"metadata,omitempty"`
+	Attributes        *CredentialClaims         `json:"attributes,omitempty"`
+	OAuth             *CredentialOAuth          `json:"oauth,omitempty"`
+	User              *CredentialUser           `json:"user,omitempty"`
+	IDToken           *CredentialIDToken        `json:"id_token"`
+	xaiOAuthSet       bool
+	xaiUserSet        bool
 }
 
 // CredentialClaims 是 CPA credential 中可能携带身份 subject 的通用 claims DTO。
