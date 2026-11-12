@@ -128,6 +128,25 @@ export function splitCredentialIdentities(identities: UsageIdentity[]): Credenti
   }, { credentials: [], aiProviders: [] })
 }
 
+export type CredentialSIWCState = 'not_linked' | 'not_enabled' | 'enabled' | 'invalid'
+
+export function credentialSIWCState(identity: UsageIdentity): CredentialSIWCState | null {
+  if (identity.auth_type !== 1 || identity.type.trim().toLowerCase() !== 'codex') {
+    return null
+  }
+
+  const { siwc_bound: bound, use_siwc: use, siwc_status: status } = identity
+  // 只分类明确一致的快照；invalid 可由缺失令牌引起，因此优先于 bound。
+  if (use === true && status === 'invalid') return 'invalid'
+  if (status != null && status !== 'off' && status !== 'valid' && status !== 'invalid') return null
+  if (use !== true && (status == null || status === 'off')) {
+    if (bound === false) return 'not_linked'
+    if (bound === true && use === false) return 'not_enabled'
+  }
+  if (bound === true && use === true && status === 'valid') return 'enabled'
+  return null
+}
+
 export function selectQuotaEligibleAuthIndexes(identities: UsageIdentity[]): string[] {
   return identities
     .filter((identity) => identity.auth_type === 1 && !identity.is_deleted)
