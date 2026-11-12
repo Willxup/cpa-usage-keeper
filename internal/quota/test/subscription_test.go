@@ -177,6 +177,7 @@ func TestNormalizeAntigravitySubscription(t *testing.T) {
 		{name: "free", subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{ID: "free-tier", Name: "Free"}}, wantPlan: "free", wantTierID: "free-tier", wantTierName: "Free"},
 		{name: "ultra lite", subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{ID: "g1-ultra-lite-tier", Name: "Ultra Lite"}}, wantPlan: "ultra-lite", wantTierID: "g1-ultra-lite-tier", wantTierName: "Ultra Lite"},
 		{name: "unknown id", subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{ID: "future-tier", Name: "Future"}}, wantPlan: "unknown", wantTierID: "future-tier", wantTierName: "Future"},
+		{name: "Ultra name does not infer unknown id", subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{ID: "future-tier", Name: "Google AI Ultra"}}, wantPlan: "unknown", wantTierID: "future-tier", wantTierName: "Google AI Ultra"},
 		{name: "name only", subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{Name: "Preview"}}, wantPlan: "unknown", wantTierName: "Preview"},
 		{name: "missing tiers", subscription: &quota.AntigravitySubscriptionPayload{}},
 		{name: "missing subscription"},

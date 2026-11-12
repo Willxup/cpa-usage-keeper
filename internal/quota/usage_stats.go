@@ -161,7 +161,7 @@ func antigravityQuotaUsageGroupKey(row QuotaRow) (string, bool) {
 }
 
 func antigravityArgonUsageGroupKey(response CheckResponse) string {
-	// 独立组优先；只有明确 Ultra 才按公开描述把 Argon 合并进 Gemini。
+	// 独立组证据优先；没有时仅两种明确的 Ultra 套餐把 Argon 合并进 Gemini。
 	if response.antigravityHasSeparateArgon {
 		return antigravityArgonGroupKey
 	}
@@ -170,8 +170,11 @@ func antigravityArgonUsageGroupKey(response CheckResponse) string {
 			return antigravityArgonGroupKey
 		}
 	}
-	if response.Subscription != nil && strings.EqualFold(strings.TrimSpace(response.Subscription.Provider), "antigravity") && strings.EqualFold(strings.TrimSpace(response.Subscription.Plan), "ultra") {
-		return antigravityGeminiGroupKey
+	if response.Subscription != nil && strings.EqualFold(strings.TrimSpace(response.Subscription.Provider), "antigravity") {
+		plan := strings.TrimSpace(response.Subscription.Plan)
+		if strings.EqualFold(plan, "ultra") || strings.EqualFold(plan, "ultra-lite") {
+			return antigravityGeminiGroupKey
+		}
 	}
 	return ""
 }
