@@ -85,13 +85,13 @@ describe('RequestEventsDetailsCard client metadata columns', () => {
         await act(async () => {
           cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         });
-        const tooltip = document.body.querySelector('[role="tooltip"]');
+        const tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])');
         expect(tooltip?.textContent).toBe(rawValue);
 
         await act(async () => {
           cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
         });
-        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+        expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull();
       }
     } finally {
       await mounted.unmount();
@@ -150,7 +150,7 @@ describe('RequestEventsDetailsCard client metadata columns', () => {
       await act(async () => {
         cells[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
       });
-      expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+      expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull();
     } finally {
       await mounted.unmount();
     }

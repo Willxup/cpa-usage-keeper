@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
+import { QuestionMarkHelp } from '@/components/ui/QuestionMarkHelp';
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { Select } from '@/components/ui/Select';
 import {
@@ -1368,6 +1369,7 @@ export function RequestEventsDetailsCard({
     [columnDefinitions]
   );
 
+  const requestEventsHelp = t('usage_stats.request_events_help');
   const hasActiveFilters =
     modelFilter !== ALL_FILTER ||
     sourceFilter !== ALL_FILTER ||
@@ -1387,9 +1389,24 @@ export function RequestEventsDetailsCard({
         variant="flush"
         title={t('usage_stats.request_events_title')}
         titleMeta={
-          <span className={styles.requestEventsCountBadge}>
-            {t('usage_stats.request_events_total_count', { count: totalCount })}
-          </span>
+          <div className={styles.requestEventsTitleMeta}>
+            <QuestionMarkHelp
+              label={t('usage_stats.request_events_help_label')}
+              description={requestEventsHelp}
+              positioning={{
+                align: 'center',
+                estimatedHeight: 96,
+                maxWidth: 280,
+                offset: 10,
+                viewportPadding: 8,
+              }}
+            >
+              <span>{requestEventsHelp}</span>
+            </QuestionMarkHelp>
+            <span className={styles.requestEventsCountBadge}>
+              {t('usage_stats.request_events_total_count', { count: totalCount })}
+            </span>
+          </div>
         }
         extra={
           <div className={styles.requestEventsActions}>

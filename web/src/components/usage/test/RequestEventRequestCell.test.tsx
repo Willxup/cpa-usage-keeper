@@ -25,7 +25,7 @@ describe.each(['log', 'credential'] as const)('Request tooltip in %s', (surface)
   }
   const requestCell = () => Array.from(container.querySelectorAll<HTMLTableCellElement>('tbody td'))
     .find((cell) => cell.getAttribute('aria-label')?.includes('/v1/'))!
-  const tooltipLines = () => Array.from(document.body.querySelectorAll('[role="tooltip"] span'), (el) => el.textContent)
+  const tooltipLines = () => Array.from(document.body.querySelectorAll('[role="tooltip"]:not([aria-hidden="true"]) span'), (el) => el.textContent)
 
   beforeEach(async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -61,7 +61,7 @@ describe.each(['log', 'credential'] as const)('Request tooltip in %s', (surface)
       `Response mode: ${mode}`,
     ])
     await act(async () => cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull()
   })
 
   it.each([
@@ -82,11 +82,11 @@ describe.each(['log', 'credential'] as const)('Request tooltip in %s', (surface)
     expect(tooltipLines()).toContain(modeLine)
     expect(container.querySelector('[role="tooltip"]')).toBeNull()
     await act(async () => cell.blur())
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull()
 
     await act(async () => cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
     await render([])
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull()
   })
 
   it('keeps a missing endpoint and stream state unknown', async () => {

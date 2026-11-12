@@ -208,7 +208,9 @@ describe('RequestEventsDetailsCard', () => {
     expect(html).toContain('Request Log Too Large');
     expect(html).toContain('Download Raw Log');
     expect(html).toContain('Cancel');
-    expect(html).not.toContain('aria-controls=');
+    const dialogStart = html.indexOf('role="dialog"');
+    expect(dialogStart).toBeGreaterThan(-1);
+    expect(html.slice(dialogStart)).not.toContain('aria-controls=');
   });
 
   it('keeps selected filters visible when absent from backend options', () => {
