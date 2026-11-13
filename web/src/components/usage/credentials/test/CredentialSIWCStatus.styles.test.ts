@@ -17,9 +17,11 @@ describe('SIWC status styles', () => {
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.credentialSIWCDot::after\s*\{\s*animation:\s*none;/)
   })
 
-  it('wraps the footer while preserving right-aligned action buttons', () => {
+  it('keeps SIWC left and actions right even when coarse-pointer buttons wrap', () => {
     expect(styles).toMatch(/\.credentialCardFooter\s*\{[^}]*flex-wrap:\s*wrap;/)
+    expect(styles).toMatch(/\.credentialSIWCStatus\s*\{[^}]*margin-right:\s*auto;/)
     expect(styles).toMatch(/\.credentialCardActions\s*\{[^}]*justify-content:\s*flex-end;[^}]*margin-left:\s*auto;/)
     expect(styles).toMatch(/\.credentialCard \.credentialCardActionButton\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;/)
+    expect(styles).toMatch(/@media \(pointer: coarse\)\s*\{\s*\.credentialCard \.credentialCardActionButton,[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/)
   })
 })
