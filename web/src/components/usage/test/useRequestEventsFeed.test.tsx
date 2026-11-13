@@ -61,6 +61,7 @@ describe('useRequestEventsFeed', () => {
     await act(async () => root.unmount());
     container.remove();
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -225,6 +226,74 @@ describe('useRequestEventsFeed', () => {
     await emit(1, 'snapshot', snapshot([event('2')]));
     expect(latest.events.map((row) => row.id)).toEqual(['2']);
     expect(vi.mocked(openUsageEventsLive).mock.calls[1][1].model).toBe('other');
+  });
+
+  it.each([false, true])('delays capacity errors for three retries and resets after success (existing rows: %s)', async (existingRows) => {
+    if (existingRows) await emit(0, 'snapshot', snapshot([event('5')]));
+    const connect = vi.mocked(openUsageEventsLive).getMockImplementation()!;
+    const error = new ApiError('Live connection capacity is full', 429);
+    error.retryAfterMs = 5000;
+    vi.mocked(openUsageEventsLive).mockRejectedValue(error);
+    vi.useFakeTimers();
+    await act(async () => { void latest.refresh(); });
+    const initialCalls = vi.mocked(openUsageEventsLive).mock.calls.length;
+    expect(latest.error).toBe('');
+    expect(latest.loading).toBe(false);
+    for (let retry = 1; retry <= 4; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(openUsageEventsLive).toHaveBeenCalledTimes(initialCalls + retry);
+      expect(latest.error).toBe(retry < 3 ? '' : error.message);
+      expect(latest.events.map((row) => row.id)).toEqual(existingRows ? ['5'] : []);
+    }
+    // 已显示红框仍继续重试；成功快照清除红框及历史失败计数。
+    vi.mocked(openUsageEventsLive).mockImplementation(connect);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    const index = streams.length - 1;
+    await act(async () => {
+      streams[index].enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(snapshot([event('6')]))}\n\n`));
+    });
+    expect(latest.error).toBe('');
+    vi.mocked(openUsageEventsLive).mockRejectedValue(error);
+    await act(async () => { streams[index].error(error); });
+    expect(latest.error).toBe('');
+    for (let retry = 1; retry <= 3; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(latest.error).toBe(retry < 3 ? '' : error.message);
+    }
+    await act(async () => { void latest.refresh(); });
+    expect(latest.error).toBe('');
+  });
+
+  it.each(['query change', 'non-capacity failure'] as const)('starts a fresh capacity streak after %s', async (reset) => {
+    const capacityError = new ApiError('Live connection capacity is full', 429);
+    capacityError.retryAfterMs = 5000;
+    vi.mocked(openUsageEventsLive).mockRejectedValue(capacityError);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    vi.useFakeTimers();
+    await act(async () => { void latest.refresh(); });
+    // 筛选重置必须从已显示错误开始，不能依赖先执行手动刷新。
+    const retries = reset === 'query change' ? 3 : 2;
+    for (let retry = 0; retry < retries; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    }
+    expect(latest.error).toBe(reset === 'query change' ? capacityError.message : '');
+    if (reset === 'query change') {
+      await act(async () => { root.render(<Harness model="other" />); });
+      expect(vi.mocked(openUsageEventsLive).mock.lastCall?.[1].model).toBe('other');
+    } else {
+      // 三次 429 后的 500 仍立即显示，并使用原有网络错误退避。
+      vi.mocked(openUsageEventsLive).mockRejectedValueOnce(new ApiError('database failure', 500));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(latest.error).toBe('database failure');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    }
+    expect(latest.error).toBe('');
+    const calls = vi.mocked(openUsageEventsLive).mock.calls.length;
+    for (let retry = 1; retry <= 3; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(openUsageEventsLive).toHaveBeenCalledTimes(calls + retry);
+      expect(latest.error).toBe(retry < 3 ? '' : capacityError.message);
+    }
   });
 
   it('reports an initial 500 until the existing retry receives a snapshot', async () => {

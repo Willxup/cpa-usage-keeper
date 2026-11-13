@@ -595,21 +595,27 @@ func TestUsageEventsLiveAdminEmbedLimitAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	headers := http.Header{"X-Cpa-Usage-Keeper-Embed": {"cpamc"}, "X-Cpa-Usage-Keeper-Embed-Session": {token}}
-	responses := make([]*http.Response, 0, 3)
-	var readers []*bufio.Reader
-	for i := 0; i < 3; i++ {
-		resp, reader := liveTestConnect(t, client, target, headers)
-		responses = append(responses, resp)
-		readers = append(readers, reader)
-		liveTestReadKind(t, reader, "snapshot")
-	}
+	responses := make([]*http.Response, 0, 64)
 	defer func() {
 		for _, resp := range responses {
 			resp.Body.Close()
 		}
 	}()
+	var readers []*bufio.Reader
+	for i := 0; i < 64; i++ {
+		resp, reader := liveTestConnect(t, client, target, headers)
+		responses = append(responses, resp)
+		readers = append(readers, reader)
+		liveTestReadKind(t, reader, "snapshot")
+	}
+	// 即使换一个管理员会话，全局容量也不能绕过。
+	otherToken, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req, _ = http.NewRequest(http.MethodGet, target, nil)
-	req.Header = headers
+	req.Header = headers.Clone()
+	req.Header.Set("X-Cpa-Usage-Keeper-Embed-Session", otherToken)
 	limited, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -618,10 +624,29 @@ func TestUsageEventsLiveAdminEmbedLimitAndRevocation(t *testing.T) {
 	if limited.StatusCode != http.StatusTooManyRequests || limited.Header.Get("Retry-After") == "" {
 		t.Fatalf("limit status=%d headers=%v", limited.StatusCode, limited.Header)
 	}
+	// 关闭一个连接后应能重新取得槽位，不要求取消瞬间同步释放。
+	responses[0].Body.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		replacement, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if replacement.StatusCode == http.StatusOK {
+			responses = append(responses, replacement)
+			liveTestReadKind(t, bufio.NewReader(replacement.Body), "snapshot")
+			break
+		}
+		replacement.Body.Close()
+		if replacement.StatusCode != http.StatusTooManyRequests || time.Now().After(deadline) {
+			t.Fatalf("slot not released: status=%d", replacement.StatusCode)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	sessions.Delete(token)
 	events := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: time.Now(), Model: "revoked"}})
 	notifier.NotifyUsageEventsCommitted(events)
-	if _, err := readers[0].ReadString('\n'); err == nil {
+	if _, err := readers[1].ReadString('\n'); err == nil {
 		t.Fatal("revoked session received live data")
 	}
 }
