@@ -93,7 +93,7 @@ it('keeps details readable on repeated clicks without focus and clears them on d
 it('preserves detailed metrics on focus and updates summaries on polling',async()=>{
   await render(comparisons([item('model-a',{cost:null})]));
   await act(async()=>container.querySelector<HTMLButtonElement>('[data-comparison-entry]')!.focus());
-  expect(document.querySelector('[role="tooltip"]:not([hidden])')?.textContent).toContain('Cost: —');
+  expect(document.querySelector('[role="tooltip"]:not([hidden])')?.textContent).toContain('Estimated cost: —');
   expect(document.querySelector('[role="tooltip"]:not([hidden])')?.textContent).toContain('Requests: 10');
   await render(comparisons([item('model-b',{cost:0})]),false,true);
   expect(container.textContent).toContain('model-b');
