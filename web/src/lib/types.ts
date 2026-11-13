@@ -446,6 +446,11 @@ export interface UsageIdentity {
   priority?: number
   disabled: boolean
   note?: string
+  siwc_bind_supported?: boolean | null
+  siwc_bound?: boolean | null
+  use_siwc?: boolean | null
+  siwc_status?: string | null
+  siwc_expires_at?: string | null
   subscription?: UsageSubscriptionInfo
   active_start?: string
   active_until?: string

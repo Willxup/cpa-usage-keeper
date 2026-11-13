@@ -11,7 +11,7 @@ import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
-import { formatCredentialTimestamp, type CredentialRow, type DisplayQuota } from './credentialViewModels'
+import { credentialSIWCState, formatCredentialTimestamp, type CredentialRow, type DisplayQuota } from './credentialViewModels'
 import { deleteCredentials, fetchClaudeResetGrants, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCredits, setCredentialsDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
 import type { ClaudeResetGrantsResponse, QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse, UsageQuotaResetResponse } from '@/lib/types'
 import { CredentialAliasEditor, CredentialEditButton } from './CredentialAliasEditor'
@@ -250,6 +250,7 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         const resetCredits = (isClaude ? row.claudeResetGrants?.availableCount : row.quotaResetCreditsAvailableCount) ?? 0
         const canResetQuota = resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
         const rowKey = row.identity.id || row.identity.identity
+        const siwcState = credentialSIWCState(row.identity)
         const openDetails = onOpenDetails ? () => onOpenDetails(row) : undefined
         const rowExpiryTooltipText = row.expiresAtLabel
           ? t('usage_stats.credentials_expiry_tooltip', { value: row.expiresAtLabel })
@@ -336,6 +337,12 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
             )}
             health={<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={row.credentialHealth} lastUsedAt={row.identity.last_used_at} windowCacheReadRate={row.windowCacheReadRate} />}
             quota={<CredentialQuotaPanel variant="compact" row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />}
+            footerLeft={siwcState && (
+              <span className={styles.credentialSIWCStatus} data-siwc-state={siwcState}>
+                <span className={styles.credentialSIWCDot} aria-hidden="true" />
+                <span>SIWC {t(`usage_stats.credentials_siwc_${siwcState}`)}</span>
+              </span>
+            )}
             actions={(
               <>
                   {onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} />}
