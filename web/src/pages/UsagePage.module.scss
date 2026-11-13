@@ -2330,6 +2330,12 @@
   justify-content: center;
 }
 
+.requestEventsTitleMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .requestEventsCountBadge {
   @include card-count-badge;
 }

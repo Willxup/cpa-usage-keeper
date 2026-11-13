@@ -65,6 +65,7 @@ describe('RequestEventsDetailsCard', () => {
   it('renders the event title, counts and load-more action', () => {
     const html = renderCard({ hasMore: true, totalCount: 500, onLoadMore: () => undefined });
     expect(html).toContain('Request Event Log');
+    expect(html).not.toContain('class="keeper-card-subtitle"');
     expect(html).toContain('500 total events');
     expect(html).toContain('Loaded 1 / 500');
     expect(html).toContain('aria-rowcount="501"');
@@ -207,7 +208,9 @@ describe('RequestEventsDetailsCard', () => {
     expect(html).toContain('Request Log Too Large');
     expect(html).toContain('Download Raw Log');
     expect(html).toContain('Cancel');
-    expect(html).not.toContain('aria-controls=');
+    const dialogStart = html.indexOf('role="dialog"');
+    expect(dialogStart).toBeGreaterThan(-1);
+    expect(html.slice(dialogStart)).not.toContain('aria-controls=');
   });
 
   it('keeps selected filters visible when absent from backend options', () => {

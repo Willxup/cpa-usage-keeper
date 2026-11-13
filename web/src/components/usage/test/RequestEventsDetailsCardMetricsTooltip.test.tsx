@@ -72,7 +72,7 @@ const mountCard = async (events: UsageEvent[]) => {
 };
 
 const tooltipLines = () => Array.from(
-  document.body.querySelectorAll<HTMLElement>('[role="tooltip"] span'),
+  document.body.querySelectorAll<HTMLElement>('[role="tooltip"]:not([aria-hidden="true"]) span'),
   (line) => line.textContent,
 );
 
@@ -135,7 +135,7 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
         await act(async () => {
           renderedCacheCell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
         });
-        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+        expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull();
       }
     } finally {
       await mounted.unmount();
