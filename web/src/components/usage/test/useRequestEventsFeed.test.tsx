@@ -262,8 +262,38 @@ describe('useRequestEventsFeed', () => {
     }
     await act(async () => { void latest.refresh(); });
     expect(latest.error).toBe('');
-    await act(async () => { root.render(<Harness model="other" />); });
+  });
+
+  it.each(['query change', 'non-capacity failure'] as const)('starts a fresh capacity streak after %s', async (reset) => {
+    const capacityError = new ApiError('Live connection capacity is full', 429);
+    capacityError.retryAfterMs = 5000;
+    vi.mocked(openUsageEventsLive).mockRejectedValue(capacityError);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    vi.useFakeTimers();
+    await act(async () => { void latest.refresh(); });
+    // 筛选重置必须从已显示错误开始，不能依赖先执行手动刷新。
+    const retries = reset === 'query change' ? 3 : 2;
+    for (let retry = 0; retry < retries; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    }
+    expect(latest.error).toBe(reset === 'query change' ? capacityError.message : '');
+    if (reset === 'query change') {
+      await act(async () => { root.render(<Harness model="other" />); });
+      expect(vi.mocked(openUsageEventsLive).mock.lastCall?.[1].model).toBe('other');
+    } else {
+      // 三次 429 后的 500 仍立即显示，并使用原有网络错误退避。
+      vi.mocked(openUsageEventsLive).mockRejectedValueOnce(new ApiError('database failure', 500));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(latest.error).toBe('database failure');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    }
     expect(latest.error).toBe('');
+    const calls = vi.mocked(openUsageEventsLive).mock.calls.length;
+    for (let retry = 1; retry <= 3; retry++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(openUsageEventsLive).toHaveBeenCalledTimes(calls + retry);
+      expect(latest.error).toBe(retry < 3 ? '' : capacityError.message);
+    }
   });
 
   it('reports an initial 500 until the existing retry receives a snapshot', async () => {
