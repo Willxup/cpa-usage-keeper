@@ -57,7 +57,8 @@ describe('SessionSettingsCard', () => {
   it('renders admin and API key sessions with shared row details and current marker', () => {
     const html = renderCard();
 
-    expect(html).toContain('Session Management');
+    expect(html).toContain('Session');
+    expect(html).not.toContain('Session Management');
     expect(html).toContain('Admin Session');
     expect(html).toContain('Keeper login');
     expect(html).toContain('CPAMC login');
