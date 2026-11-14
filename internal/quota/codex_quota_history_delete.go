@@ -39,7 +39,7 @@ func (s *Service) DeleteCodexQuotaHistoryCycle(ctx context.Context, authIndex st
 		return err
 	}
 	provider := normalizeIdentityType(identity.Type)
-	if provider != "codex" && provider != "claude" {
+	if provider != "codex" && provider != "claude" && provider != "antigravity" {
 		return ErrUnsupportedType
 	}
 	request := codexQuotaHistoryDeleteRequest{ctx: ctx, provider: provider, authIndex: authIndex, cycleID: cycleID, result: make(chan error, 1)}
