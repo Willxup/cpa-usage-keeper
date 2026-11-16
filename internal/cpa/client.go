@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
+	"cpa-usage-keeper/internal/cpa/dto/credentials"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
@@ -499,6 +500,21 @@ func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request)
 		return result, err
 	}
 	return result, nil
+}
+
+// FetchCredentialCooldowns 读取单个凭证当前的本地路由冷却；known=false 表示 CPA 未提供冷却视图或凭证不存在。
+func (c *Client) FetchCredentialCooldowns(ctx context.Context, authIndex string) ([]credentials.CredentialCooldown, bool, error) {
+	var payload credentials.CredentialsResponse
+	path := cpaManagementCredentialsEndpoint + "?" + url.Values{"auth_index": {authIndex}}.Encode()
+	if _, _, err := c.doManagementJSONRequest(ctx, path, &payload, "credential cooldowns"); err != nil {
+		return nil, false, err
+	}
+	for _, file := range payload.Files {
+		if file.AuthIndex == authIndex && file.Cooldowns != nil {
+			return *file.Cooldowns, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func (c *Client) ResetQuota(ctx context.Context, authIndex string) error {

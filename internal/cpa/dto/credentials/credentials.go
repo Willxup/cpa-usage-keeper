@@ -49,8 +49,18 @@ type Credential struct {
 	OAuth             *CredentialOAuth          `json:"oauth,omitempty"`
 	User              *CredentialUser           `json:"user,omitempty"`
 	IDToken           *CredentialIDToken        `json:"id_token"`
+	Cooldowns         *[]CredentialCooldown     `json:"cooldowns"` // nil 表示 CPA 未提供冷却视图（如 Home 模式）
 	xaiOAuthSet       bool
 	xaiUserSet        bool
+}
+
+// CredentialCooldown 是 CPA 对单个凭证本地路由冷却的投影，只保留恢复判断需要的字段。
+type CredentialCooldown struct {
+	// Scope 为 credential 时整个凭证停止路由，为 model 时只影响 ModelKey。
+	Scope            string `json:"scope"`
+	ModelKey         string `json:"model_key,omitempty"`
+	Reason           string `json:"reason"`
+	RemainingSeconds int64  `json:"remaining_seconds"`
 }
 
 // CredentialClaims 是 CPA credential 中可能携带身份 subject 的通用 claims DTO。
