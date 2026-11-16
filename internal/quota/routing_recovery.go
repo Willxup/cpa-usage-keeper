@@ -61,14 +61,14 @@ func claudeWindowUsage(window *ClaudeUsageWindow) windowUsage {
 	return windowUsage{present: true, known: window.HasUtilization, usedPercent: window.Utilization}
 }
 
-// windowsBelowLimit 要求至少一个窗口存在，且每个存在的窗口都明确低于 100%。
+// windowsBelowLimit 要求至少一个窗口存在，且每个存在的窗口都给出 [0, 100) 内的使用率；NaN、负数等异常值视为未知。
 func windowsBelowLimit(windows ...windowUsage) bool {
 	found := false
 	for _, window := range windows {
 		if !window.present {
 			continue
 		}
-		if !window.known || window.usedPercent >= 100 {
+		if !window.known || !(window.usedPercent >= 0 && window.usedPercent < 100) {
 			return false
 		}
 		found = true

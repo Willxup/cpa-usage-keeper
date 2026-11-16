@@ -70,6 +70,11 @@ func TestQuotaRefreshRecoversCPACredentialCooldown(t *testing.T) {
 			cooldowns: credentialCooldown,
 		},
 		{
+			name: "codex invalid used_percent is not treated as available", provider: "codex",
+			usage:     `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":"NaN","limit_window_seconds":18000},"secondary_window":{"used_percent":-1,"limit_window_seconds":604800}},"rate_limit_reset_credits":{"available_count":0}}`,
+			cooldowns: credentialCooldown,
+		},
+		{
 			name: "model-scoped cooldown is left to CPA", provider: "codex",
 			usage:     codexUsage(0, true, ""),
 			cooldowns: `[{"scope":"model","model_key":"gpt-a","reason":"quota","retry_at":"2030-01-01T00:00:00Z","remaining_seconds":259200}]`,
