@@ -238,6 +238,7 @@ func TestClaudeModelWeeklyLimitsBecomeModelRows(t *testing.T) {
 			`{"kind":"weekly_scoped","group":"weekly","percent":42,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}},`+
 			`{"kind":"weekly_scoped","group":"weekly","percent":30,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":"opus","display_name":null},"surface":null}},`+
 			`{"kind":"weekly_scoped","group":"weekly","percent":99,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":"fable","display_name":null},"surface":null}},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":7,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":null,"display_name":"Haiku"},"surface":{"id":"cowork"}}},`+
 			`{"kind":"weekly_scoped","group":"weekly","percent":5,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":null,"surface":{"id":"cowork"}}}]}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
@@ -251,7 +252,7 @@ func TestClaudeModelWeeklyLimitsBecomeModelRows(t *testing.T) {
 		labels = append(labels, row.Label)
 	}
 	if want := []string{"Weekly", "7d Opus", "7d Fable"}; !reflect.DeepEqual(labels, want) {
-		t.Fatalf("row labels = %v, want %v (models must not repeat across fields, names and ids; surface limits are not models)", labels, want)
+		t.Fatalf("row labels = %v, want %v (models must not repeat across fields, names and ids; surface-scoped limits are not model-wide)", labels, want)
 	}
 	fable := findQuotaRow(t, rows, "seven_day_model.fable")
 	if fable.Scope != "model" || fable.UsedPercent == nil || *fable.UsedPercent != 42 || fable.ResetAt != "2026-11-20T12:59:59Z" || fable.Window == nil || fable.Window.Seconds == nil || *fable.Window.Seconds != 604800 {

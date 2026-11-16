@@ -267,7 +267,12 @@ func parseClaudeModelWeeklyLimits(items []json.RawMessage) []ClaudeModelWeeklyLi
 		if stringField(object, "kind") != "weekly_scoped" {
 			continue
 		}
-		model := objectField(objectField(object, "scope"), "model")
+		scope := objectField(object, "scope")
+		// 同时限定界面的条目只在该界面生效，不能当作模型的通用周额度展示。
+		if objectField(scope, "surface") != nil {
+			continue
+		}
+		model := objectField(scope, "model")
 		name := strings.TrimSpace(stringField(model, "display_name", "displayName"))
 		if name == "" {
 			name = strings.TrimSpace(stringField(model, "id"))
