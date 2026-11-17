@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { SwitchControl } from '@/components/ui/SwitchControl';
 import { IconGripVertical } from '@/components/ui/icons';
 import styles from '@/pages/UsagePage.module.scss';
 import {
@@ -530,23 +531,20 @@ export function RequestEventsColumnSettingsModal({
                   <IconGripVertical size={16} />
                 </button>
                 <span className={styles.requestEventsColumnSettingsLabel}>{option.label}</span>
-                <label className={`${styles.requestEventsColumnVisibilityControl} ${visibilityDisabled ? styles.requestEventsColumnVisibilityControlDisabled : ''}`.trim()}>
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    disabled={visibilityDisabled}
-                    data-request-events-column-visibility={option.id}
-                    aria-label={t('usage_stats.request_events_column_visibility', { column: option.label })}
-                    onChange={() => {
-                      setDraftVisibleColumnIds((currentVisibleColumnIds) => (
-                        toggleRequestEventColumnId(currentVisibleColumnIds, option.id, draftColumnOrder)
-                      ));
-                    }}
-                  />
-                  <span className={styles.requestEventsColumnVisibilityTrack} aria-hidden="true">
-                    <span className={styles.requestEventsColumnVisibilityThumb} />
-                  </span>
-                </label>
+                <SwitchControl
+                  checked={selected}
+                  disabled={visibilityDisabled}
+                  ariaLabel={t('usage_stats.request_events_column_visibility', { column: option.label })}
+                  className={`${styles.requestEventsColumnVisibilityControl} ${visibilityDisabled ? styles.requestEventsColumnVisibilityControlDisabled : ''}`.trim()}
+                  trackClassName={styles.requestEventsColumnVisibilityTrack}
+                  thumbClassName={styles.requestEventsColumnVisibilityThumb}
+                  inputProps={{ 'data-request-events-column-visibility': option.id }}
+                  onChange={() => {
+                    setDraftVisibleColumnIds((currentVisibleColumnIds) => (
+                      toggleRequestEventColumnId(currentVisibleColumnIds, option.id, draftColumnOrder)
+                    ));
+                  }}
+                />
               </div>
             );
           })}

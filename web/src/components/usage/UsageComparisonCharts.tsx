@@ -5,9 +5,7 @@ import '@/lib/chartjs';
 import { Line } from './charts/UsageChart';
 import type { Chart as ChartJS, ChartData, ChartOptions, TooltipModel } from 'chart.js';
 import type { UsageComparisonItem, UsageOverviewComparisons } from '@/lib/types';
-import { Card } from '@/components/ui/Card';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
+import { Card, LoadingSpinner, PillSwitcher, PortalTooltip, SectionToolbar, usePortalTooltip } from '@/components/ui';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme } from '@/utils/usage/chartConfig';
 import { buildComparisonView, formatComparisonBucket, type ComparisonRow } from './usageComparisonData';
@@ -40,19 +38,34 @@ export function UsageComparisonCharts({ comparisons, loading, keyViewer = false,
   const dimensions = keyViewer ? DIMENSIONS.slice(0, 2) : DIMENSIONS;
   const items = comparisons?.[dimension] ?? EMPTY;
   const total = items.reduce((sum, item) => sum + item.total_tokens, 0);
+  const dimensionOptions = useMemo(
+    () => dimensions.map((key) => ({
+      value: key,
+      label: t(`usage_stats.overview_realtime_dimension_${key}`),
+      dataAttributes: { 'data-dimension': key },
+    })),
+    [dimensions, t],
+  );
   return <section className={usageStyles.recentActivitySection} aria-labelledby={headingId}>
-    <div className={usageStyles.recentActivityToolbar}>
-      <div className={usageStyles.recentActivityHeading}>
-        <h2 id={headingId} className={usageStyles.recentActivityTitle}>{t('usage_stats.comparison_title')}</h2>
-      </div>
-      <div className={usageStyles.recentActivityToolbarActions}>
-        <div className={`${usageStyles.recentActivityWindowSwitcher} ${styles.dimensions}`} role="group" aria-label={t('usage_stats.comparison_title')}>
-          {dimensions.map(key => <button key={key} type="button" data-dimension={key} aria-pressed={dimension === key}
-            className={`${usageStyles.recentActivityWindowButton} ${dimension === key ? usageStyles.recentActivityWindowButtonActive : ''}`}
-            onClick={() => setSelected(key)}>{t(`usage_stats.overview_realtime_dimension_${key}`)}</button>)}
-        </div>
-      </div>
-    </div>
+    <SectionToolbar
+      title={t('usage_stats.comparison_title')}
+      headingId={headingId}
+      className={usageStyles.recentActivityToolbar}
+      headingClassName={usageStyles.recentActivityHeading}
+      titleClassName={usageStyles.recentActivityTitle}
+      actionsClassName={usageStyles.recentActivityToolbarActions}
+      actions={(
+        <PillSwitcher
+          ariaLabel={t('usage_stats.comparison_title')}
+          className={`${usageStyles.recentActivityWindowSwitcher} ${styles.dimensions}`}
+          optionClassName={usageStyles.recentActivityWindowButton}
+          activeOptionClassName={usageStyles.recentActivityWindowButtonActive}
+          value={dimension}
+          options={dimensionOptions}
+          onChange={setSelected}
+        />
+      )}
+    />
     <Card title={t('usage_stats.comparison_token_trend')} className={styles.card} extra={
       <span className={styles.total} data-comparison-total><strong>{items.length || !loading ? formatCompactNumber(total) : '—'}</strong><span>{t('usage_stats.comparison_tokens')}</span></span>
     }>

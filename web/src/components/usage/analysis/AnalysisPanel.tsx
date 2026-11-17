@@ -5,6 +5,7 @@ import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from '../charts/UsageChart';
+import { ChartSurface } from '@/components/ui';
 import type { AnalysisCompositionItem, AnalysisCostSummary, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
@@ -949,7 +950,7 @@ function TokenUsageChart({ rows, summary, loading, isDark, isMobile }: { rows: C
       ) : rows.length === 0 ? (
         <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
       ) : (
-        <div className={styles.analysisChartSurface}>
+        <ChartSurface className={styles.analysisChartSurface}>
           <div className={styles.analysisChartLegend} aria-label="Token chart legend">
             {legendItems.map((item) => (
               <div key={item.label} className={styles.analysisLegendItem} title={item.label}>
@@ -961,7 +962,7 @@ function TokenUsageChart({ rows, summary, loading, isDark, isMobile }: { rows: C
           <div className={styles.tokenChartFrame}>
             <Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin, drawTokenAverageLinePlugin]} />
           </div>
-        </div>
+        </ChartSurface>
       )}
     </section>
   );
@@ -993,11 +994,11 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
       <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} showPricingHint={false} hint="" />
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
-          <div className={styles.analysisChartSurface}>
+          <ChartSurface className={styles.analysisChartSurface}>
             <div className={styles.pairedChartFrame} role="img" onPointerDown={onPointerDown} onPointerMove={onPointerMove} aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}>
               <Bar data={chartData} options={chartOptions} />
             </div>
-          </div>
+          </ChartSurface>
           <AnalysisRankingList items={view.series} label={t('usage_stats.analysis_top_models_ranking_aria')} windowMinutes={windowMinutes} highlight={highlight} />
           {tooltip}
         </>

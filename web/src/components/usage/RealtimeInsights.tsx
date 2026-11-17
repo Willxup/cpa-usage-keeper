@@ -4,7 +4,7 @@ import '@/lib/chartjs';
 import { Chart, Doughnut } from './charts/UsageChart';
 import { Chart as ChartJS, type ChartData, type ChartOptions, type Plugin } from 'chart.js';
 import type { RealtimeCacheLevelPoint, RealtimeInsights, RealtimeWindowSummary } from '@/lib/types';
-import { Card } from '@/components/ui/Card';
+import { Card, ChartSurface } from '@/components/ui';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REALTIME_COLORS as REALTIME_COLORS, USAGE_CHART_TOKEN_COLORS as COLORS } from '@/utils/usage/chartConfig';
 import usageStyles from '@/pages/UsagePage.module.scss';
@@ -96,7 +96,7 @@ export function RealtimeCacheChart({ points, labels, isDark, isMobile }: { point
   const { t } = useTranslation();
   const data = useMemo(() => buildRealtimeCacheData(points, labels, t), [points, labels, t]);
   const options = useMemo(() => mixedOptions(isDark, isMobile, t('usage_stats.insights_rolling_input'), t('usage_stats.comparison_cache'), 100), [isDark, isMobile, t]);
-  return <div className={`${styles.chartSurface} ${styles.cacheChart}`}><Chart type="bar" data={data} options={options} role="img" aria-label={t('usage_stats.insights_cache_chart')} /></div>;
+  return <ChartSurface className={`${styles.chartSurface} ${styles.cacheChart}`}><Chart type="bar" data={data} options={options} role="img" aria-label={t('usage_stats.insights_cache_chart')} /></ChartSurface>;
 }
 
 export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { insights: RealtimeInsights; labels: string[]; isDark: boolean; isMobile: boolean }) {
@@ -137,11 +137,11 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
   },[cacheShare,cacheShareLabel,isDark,mixTotal]);
   return <div className={styles.diagnosticsGrid} data-realtime-diagnostics>
     <Card title={t('usage_stats.insights_outcomes')}>
-      <div className={styles.chartSurface}><div className={styles.chart}><Chart type="bar" data={outcomeData} options={outcomeOptions} role="img" aria-label={t('usage_stats.insights_outcomes')} /></div></div>
+      <ChartSurface className={styles.chartSurface}><div className={styles.chart}><Chart type="bar" data={outcomeData} options={outcomeOptions} role="img" aria-label={t('usage_stats.insights_outcomes')} /></div></ChartSurface>
       <div className={styles.outcomeSummary}><span>{t('usage_stats.insights_successful')} <strong>{(s.requests - s.failures).toLocaleString()}</strong></span><span>{t('usage_stats.comparison_failures')} <strong>{s.failures.toLocaleString()}</strong></span><span>{t('usage_stats.comparison_failure_rate')} <strong>{percent(ratio(s.failures, s.requests))}</strong></span></div>
     </Card>
     <Card title={t('usage_stats.insights_mix')}>
-      <div className={`${styles.chartSurface} ${styles.mix}`}>
+      <ChartSurface className={`${styles.chartSurface} ${styles.mix}`}>
         <div className={styles.doughnut}>
           {mixTotal > 0 ? <Doughnut data={mixData} options={mixOptions} plugins={TOKEN_MIX_PLUGINS} role="img" aria-label={`${t('usage_stats.insights_mix')}: ${cacheShareLabel} ${cacheShare}`} /> : <div className={styles.emptyRing}><span>—</span></div>}
         </div>
@@ -152,7 +152,7 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
             <i style={{width:`${ratio(item.value,mixTotal) ?? 0}%`,background:`linear-gradient(90deg, ${item.color.light}, ${item.color.base})`}} />
           </dd>
         </div>)}</dl>
-      </div>
+      </ChartSurface>
       <div className={styles.outcomeSummary}><span>{t('usage_stats.comparison_reasoning')} <strong>{formatCompactNumber(s.reasoning_tokens)}</strong></span><span>{t('usage_stats.insights_token_requests')} <strong>{s.token_requests.toLocaleString()}</strong></span></div>
     </Card>
   </div>;

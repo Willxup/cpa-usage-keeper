@@ -20,7 +20,7 @@ import {
   formatFixedTwoDecimals,
   formatPerMinuteValue,
 } from '@/utils/usage';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LoadingSpinner, MetricChip, PillSwitcher, SectionToolbar } from '@/components/ui';
 import styles from '@/pages/UsagePage.module.scss';
 
 type RealtimeDimensionKey = 'models' | 'api_keys' | 'credentials' | 'ai_providers';
@@ -412,15 +412,18 @@ function RealtimeMetricPills({ metrics, metricsTooltip, labelPrefix }: { metrics
   return (
     <div className={styles.overviewRealtimeMetrics}>
       {metrics.map((metric) => (
-        <span
+        <MetricChip
           key={metric.label}
+          variant="stat"
+          tone={metric.tone ?? 'default'}
+          label={metric.label}
+          value={metric.value}
           className={`${styles.overviewRealtimeMetric} ${metric.tone === 'up' ? styles.overviewRealtimeMetricUp : metric.tone === 'down' ? styles.overviewRealtimeMetricDown : metric.tone === 'flat' ? styles.overviewRealtimeMetricFlat : ''}`.trim()}
+          labelClassName={styles.overviewRealtimeMetricLabel}
+          valueClassName={styles.overviewRealtimeMetricValue}
           title={metricsTooltip}
           aria-label={metricsTooltip ? `${labelPrefix ? `${labelPrefix} ` : ''}${metric.label} ${metric.value} ${metricsTooltip}` : undefined}
-        >
-          <span className={styles.overviewRealtimeMetricLabel}>{metric.label}</span>
-          <span className={styles.overviewRealtimeMetricValue}>{metric.value}</span>
-        </span>
+        />
       ))}
     </div>
   );
@@ -596,28 +599,35 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
     return next.filter((dimension) => visible.has(dimension.key));
   }, [data.current_usage.ai_providers, data.current_usage.api_keys, data.current_usage.credentials, data.current_usage.models, visibleDimensions]);
   const visibleDimension = dimensions.find((dimension) => dimension.key === activeDimension) ?? dimensions[0];
+  const windowOptions = useMemo(
+    () => REALTIME_WINDOWS.map((option) => ({ value: option, label: option })),
+    [],
+  );
+  const dimensionOptions = useMemo(
+    () => dimensions.map((dimension) => ({ value: dimension.key, label: t(dimension.labelKey) })),
+    [dimensions, t],
+  );
 
   return (
     <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={realtime} refreshSignal={chartRefreshSignal}>
     <div className={styles.overviewRealtimeSection}>
-      <div className={styles.overviewRealtimeToolbar}>
-        <div className={styles.overviewRealtimeHeading}>
-          <h2 className={styles.overviewRealtimeTitle}>{t('usage_stats.overview_realtime_section_title')}</h2>
-        </div>
-        <div className={styles.overviewRealtimeWindowSwitcher} role="group" aria-label={t('usage_stats.overview_realtime_window')}>
-          {REALTIME_WINDOWS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={`${styles.overviewRealtimeWindowButton} ${window === option ? styles.overviewRealtimeWindowButtonActive : ''}`.trim()}
-              onClick={() => onWindowChange(option)}
-              aria-pressed={window === option}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionToolbar
+        title={t('usage_stats.overview_realtime_section_title')}
+        className={styles.overviewRealtimeToolbar}
+        headingClassName={styles.overviewRealtimeHeading}
+        titleClassName={styles.overviewRealtimeTitle}
+        actions={(
+          <PillSwitcher
+            ariaLabel={t('usage_stats.overview_realtime_window')}
+            className={styles.overviewRealtimeWindowSwitcher}
+            optionClassName={styles.overviewRealtimeWindowButton}
+            activeOptionClassName={styles.overviewRealtimeWindowButtonActive}
+            value={window}
+            options={windowOptions}
+            onChange={onWindowChange}
+          />
+        )}
+      />
 
       {showErrorOnly ? (
         <div className={styles.errorBox}>{error}</div>
@@ -664,19 +674,16 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             </RealtimeCard>
 
             <RealtimeCard title={t('usage_stats.overview_realtime_current_usage')} className={styles.overviewRealtimeCurrentUsageCard}>
-              <div className={styles.overviewRealtimeDimensionTabs}>
-                {dimensions.map((dimension) => (
-                  <button
-                    key={dimension.key}
-                    type="button"
-                    className={`${styles.overviewRealtimeDimensionTab} ${visibleDimension?.key === dimension.key ? styles.overviewRealtimeDimensionTabActive : ''}`.trim()}
-                    onClick={() => setActiveDimension(dimension.key)}
-                    aria-pressed={visibleDimension?.key === dimension.key}
-                  >
-                    {t(dimension.labelKey)}
-                  </button>
-                ))}
-              </div>
+              <PillSwitcher
+                variant="compact"
+                ariaLabel={t('usage_stats.overview_realtime_current_usage')}
+                className={styles.overviewRealtimeDimensionTabs}
+                optionClassName={styles.overviewRealtimeDimensionTab}
+                activeOptionClassName={styles.overviewRealtimeDimensionTabActive}
+                value={visibleDimension?.key}
+                options={dimensionOptions}
+                onChange={setActiveDimension}
+              />
               <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} />
             </RealtimeCard>
           </div>

@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { MainActionButton } from '@/components/ui/MainActionButton'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
+import { SwitchControl } from '@/components/ui/SwitchControl'
 import { IconInfo, IconGaugeReset, IconRefreshCw, IconSearch, IconSettings, IconShield, IconTrash2 } from '@/components/ui/icons'
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
@@ -203,13 +204,16 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         subtitle={t('usage_stats.credentials_subtitle')}
         titleExtra={(
           <div className={styles.credentialsTitleControls}>
-            <label className={styles.credentialActiveOnlySwitch}>
-              <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_active_only')}</span>
-              <input ref={editFallbackRef} type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
-              <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
-                <span className={styles.credentialActiveOnlyThumb} />
-              </span>
-            </label>
+            <SwitchControl
+              ref={editFallbackRef}
+              checked={activeOnly}
+              label={t('usage_stats.credentials_active_only')}
+              className={styles.credentialActiveOnlySwitch}
+              labelClassName={styles.credentialActiveOnlyLabel}
+              trackClassName={styles.credentialActiveOnlyTrack}
+              thumbClassName={styles.credentialActiveOnlyThumb}
+              onChange={(nextChecked) => onActiveOnlyChange(nextChecked)}
+            />
             {total !== 0 && <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
           </div>
         )}
@@ -1375,13 +1379,16 @@ export function QuotaAutoRefreshSettingsModal({
     >
       <div className={styles.credentialAutoRefreshSettingsPanel}>
         <div className={styles.credentialAutoRefreshSettingsRow}>
-          <label className={`${styles.credentialActiveOnlySwitch} ${controlsDisabled ? styles.credentialActiveOnlySwitchDisabled : ''}`.trim()}>
-            <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_auto_refresh_enabled')}</span>
-            <input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} disabled={controlsDisabled} />
-            <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
-              <span className={styles.credentialActiveOnlyThumb} />
-            </span>
-          </label>
+          <SwitchControl
+            checked={enabled}
+            disabled={controlsDisabled}
+            label={t('usage_stats.credentials_auto_refresh_enabled')}
+            className={`${styles.credentialActiveOnlySwitch} ${controlsDisabled ? styles.credentialActiveOnlySwitchDisabled : ''}`.trim()}
+            labelClassName={styles.credentialActiveOnlyLabel}
+            trackClassName={styles.credentialActiveOnlyTrack}
+            thumbClassName={styles.credentialActiveOnlyThumb}
+            onChange={(nextChecked) => onEnabledChange(nextChecked)}
+          />
           <button
             type="button"
             className={styles.credentialAutoRefreshSaveButton}
