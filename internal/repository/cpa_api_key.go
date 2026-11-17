@@ -112,6 +112,13 @@ func ListActiveCPAAPIKeys(db *gorm.DB) ([]entities.CPAAPIKey, error) {
 	return rows, err
 }
 
+// ListAllCPAAPIKeys 保留已删除 Key 的稳定 ID，供管理员历史归属查询使用。
+func ListAllCPAAPIKeys(db *gorm.DB) ([]entities.CPAAPIKey, error) {
+	var rows []entities.CPAAPIKey
+	err := db.Order("id asc").Find(&rows).Error
+	return rows, err
+}
+
 func FindActiveCPAAPIKeyByID(db *gorm.DB, id int64) (entities.CPAAPIKey, error) {
 	var row entities.CPAAPIKey
 	err := db.Where("id = ? AND is_deleted = ?", id, false).First(&row).Error

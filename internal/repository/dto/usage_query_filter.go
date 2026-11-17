@@ -4,6 +4,8 @@ import "time"
 
 // UsageQueryFilter 是仓储层的 usage 查询条件。
 type UsageQueryFilter struct {
+	// IncludeDeleted 仅供管理员 Analysis 显式读取全部历史 Key 汇总。
+	IncludeDeleted bool
 	// ComparisonOnly 仅构建比较维度，跳过 Overview 主统计和时间序列。
 	ComparisonOnly bool
 	Range          string

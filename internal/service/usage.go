@@ -505,12 +505,13 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		APIGroupKey:  apiGroupKey,
+		IncludeDeleted: filter.IncludeDeleted,
+		Range:          filter.Range,
+		CustomUnit:     filter.CustomUnit,
+		StartTime:      filter.StartTime,
+		EndTime:        filter.EndTime,
+		EndExclusive:   filter.EndExclusive,
+		APIGroupKey:    apiGroupKey,
 	})
 	if err != nil {
 		return nil, err

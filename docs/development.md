@@ -39,3 +39,11 @@ npm --prefix ./web run build
 ### Validation
 
 Cover ordinary Shanghai dates, DST gaps and folds, and browser timezones that differ from the response timezone. Confirm that chart styles and lifecycle behavior remain unchanged.
+
+## Admin historical API keys
+
+`GET /usage/api/v1/usage/analysis?range=24h&include_deleted=true` opts into all hourly/daily key usage, including deleted and unregistered historical keys. Registered keys use their decimal Keeper ID in API-key composition and every heatmap identity field; unregistered keys use `legacy:<lowercase SHA-256 hex of api_group_key>`, matching comparisons. Labels remain aliases/display names or masked values. Successful opted-in responses add `include_deleted: true`.
+
+`GET /usage/api/v1/usage/api-keys/settings?include_deleted=true` lists active and deleted rows, adds `isDeleted` to every item and `includeDeleted: true` to the response. Native rows retain `apiKey`; plugin rows still omit it. Treat this admin response as secret material.
+
+Only the literal value `true` opts in. Both routes remain admin-only. Omitted/other values preserve existing responses, including omission of the new fields. Key-viewer routes ignore the parameter and deleted keys cannot authenticate. Comparisons, `api_key_id` filtering, and the schema are unchanged.
