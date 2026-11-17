@@ -73,6 +73,21 @@ const THROUGHPUT_Y_TICK_COUNT = 6;
 const THROUGHPUT_Y_INTERVAL_COUNT = THROUGHPUT_Y_TICK_COUNT - 1;
 const THROUGHPUT_LEGEND_BOTTOM_GAP = 10;
 
+const hexWithAlpha = (hex: string, alphaHex: string) => `${hex}${alphaHex}`;
+
+const toThroughputAreaFill = (
+  context: { chart: { ctx: CanvasRenderingContext2D; chartArea?: { top: number; bottom: number } } },
+  hexColor: string,
+) => {
+  const { chart } = context;
+  if (!chart.chartArea) return hexWithAlpha(hexColor, '24');
+  const gradient = chart.ctx.createLinearGradient(0, chart.chartArea.top, 0, chart.chartArea.bottom);
+  gradient.addColorStop(0, hexWithAlpha(hexColor, '38'));
+  gradient.addColorStop(0.72, hexWithAlpha(hexColor, '0f'));
+  gradient.addColorStop(1, hexWithAlpha(hexColor, '00'));
+  return gradient;
+};
+
 const CHART_COLORS = {
   token: '#3b82f6',
   request: '#f97316',
@@ -305,8 +320,11 @@ function buildThroughputOptions(
         bodyColor: tooltipText,
         borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
         borderWidth: 1,
+        cornerRadius: 8,
         padding: 10,
+        boxPadding: 4,
         displayColors: true,
+        usePointStyle: true,
         callbacks: {
           label: (context) => {
             const label = context.dataset.label ? `${context.dataset.label}: ` : '';
@@ -372,7 +390,7 @@ function buildThroughputOptions(
     },
     elements: {
       line: { tension: 0.35, borderWidth: isMobile ? 1.6 : 2 },
-      point: { radius: 0, hoverRadius: 3 },
+      point: { radius: 0, hoverRadius: 4.5, hoverBorderWidth: 2 },
     },
   };
 }
@@ -383,7 +401,9 @@ function buildThroughputData(
   requestLabel: string,
   tokenValues: Array<number | null>,
   requestValues: Array<number | null>,
+  isDark = false,
 ): ChartData<'line', Array<number | null>, string> {
+  const hoverBorder = isDark ? 'rgba(17, 24, 39, 0.94)' : '#ffffff';
   return {
     labels,
     datasets: [
@@ -392,7 +412,9 @@ function buildThroughputData(
         data: tokenValues,
         yAxisID: 'tokens',
         borderColor: CHART_COLORS.token,
-        backgroundColor: `${CHART_COLORS.token}24`,
+        backgroundColor: (context) => toThroughputAreaFill(context, CHART_COLORS.token),
+        pointHoverBackgroundColor: CHART_COLORS.token,
+        pointHoverBorderColor: hoverBorder,
         fill: true,
       },
       {
@@ -401,6 +423,8 @@ function buildThroughputData(
         yAxisID: 'requests',
         borderColor: CHART_COLORS.request,
         backgroundColor: CHART_COLORS.request,
+        pointHoverBackgroundColor: CHART_COLORS.request,
+        pointHoverBorderColor: hoverBorder,
         borderDash: [6, 4],
         fill: false,
       },
@@ -563,7 +587,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const requestShortLabel = t('usage_stats.rpm');
 
   const throughputOptions = useMemo(() => buildThroughputOptions(isDark, isMobile, tokenRateLabel, requestRateLabel, requestValues), [isDark, isMobile, requestRateLabel, requestValues, tokenRateLabel]);
-  const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues), [labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
+  const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues, isDark), [isDark, labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
   const latencyLabels = useMemo(() => ({
     ttft: t('usage_stats.ttft'),
     latency: t('usage_stats.latency'),

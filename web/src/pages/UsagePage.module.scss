@@ -3487,6 +3487,7 @@
 .overviewRealtimePairedMetricValue {
   color: var(--text-primary);
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .overviewRealtimePairedMetricValueUp {
