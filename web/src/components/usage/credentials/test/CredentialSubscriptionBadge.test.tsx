@@ -8,9 +8,9 @@ import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeKind } from '
 describe('CredentialSubscriptionBadge', () => {
   it('preserves fallback labels across subscription providers and unknown plans', () => {
     const kinds: SubscriptionBadgeKind[] = [
-      'codex-pro20x', 'codex-free', 'codex-unknown',
+      'codex-pro20x', 'codex-free',
       'claude-free', 'claude-pro', 'claude-max', 'claude-max5x', 'claude-max20x', 'claude-team',
-      'antigravity-free', 'antigravity-pro', 'antigravity-ultra-lite', 'antigravity-ultra', 'antigravity-unknown',
+      'antigravity-free', 'antigravity-pro', 'antigravity-ultra-lite', 'antigravity-ultra',
     ]
     for (const kind of kinds) {
       const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {

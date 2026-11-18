@@ -11,7 +11,6 @@ export type SubscriptionBadgeKind =
   | 'codex-go'
   | 'codex-edu'
   | 'codex-enterprise'
-  | 'codex-unknown'
   | 'claude-free'
   | 'claude-pro'
   | 'claude-max'
@@ -22,7 +21,6 @@ export type SubscriptionBadgeKind =
   | 'antigravity-pro'
   | 'antigravity-ultra-lite'
   | 'antigravity-ultra'
-  | 'antigravity-unknown'
 
 export type SubscriptionBadgeModel = {
   kind: SubscriptionBadgeKind
@@ -78,19 +76,5 @@ export function resolveCredentialSubscriptionBadge(subscription?: UsageSubscript
     return known
   }
 
-  if (provider === 'antigravity' && displayPlan.toLowerCase() === 'unknown') {
-    const fallbackLabel = subscription?.tierName?.trim() || subscription?.tierId?.trim()
-    return fallbackLabel
-      ? { kind: 'antigravity-unknown', fallbackLabel }
-      : { kind: 'antigravity-unknown', labelKey: 'usage_stats.credentials_subscription_antigravity_unknown' }
-  }
-
-  if (provider !== 'codex') {
-    return undefined
-  }
-
-  return {
-    kind: 'codex-unknown',
-    fallbackLabel: displayPlan,
-  }
+  return undefined
 }

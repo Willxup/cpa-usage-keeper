@@ -18,7 +18,6 @@ const BADGE_PRESENTATIONS: Record<SubscriptionBadgeKind, BadgePresentation> = {
   'codex-edu': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
   'codex-pro20x': { className: styles.credentialPlanBadgeEnterprise, hasPremiumMotion: true },
   'codex-enterprise': { className: styles.credentialPlanBadgeTeam, hasPremiumMotion: true },
-  'codex-unknown': { className: styles.credentialPlanBadgeNeutral, hasPremiumMotion: false },
   'claude-free': { className: styles.credentialPlanBadgeFree, hasPremiumMotion: false },
   'claude-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
   'claude-max': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
@@ -29,7 +28,6 @@ const BADGE_PRESENTATIONS: Record<SubscriptionBadgeKind, BadgePresentation> = {
   'antigravity-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
   'antigravity-ultra-lite': { className: styles.credentialPlanBadgePro5x, hasPremiumMotion: true },
   'antigravity-ultra': { className: styles.credentialPlanBadgeEnterprise, hasPremiumMotion: true },
-  'antigravity-unknown': { className: styles.credentialPlanBadgeNeutral, hasPremiumMotion: false },
 }
 
 export function CredentialSubscriptionBadge({ model }: { model: SubscriptionBadgeModel }) {

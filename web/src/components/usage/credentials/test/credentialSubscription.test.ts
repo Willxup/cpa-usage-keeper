@@ -22,11 +22,8 @@ describe('credentialSubscription', () => {
     })
   })
 
-  it('keeps unknown Codex plans readable without treating them as known tiers', () => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan: ' ChatGPT-Pro-Monthly ' })).toEqual({
-      kind: 'codex-unknown',
-      fallbackLabel: 'ChatGPT-Pro-Monthly',
-    })
+  it.each(['codex', 'claude', 'antigravity'])('hides unknown %s plans', (provider) => {
+    expect(resolveCredentialSubscriptionBadge({ provider, plan: ' Future-Plan ' })).toBeUndefined()
   })
 
   it.each([
@@ -59,26 +56,16 @@ describe('credentialSubscription', () => {
     })
   })
 
-  it('uses tier name, then tier id, then Unknown for unknown Antigravity tiers', () => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', tierId: 'future-tier', tierName: ' Future ' })).toEqual({
-      kind: 'antigravity-unknown',
-      fallbackLabel: 'Future',
-    })
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', tierId: ' future-tier ' })).toEqual({
-      kind: 'antigravity-unknown',
-      fallbackLabel: 'future-tier',
-    })
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown' })).toEqual({
-      kind: 'antigravity-unknown',
-      labelKey: 'usage_stats.credentials_subscription_antigravity_unknown',
-    })
+  it.each([
+    { tierId: 'future-tier', tierName: 'Future' },
+    { tierId: 'future-tier' },
+    {},
+  ])('hides unknown Antigravity tiers even when metadata is available: %j', (metadata) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', ...metadata })).toBeUndefined()
   })
 
   it.each(['constructor', 'toString', '__proto__'])('treats inherited object key %s as an unknown plan', (plan) => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan })).toEqual({
-      kind: 'codex-unknown',
-      fallbackLabel: plan,
-    })
+    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan })).toBeUndefined()
   })
 
   it.each([
