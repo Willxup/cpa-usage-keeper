@@ -30,6 +30,7 @@ describe('CredentialSubscriptionBadge', () => {
 
   it.each([
     ['business', 'team', 'Business'],
+    ['enterprise', 'team', 'Enterprise'],
     ['go', 'plus', 'Go'],
     ['edu', 'plus', 'Edu'],
     ['pro-50x', 'pro-20x', 'Pro 50x'],
@@ -45,6 +46,17 @@ describe('CredentialSubscriptionBadge', () => {
     expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
     expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
   })
+
+  it.each(['claude-max20x', 'codex-pro20x', 'codex-pro50x', 'antigravity-ultra'] as const)(
+    'uses the existing purple premium presentation for %s', (kind) => {
+      const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+        model: { kind, fallbackLabel: kind },
+      }))
+      expect(html).toContain('credentialPlanBadgeEnterprise')
+      expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
+      expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
+    },
+  )
 
   it('resolves known labels through i18n', async () => {
     await i18n.changeLanguage('en')
