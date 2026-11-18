@@ -98,7 +98,7 @@ describe('credentialViewModels', () => {
       { kind: 'codex-free', labelKey: 'usage_stats.credentials_subscription_codex_free' },
       { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' },
       { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_codex_plus' },
-      { kind: 'codex-pro5x', labelKey: 'usage_stats.credentials_subscription_codex_pro_5x' },
+      { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_codex_pro_10x' },
       { kind: 'codex-pro20x', labelKey: 'usage_stats.credentials_subscription_codex_pro_20x' },
       { kind: 'codex-enterprise', labelKey: 'usage_stats.credentials_subscription_codex_enterprise' },
       { kind: 'codex-unknown', fallbackLabel: 'ChatGPT-Pro-Monthly' },

@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import i18n, { SUPPORTED_LANGUAGES } from '../index'
 
 const OFFICIAL_PLAN_LABELS = {
+  'usage_stats.credentials_subscription_codex_pro_10x': 'Pro 10x',
+  'usage_stats.credentials_subscription_codex_pro_20x': 'Pro 20x',
+  'usage_stats.credentials_subscription_codex_pro_50x': 'Pro 50x',
+  'usage_stats.credentials_subscription_codex_team': 'Team',
+  'usage_stats.credentials_subscription_codex_business': 'Business',
+  'usage_stats.credentials_subscription_codex_go': 'Go',
+  'usage_stats.credentials_subscription_codex_edu': 'Edu',
   'usage_stats.credentials_subscription_claude_free': 'Free',
   'usage_stats.credentials_subscription_claude_pro': 'Pro',
   'usage_stats.credentials_subscription_claude_max': 'Max',

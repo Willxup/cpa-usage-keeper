@@ -7,7 +7,12 @@ describe('credentialSubscription', () => {
     ['free', 'codex-free', 'usage_stats.credentials_subscription_codex_free'],
     ['plus', 'codex-plus', 'usage_stats.credentials_subscription_codex_plus'],
     ['team', 'codex-team', 'usage_stats.credentials_subscription_codex_team'],
-    ['pro-5x', 'codex-pro5x', 'usage_stats.credentials_subscription_codex_pro_5x'],
+    ['pro-5x', 'codex-pro10x', 'usage_stats.credentials_subscription_codex_pro_10x'],
+    ['pro-10x', 'codex-pro10x', 'usage_stats.credentials_subscription_codex_pro_10x'],
+    ['pro-50x', 'codex-pro50x', 'usage_stats.credentials_subscription_codex_pro_50x'],
+    ['business', 'codex-business', 'usage_stats.credentials_subscription_codex_business'],
+    ['go', 'codex-go', 'usage_stats.credentials_subscription_codex_go'],
+    ['edu', 'codex-edu', 'usage_stats.credentials_subscription_codex_edu'],
     ['pro-20x', 'codex-pro20x', 'usage_stats.credentials_subscription_codex_pro_20x'],
     ['enterprise', 'codex-enterprise', 'usage_stats.credentials_subscription_codex_enterprise'],
   ] as const)('maps Codex %s to its namespaced badge', (plan, kind, labelKey) => {

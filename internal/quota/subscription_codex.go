@@ -32,9 +32,11 @@ func newCodexSubscription(rawPlan string) *SubscriptionInfo {
 	switch canonicalPlan {
 	case "pro":
 		canonicalPlan = "pro-20x"
-	case "prolite", "pro-lite", "pro_lite":
-		canonicalPlan = "pro-5x"
-	case "free", "plus", "team", "pro-5x", "pro-20x", "enterprise":
+	case "prolite", "pro-lite", "pro_lite", "pro-5x":
+		canonicalPlan = "pro-10x"
+	case "promax":
+		canonicalPlan = "pro-50x"
+	case "free", "go", "plus", "team", "business", "edu", "pro-10x", "pro-20x", "pro-50x", "enterprise":
 		// 已知套餐返回稳定机器值；未知套餐保留上游原始显示值。
 	default:
 		canonicalPlan = displayPlan

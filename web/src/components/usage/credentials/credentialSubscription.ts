@@ -4,8 +4,12 @@ export type SubscriptionBadgeKind =
   | 'codex-free'
   | 'codex-plus'
   | 'codex-team'
-  | 'codex-pro5x'
+  | 'codex-pro10x'
   | 'codex-pro20x'
+  | 'codex-pro50x'
+  | 'codex-business'
+  | 'codex-go'
+  | 'codex-edu'
   | 'codex-enterprise'
   | 'codex-unknown'
   | 'claude-free'
@@ -30,7 +34,12 @@ const CODEX_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallba
   ['free', { kind: 'codex-free', labelKey: 'usage_stats.credentials_subscription_codex_free' }],
   ['plus', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_codex_plus' }],
   ['team', { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' }],
-  ['pro-5x', { kind: 'codex-pro5x', labelKey: 'usage_stats.credentials_subscription_codex_pro_5x' }],
+  ['pro-5x', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_codex_pro_10x' }],
+  ['pro-10x', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_codex_pro_10x' }],
+  ['pro-50x', { kind: 'codex-pro50x', labelKey: 'usage_stats.credentials_subscription_codex_pro_50x' }],
+  ['business', { kind: 'codex-business', labelKey: 'usage_stats.credentials_subscription_codex_business' }],
+  ['go', { kind: 'codex-go', labelKey: 'usage_stats.credentials_subscription_codex_go' }],
+  ['edu', { kind: 'codex-edu', labelKey: 'usage_stats.credentials_subscription_codex_edu' }],
   ['pro-20x', { kind: 'codex-pro20x', labelKey: 'usage_stats.credentials_subscription_codex_pro_20x' }],
   ['enterprise', { kind: 'codex-enterprise', labelKey: 'usage_stats.credentials_subscription_codex_enterprise' }],
 ])

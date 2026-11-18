@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
 import { CredentialSubscriptionBadge } from '../CredentialSubscriptionBadge'
-import type { SubscriptionBadgeKind } from '../credentialSubscription'
+import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeKind } from '../credentialSubscription'
 
 describe('CredentialSubscriptionBadge', () => {
   it('preserves fallback labels across subscription providers and unknown plans', () => {
@@ -24,6 +24,24 @@ describe('CredentialSubscriptionBadge', () => {
     const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
       model: { kind: 'codex-pro20x', fallbackLabel: 'Pro 20x' },
     }))
+    expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
+    expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
+  })
+
+  it.each([
+    ['business', 'team', 'Business'],
+    ['go', 'plus', 'Go'],
+    ['edu', 'plus', 'Edu'],
+    ['pro-50x', 'pro-20x', 'Pro 50x'],
+    ['pro-10x', 'pro-5x', 'Pro 10x'],
+  ])('renders %s with the same animated presentation as %s', async (plan, reference, label) => {
+    await i18n.changeLanguage('en')
+    const renderPlan = (value: string) => renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: resolveCredentialSubscriptionBadge({ provider: 'codex', plan: value })!,
+    }))
+    const html = renderPlan(plan)
+    expect(html.replace(/<[^>]+>/g, '')).toBe(label)
+    expect(html.replace(/>[^<]*</g, '><')).toBe(renderPlan(reference).replace(/>[^<]*</g, '><'))
     expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
     expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
   })
