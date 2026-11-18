@@ -88,6 +88,15 @@ func (c upstreamResponseRecordingCaller) FetchKimiCredentialMetadata(ctx context
 	return reader.FetchKimiCredentialMetadata(ctx, name)
 }
 
+func (c upstreamResponseRecordingCaller) FetchMetaDCAToken(ctx context.Context, name string) (string, error) {
+	reader, ok := c.ManagementClient.(metaCredentialReader)
+	if !ok {
+		return "", fmt.Errorf("Meta credential reader is unavailable")
+	}
+	// 凭证下载不经过 api-call 响应采集器，也不记录 DCA 请求头。
+	return reader.FetchMetaDCAToken(ctx, name)
+}
+
 func hasUpstreamResponse(response *apicall.Response) bool {
 	return response != nil && (response.StatusCode != 0 || len(response.Header) > 0 || response.BodyText != "" || len(bytes.TrimSpace(response.Body)) > 0)
 }

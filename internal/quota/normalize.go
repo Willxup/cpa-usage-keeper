@@ -59,6 +59,13 @@ func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
 			return nil
 		}
 		return normalizeKimiQuotaRows(*result)
+	case metaResult:
+		return normalizeMetaQuotaRows(result)
+	case *metaResult:
+		if result == nil {
+			return nil
+		}
+		return normalizeMetaQuotaRows(*result)
 	case XAIResult:
 		return normalizeXAIQuotaRows(result)
 	case *XAIResult:
@@ -69,6 +76,43 @@ func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
 	default:
 		return nil
 	}
+}
+
+func normalizeMetaQuotaRows(result metaResult) []QuotaRow {
+	rows := make([]QuotaRow, 0, 2)
+	for _, item := range []struct {
+		key, label string
+		window     *metaWindow
+	}{
+		{"meta.window", "Current", result.Window},
+		{"meta.weekly", "Weekly", result.Weekly},
+	} {
+		if item.window == nil {
+			continue
+		}
+		// Meta 不参与本地窗口用量回填或预估；重置时间和时长仅来自上游。
+		row := QuotaRow{Key: item.key, Label: item.label, Scope: "meta_window", UsedPercent: item.window.UsedPercent, ResetAt: item.window.ResetAt}
+		if minutes := item.window.DurationMinutes; minutes != nil {
+			row.Window = &QuotaWindow{Duration: minutes, Unit: "minutes"}
+			// 非标准窗口也展示真实时长；仅缺失时长时保留 Current。
+			row.Label = fmt.Sprintf("%gmin", *minutes)
+			if math.Mod(*minutes, 60) == 0 {
+				row.Label = fmt.Sprintf("%gh", *minutes/60)
+			}
+			seconds := *minutes * 60
+			if seconds > 0 && seconds < math.MaxInt64 && math.Trunc(seconds) == seconds {
+				wholeSeconds := int64(seconds)
+				row.Window.Seconds = &wholeSeconds
+				if wholeSeconds == quotaWindowFiveHourSeconds {
+					row.Label = "5h"
+				} else if wholeSeconds == quotaWindowSevenDaySeconds {
+					row.Label = "Weekly"
+				}
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 func normalizeClaudeQuotaRows(result ClaudeResult) []QuotaRow {
