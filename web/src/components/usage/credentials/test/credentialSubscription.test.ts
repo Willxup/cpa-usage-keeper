@@ -17,6 +17,22 @@ describe('credentialSubscription', () => {
     })
   })
 
+  it.each([
+    ['Everyday Usage', 'codex-plus', 'everyday'],
+    ['High Usage', 'codex-plus', 'high'],
+    ['Power Usage', 'codex-pro5x', 'power'],
+    ['Maximum Usage', 'codex-enterprise', 'maximum'],
+  ] as const)('maps Meta %s directly to the shared badge presentation', (plan, kind, label) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: ' META ', plan: ` ${plan.toUpperCase()} ` })).toEqual({
+      kind,
+      labelKey: `usage_stats.credentials_subscription_meta_${label}`,
+    })
+  })
+
+  it.each(['1234567890123456', 'Super Power Usage', 'high', 'unknown', ''])('hides unrecognized Meta plan %s', (plan) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: 'meta', plan })).toBeUndefined()
+  })
+
   it('keeps unknown Codex plans readable without treating them as known tiers', () => {
     expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan: ' ChatGPT-Pro-Monthly ' })).toEqual({
       kind: 'codex-unknown',

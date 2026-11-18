@@ -298,6 +298,11 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer({ selection: unsupportedCredentialSelection })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
+
+    const callsBeforeMeta = fetchCodexQuotaHistory.mock.calls.length
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, identity: { ...credentialRow.identity, type: 'meta', provider: 'meta' } } } })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(callsBeforeMeta)
   })
 
   it('loads stored cycle cost again when the Codex history tab is reopened', async () => {

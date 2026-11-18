@@ -51,7 +51,16 @@ const ANTIGRAVITY_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, '
   ['ultra', { kind: 'antigravity-ultra', labelKey: 'usage_stats.credentials_subscription_antigravity_ultra' }],
 ])
 
+// Meta 套餐直接选择已有 Codex 展示，未知或不透明 tier 不猜测档位。
+const META_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallbackLabel'>>([
+  ['everyday usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_everyday' }],
+  ['high usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_high' }],
+  ['power usage', { kind: 'codex-pro5x', labelKey: 'usage_stats.credentials_subscription_meta_power' }],
+  ['maximum usage', { kind: 'codex-enterprise', labelKey: 'usage_stats.credentials_subscription_meta_maximum' }],
+])
+
 const PRESENTATIONS_BY_PROVIDER = new Map([
+  ['meta', META_PRESENTATIONS],
   ['codex', CODEX_PRESENTATIONS],
   ['claude', CLAUDE_PRESENTATIONS],
   ['antigravity', ANTIGRAVITY_PRESENTATIONS],

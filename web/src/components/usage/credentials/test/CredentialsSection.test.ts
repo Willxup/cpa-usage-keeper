@@ -285,6 +285,24 @@ describe('CredentialsSection quota usage mode rendering', () => {
     expect(estimatedHtml).toContain('$2.50')
   })
 
+  it('keeps Meta quota identical in current and estimated modes without fabricated metrics', () => {
+    const metaRow = createRow({
+      identity: { id: 'meta', identity: 'meta-auth', type: 'meta', provider: 'meta', is_deleted: false },
+      displayQuotas: [{ key: 'meta.window', label: 'Current', scope: 'meta_window', percent: 25, barPercent: 75, percentKind: 'used', status: 'ok' }],
+    })
+    const current = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: metaRow, quotaUsageMode: 'current' }))
+    const estimated = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: metaRow, quotaUsageMode: 'estimated' }))
+    expect(current).toBe(estimated)
+    expect(current).toContain('Current')
+    expect(current).toContain('75%')
+    expect(current).not.toContain('credentials_quota_window_usage_aria')
+
+    const renderState = (overrides: Partial<CredentialRow>) => renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: { ...metaRow, ...overrides }, quotaUsageMode: 'current' }))
+    expect(renderState({ displayQuotas: [] })).toContain('usage_stats.credentials_quota_unavailable')
+    expect(renderState({ quotaLoading: true })).toContain('usage_stats.credentials_quota_loading')
+    expect(renderState({ quotaError: 'HTTP 401' })).toContain('401')
+  })
+
   it('renders each canonical Antigravity group once above its window bars', () => {
     const groupedRow = {
       ...row,

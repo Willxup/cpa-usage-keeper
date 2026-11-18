@@ -160,6 +160,23 @@ describe('credentialViewModels', () => {
     ])
   })
 
+  it('displays only Meta windows with known percentages, without invented usage or projections', () => {
+    const meta = identity({ identity: 'meta-auth', type: 'meta', provider: 'meta' })
+    const quota = quotaResponse('meta-auth', [
+      { key: 'meta.window', label: '2h', scope: 'meta_window', usedPercent: 25, window: { seconds: 7200 } },
+      { key: 'meta.weekly', label: 'Weekly', scope: 'meta_window', usedPercent: 0 },
+    ], undefined, { provider: 'meta', plan: 'High Usage' })
+    const [row] = buildCredentialRows([meta], new Map([['meta-auth', quota]]))
+    expect(row.subscriptionBadge).toEqual({ kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_high' })
+    expect(row.displayQuotas.map(({ label, barPercent, windowUsage, windowUsageEstimate }) => ({ label, barPercent, windowUsage, windowUsageEstimate }))).toEqual([
+      { label: '2h', barPercent: 75, windowUsage: undefined, windowUsageEstimate: undefined },
+      { label: 'Weekly', barPercent: 100, windowUsage: undefined, windowUsageEstimate: undefined },
+    ])
+    expect(buildCredentialRows([meta], new Map([['meta-auth', quotaResponse('meta-auth', [
+      { key: 'meta.window', label: 'Current', scope: 'meta_window' },
+    ])]]))[0].displayQuotas).toEqual([])
+  })
+
   it('prefers refreshed quota subscription over usage identity subscription', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['auth-1', quotaResponse('auth-1', [
