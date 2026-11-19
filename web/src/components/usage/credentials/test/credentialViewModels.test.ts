@@ -72,6 +72,19 @@ describe('credentialViewModels', () => {
     expect(cleared.row.priorityLabel).toBe('P0')
   })
 
+  it('uses Muse only for Meta credential brand fields, preserving user names and raw identities', () => {
+    const meta = identity({ type: 'meta', provider: 'Meta', displayName: 'My Meta account', alias: 'My Meta account' })
+    const [credential] = buildCredentialRows([meta])
+    const [provider] = buildAiProviderCredentialRows([{ ...meta, auth_type: 2 }])
+
+    expect(credential).toMatchObject({ displayName: 'My Meta account', providerLabel: 'Muse', typeLabel: 'Muse', identity: meta })
+    expect(provider).toMatchObject({ displayName: 'My Meta account', providerLabel: 'Meta', typeLabel: 'meta' })
+    expect(buildCredentialRows([{ ...meta, displayName: 'Meta', alias: 'Meta' }])[0].displayName).toBe('Meta')
+    expect(buildCredentialRows([{ ...meta, provider: 'My Meta Team' }])[0].providerLabel).toBe('My Meta Team')
+    expect(buildCredentialRows([{ ...meta, type: 'claude', provider: 'meta' }])[0].providerLabel).toBe('meta')
+    expect(buildCredentialRows([{ ...meta, type: ' META ', provider: '' }])[0]).toMatchObject({ providerLabel: 'Muse', typeLabel: 'Muse' })
+  })
+
   it('splits usage identities by auth type while keeping deleted rows for traffic display', () => {
     const groups = splitCredentialIdentities([
       identity({ id: '1', auth_type: 1, identity: 'credential' }),

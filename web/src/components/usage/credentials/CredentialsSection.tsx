@@ -22,6 +22,7 @@ import { CredentialCardGrid, CredentialCardShell, CredentialSectionShell, Creden
 import { CredentialPriorityEditor } from './CredentialPriorityEditor'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import { CredentialStatusToggle } from './CredentialStatusToggle'
+import { credentialBrandOverride } from './credentialBrand'
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
@@ -251,6 +252,7 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         const canResetQuota = resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
         const rowKey = row.identity.id || row.identity.identity
         const siwcState = credentialSIWCState(row.identity)
+        const brandType = credentialBrandOverride(row.identity.type)?.iconType ?? row.identity.type
         const openDetails = onOpenDetails ? () => onOpenDetails(row) : undefined
         const rowExpiryTooltipText = row.expiresAtLabel
           ? t('usage_stats.credentials_expiry_tooltip', { value: row.expiresAtLabel })
@@ -259,13 +261,13 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
           <CredentialCardShell
             key={rowKey}
             identityId={rowKey}
-            icon={<ProviderBrandIcon providerType={row.identity.type} size={30} />}
+            icon={<ProviderBrandIcon providerType={brandType} size={30} />}
             status={(
               // 认证文件沿用品牌类型的现有支持范围，不套用 AI Provider 的能力白名单。
               providerBrandIconKey(row.identity.type) && (
                 <CredentialStatusToggle
                   variant="switch"
-                  providerType={row.identity.type}
+                  providerType={brandType}
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
@@ -1573,7 +1575,7 @@ function InspectionResultRow({ result }: { result: UsageQuotaInspectionResult })
   return (
     <div className={styles.credentialInspectionResultRow}>
       <span className={styles.credentialInspectionTypeIcon}>
-        <ProviderBrandIcon providerType={result.type} size={20} />
+        <ProviderBrandIcon providerType={credentialBrandOverride(result.type)?.iconType ?? result.type} size={20} />
       </span>
       <span className={styles.credentialInspectionIdentity}>
         <strong>{result.name || result.file_name || '-'}</strong>

@@ -5,6 +5,7 @@ import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import type { UsageIdentityTypeCount } from '@/lib/types'
 import styles from './CredentialSections.module.scss'
 import { buildCredentialProviderFilterOptions, type CredentialProviderFilterKey, type CredentialProviderFilterScope } from './credentialProviderFilters'
+import { credentialBrandOverride } from './credentialBrand'
 
 interface CredentialProviderFilterBarProps {
   scope: CredentialProviderFilterScope
@@ -25,6 +26,7 @@ export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange
     <div className={styles.credentialProviderFilterBar} role="toolbar" aria-label={t('usage_stats.credentials_filter_aria_label')}>
       {visibleOptions.map((option) => {
         const selected = value === option.key
+        const brand = scope === 'credentials' ? credentialBrandOverride(option.knownKey ?? option.key) : undefined
         return (
           <button
             key={option.key}
@@ -36,9 +38,9 @@ export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange
             <span className={styles.credentialProviderFilterIconFrame}>
               {option.key === 'all'
                 ? <IconFilterAll size={30} />
-                : <ProviderBrandIcon providerType={option.knownKey ?? option.key} size="100%" />}
+                : <ProviderBrandIcon providerType={brand?.iconType ?? option.knownKey ?? option.key} size="100%" />}
             </span>
-            <span className={styles.credentialProviderFilterLabel}>{t(option.labelKey)}</span>
+            <span className={styles.credentialProviderFilterLabel}>{t(brand?.filterLabelKey ?? option.labelKey)}</span>
             <span className={styles.credentialProviderFilterCount}>{option.count}</span>
           </button>
         )
