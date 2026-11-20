@@ -3,14 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { ApiError, fetchUsageIdentityActivity } from '@/lib/api'
 import type { UsageCredentialHealth, UsageIdentityActivityEvent, UsageIdentityActivityResponse } from '@/lib/types'
-import { CredentialHealthPanel } from './CredentialHealthPanel'
+import { CredentialHealthPanel, healthMetaToneClassName, useCredentialHealth } from './CredentialHealthPanel'
 import { formatCredentialTimestamp } from './credentialViewModels'
 import styles from './CredentialDetailDrawer.module.scss'
+import credentialStyles from './CredentialSections.module.scss'
 
 interface CredentialRecentActivityProps {
   identityId: string
   displayName: string
-  disabled: boolean
   health?: UsageCredentialHealth
   enabled: boolean
   onAuthRequired?: () => void
@@ -18,8 +18,9 @@ interface CredentialRecentActivityProps {
 
 type ActivityResult = { key: string; data: UsageIdentityActivityResponse | null; error: boolean }
 
-export function CredentialRecentActivity({ identityId, displayName, disabled, health, enabled, onAuthRequired }: CredentialRecentActivityProps) {
+export function CredentialRecentActivity({ identityId, displayName, health, enabled, onAuthRequired }: CredentialRecentActivityProps) {
   const { t } = useTranslation()
+  const { summary } = useCredentialHealth(health, t)
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<ActivityResult | null>(null)
   const onAuthRequiredRef = useRef(onAuthRequired)
@@ -40,8 +41,8 @@ export function CredentialRecentActivity({ identityId, displayName, disabled, he
   const current = result?.key === key ? result : null
   const activity = current?.data
   const latest = activity?.latest
-  const state = disabled ? 'disabled' : !latest ? 'empty' : !latest.failed ? 'success' : latest.status_code === 429 ? 'limited' : 'failure'
-  const tone = state === 'success' ? 'success' : state === 'limited' ? 'warning' : state === 'failure' ? 'danger' : 'quiet'
+  const latestFullTime = latest ? formatCredentialTimestamp(latest.timestamp) ?? latest.timestamp : ''
+  const latestDisplayTime = latestFullTime.replace(/ UTC(?:[+-]\d{2}:\d{2})?$/, '')
   const trace = [
     { key: 'success', label: t('usage_stats.credentials_activity_last_success'), event: activity?.last_success },
     { key: 'failure', label: t('usage_stats.credentials_activity_last_failure'), event: activity?.last_failure },
@@ -50,8 +51,8 @@ export function CredentialRecentActivity({ identityId, displayName, disabled, he
   return <section className={styles.overviewSection} data-credential-overview-section="activity">
     <div className={styles.sectionHeading}>
       <h3>{t('usage_stats.credentials_activity_title')}</h3>
-      {activity ? <span className={styles.activityState} data-tone={tone}><i aria-hidden="true" />{t(`usage_stats.credentials_activity_${state}`)}</span> : null}
-      {latest ? <time className={styles.latestTime} dateTime={latest.timestamp}>{formatCredentialTimestamp(latest.timestamp) ?? latest.timestamp}</time> : null}
+      {health ? <span className={`${styles.activityState} ${healthMetaToneClassName[summary.tone]}`} data-tone={summary.tone} title={summary.detail}><span className={credentialStyles.credentialHealthMetaStatus}><i aria-hidden="true" />{summary.label}</span></span> : null}
+      {latest ? <time className={styles.latestTime} dateTime={latest.timestamp} title={latestFullTime} aria-label={latestFullTime}>{latestDisplayTime}</time> : null}
     </div>
     {!current ? <div className={styles.activityMessage} role="status">{t('common.loading')}</div>
       : current.error ? <div className={styles.activityMessage} role="status">

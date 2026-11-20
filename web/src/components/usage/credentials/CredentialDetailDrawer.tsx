@@ -574,7 +574,7 @@ export function CredentialDetailDrawer({
           </div>
           </section>
           <DrawerRecentActivity key={identityId} identityId={identityId} displayName={row.displayName}
-            disabled={identity.disabled || identity.is_deleted} health={row.credentialHealth} onAuthRequired={onAuthRequired} />
+            health={row.credentialHealth} onAuthRequired={onAuthRequired} />
           {selection.kind === 'credential' ? (
             <section className={styles.overviewSection} data-credential-overview-section="quota">
               <h3>{t('usage_stats.credentials_detail_quota')}</h3>

@@ -51,18 +51,23 @@ const healthCellStateClassName: Record<CredentialHealthBucketState, string> = {
   empty: styles.credentialHealthCellEmpty,
 }
 
-const healthMetaToneClassName: Record<CredentialHealthSummaryTone, string> = {
+export const healthMetaToneClassName: Record<CredentialHealthSummaryTone, string> = {
   healthy: styles.credentialHealthMetaHealthy,
   degraded: styles.credentialHealthMetaDegraded,
   unhealthy: styles.credentialHealthMetaUnhealthy,
   quiet: styles.credentialHealthMetaQuiet,
 }
 
+// 外部卡片和详情共用同一组窗口桶及健康状态判定。
+export function useCredentialHealth(health: UsageCredentialHealth | undefined, t: CredentialHealthTranslate) {
+  const buckets = useMemo(() => buildHealthBuckets(health), [health])
+  return { buckets, summary: resolveCredentialHealthSummary(buckets, health, t) }
+}
+
 export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt, windowCacheReadRate, variant = 'full', showCompactMeta = false }: CredentialHealthPanelProps) {
   const { t } = useTranslation()
-  const buckets = useMemo(() => buildHealthBuckets(health), [health])
+  const { buckets, summary } = useCredentialHealth(health, t)
   const score = resolveCredentialHealthScore(health, buckets)
-  const summary = resolveCredentialHealthSummary(buckets, health, t)
   const lastUsed = formatCredentialHealthDate(lastUsedAt, variant === 'compact' ? '-' : '/')
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
   const showWindowCacheReadRate = windowCacheReadRate !== undefined

@@ -2,11 +2,13 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
 import { buildAiProviderCredentialRows, buildCredentialRows, type AiProviderCredentialRow, type CredentialRow, type CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
+import { CredentialHealthPanel } from '../CredentialHealthPanel'
 
 const fetchUsageEvents = vi.fn()
 const fetchErrorEvents = vi.fn()
@@ -454,9 +456,11 @@ describe('CredentialDetailDrawer', () => {
     expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'quota', 'models'])
     const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
     expect(activity.textContent).toContain('HTTP 429')
-    expect(activity.textContent).toContain('2026-08-17 09:59:00 UTC')
-    expect(activity.querySelector('time[datetime="2026-08-17T09:59:00Z"]')).not.toBeNull()
-    expect(activity.textContent).toContain('usage_stats.credentials_activity_limited')
+    expect(activity.textContent).toContain('2026-08-17 09:59:00')
+    const latestTime = activity.querySelector('time[datetime="2026-08-17T09:59:00Z"]')!
+    expect(latestTime.textContent).toBe('2026-08-17 09:59:00')
+    expect(latestTime.getAttribute('aria-label')).toBe('2026-08-17 09:59:00 UTC')
+    expect(activity.textContent).toContain('usage_stats.credentials_health_summary_healthy')
     expect(activity.textContent).toContain('usage_stats.credentials_activity_at_least:{"count":100}')
     expect(activity.textContent).not.toContain('quota exhausted')
     expect(activity.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
@@ -470,6 +474,40 @@ describe('CredentialDetailDrawer', () => {
     expect(fetchUsageIdentityActivity).toHaveBeenCalledTimes(1)
     expect(quota.textContent).toContain('1.00M')
     expect(quota.textContent).toContain('$2.50')
+  })
+
+  it.each([
+    [95, 5, 'healthy'],
+    [90, 10, 'degraded'],
+    [1, 2, 'unhealthy'],
+    [0, 0, 'quiet'],
+  ] as const)('matches the external card health with %i successes and %i failures', async (success, failure, tone) => {
+    const latest = { timestamp: '2026-08-17T17:59:00+08:00', failed: false }
+    const health = { ...credentialHealth, total_success: success, total_failure: failure }
+    fetchUsageIdentityActivity.mockResolvedValue({ identity_id: 'provider-1', latest, last_success: latest, last_failure: null, streak: 1, streak_at_least: false })
+    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, credentialHealth: health } } })
+
+    const card = document.createElement('div')
+    card.innerHTML = renderToStaticMarkup(<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={health} />)
+    const cardState = card.querySelector('[class*="credentialHealthMetaStatus"]')!
+    const activityState = document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] [class*="activityState"]')!
+    expect(activityState.textContent).toBe(cardState.textContent)
+    expect(activityState.dataset.tone).toBe(tone)
+    const latestTime = document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] time[datetime="2026-08-17T17:59:00+08:00"]')!
+    expect(latestTime.textContent).toBe('2026-08-17 17:59:00')
+    expect(latestTime.getAttribute('aria-label')).toBe('2026-08-17 17:59:00 UTC+08:00')
+  })
+
+  it('does not report an unknown health snapshot as quiet while activity is loading or failed', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    fetchUsageIdentityActivity.mockReturnValueOnce(pending.promise)
+    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, credentialHealth: undefined } } })
+    const activity = document.querySelector('[data-credential-overview-section="activity"]')!
+    expect(activity.textContent).toContain('common.loading')
+    expect(activity.querySelector('[class*="activityState"]')).toBeNull()
+    await act(async () => pending.reject(new Error('unavailable')))
+    expect(activity.textContent).toContain('usage_stats.credentials_activity_load_failed')
+    expect(activity.querySelector('[class*="activityState"]')).toBeNull()
   })
 
   it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
@@ -525,6 +563,7 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer()
     const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
     expect(activity.textContent).toContain('usage_stats.credentials_activity_load_failed')
+    expect(activity.querySelector('[data-tone="healthy"]')?.textContent).toBe('usage_stats.credentials_health_summary_healthy')
     expect(document.body.querySelector('[data-credential-model-usage]')?.textContent).toContain('usage_stats.credentials_models_empty')
     await act(async () => activity.querySelector<HTMLButtonElement>('button')!.click())
     expect(activity.textContent).toContain('usage_stats.credentials_activity_count:{"count":100}')
