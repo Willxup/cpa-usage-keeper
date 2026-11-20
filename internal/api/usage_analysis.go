@@ -28,6 +28,7 @@ type analysisResponse struct {
 	Heatmap                analysisHeatmap           `json:"heatmap"`
 	CostSummary            analysisCostSummary       `json:"cost_summary"`
 	ModelEfficiency        []analysisModelEfficiency `json:"model_efficiency"`
+	IncludeDeleted         bool                      `json:"include_deleted,omitempty"`
 }
 
 type analysisTokenUsage struct {
@@ -188,12 +189,14 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 			writeInternalError(c, "get analysis failed", err)
 			return
 		}
-		apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+		apiKeyInfos, err := loadCPAAPIKeyInfosWithDeleted(c, cpaAPIKeyProvider, filter.IncludeDeleted)
 		if err != nil {
 			return
 		}
 
-		c.JSON(http.StatusOK, buildAnalysisPayload(analysis, apiKeyInfos))
+		payload := buildAnalysisPayload(analysis, apiKeyInfos, filter.IncludeDeleted)
+		payload.IncludeDeleted = filter.IncludeDeleted
+		c.JSON(http.StatusOK, payload)
 	})
 
 	router.GET("/usage/analysis/latency", func(c *gin.Context) {
@@ -247,7 +250,7 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 		apiKeyInfos := map[string]analysisAPIKeyInfo{
 			apiKey.APIKey: {ID: strconv.FormatInt(apiKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(apiKey)},
 		}
-		payload := buildAnalysisPayload(analysis, apiKeyInfos)
+		payload := buildAnalysisPayload(analysis, apiKeyInfos, false)
 		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
 		payload.CredentialsComposition = []analysisCompositionItem{}
 		payload.AIProviderComposition = []analysisCompositionItem{}
@@ -306,10 +309,14 @@ func emptyAnalysisLatencyDiagnosticsResponse() analysisLatencyDiagnostics {
 }
 
 func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map[string]analysisAPIKeyInfo, error) {
-	if provider == nil {
+	return loadCPAAPIKeyInfosWithDeleted(c, provider, false)
+}
+
+func loadCPAAPIKeyInfosWithDeleted(c *gin.Context, provider service.CPAAPIKeyProvider, includeDeleted bool) (map[string]analysisAPIKeyInfo, error) {
+	if provider == nil && !includeDeleted {
 		return map[string]analysisAPIKeyInfo{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := listCPAAPIKeysWithDeleted(c, provider, includeDeleted)
 	if err != nil {
 		writeInternalError(c, "list api key options failed", err)
 		return nil, err
@@ -325,7 +332,7 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 }
 
 // buildAnalysisPayload 透传已存总费用与可用性，保留原 Token、身份和 Key 脱敏响应合同。
-func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map[string]analysisAPIKeyInfo) analysisResponse {
+func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map[string]analysisAPIKeyInfo, includeDeleted bool) analysisResponse {
 	if snapshot == nil {
 		return emptyAnalysisResponse()
 	}
@@ -344,10 +351,10 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 			CostAvailable:       bucket.CostAvailable,
 		})
 	}
-	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos)
-	modelComposition := buildAnalysisCompositionPayload(snapshot.ModelComposition, nil)
-	credentialsComposition := buildAnalysisCompositionPayload(snapshot.CredentialsComposition, nil)
-	aiProviderComposition := buildAnalysisCompositionPayload(snapshot.AIProviderComposition, nil)
+	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos, includeDeleted)
+	modelComposition := buildAnalysisCompositionPayload(snapshot.ModelComposition, nil, false)
+	credentialsComposition := buildAnalysisCompositionPayload(snapshot.CredentialsComposition, nil, false)
+	aiProviderComposition := buildAnalysisCompositionPayload(snapshot.AIProviderComposition, nil, false)
 	return analysisResponse{
 		Granularity:            string(snapshot.Granularity),
 		Timezone:               time.Local.String(),
@@ -360,7 +367,7 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		ModelComposition:       modelComposition,
 		CredentialsComposition: credentialsComposition,
 		AIProviderComposition:  aiProviderComposition,
-		Heatmap:                buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
+		Heatmap:                buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos, includeDeleted),
 		CostSummary: analysisCostSummary{
 			TotalCostUSD:  snapshot.CostSummary.TotalCostUSD,
 			CostAvailable: snapshot.CostSummary.CostAvailable,
@@ -443,7 +450,7 @@ func buildAnalysisLatencyDiagnosticsPayload(diagnostics servicedto.AnalysisLaten
 	}
 }
 
-func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem, apiKeyInfos map[string]analysisAPIKeyInfo) []analysisCompositionItem {
+func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem, apiKeyInfos map[string]analysisAPIKeyInfo, includeDeleted bool) []analysisCompositionItem {
 	total := int64(0)
 	for _, item := range items {
 		total += item.TotalTokens
@@ -453,7 +460,7 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		key := helper.RedactSensitiveValue(item.Key)
 		label := item.Key
 		if apiKeyInfos != nil {
-			key = analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+			key = analysisAPIKeyResponseKey(item.Key, apiKeyInfos, includeDeleted)
 			label = analysisAPIKeyLabel(item.Key, apiKeyInfos)
 		} else if item.Label != "" {
 			label = item.Label
@@ -480,10 +487,13 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 	return payload
 }
 
-func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo, includeDeleted bool) string {
 	// Analysis 的结构标识使用 CPA API Key id，展示文案独立走别名/脱敏 key，避免脱敏值碰撞。
 	if info, ok := apiKeyInfos[apiKey]; ok && info.ID != "" {
 		return info.ID
+	}
+	if includeDeleted {
+		return legacyAPIKeyResponseKey(apiKey)
 	}
 	return helper.RedactSensitiveValue(apiKey)
 }
@@ -495,13 +505,13 @@ func analysisAPIKeyLabel(apiKey string, apiKeyInfos map[string]analysisAPIKeyInf
 	return helper.RedactSensitiveValue(apiKey)
 }
 
-func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo) analysisHeatmap {
+func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo, includeDeleted bool) analysisHeatmap {
 	apiRequests := map[string]int64{}
 	apiKeyLabels := map[string]string{}
 	modelRequests := map[string]int64{}
 	maxTokens := int64(0)
 	for _, cell := range cells {
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos, includeDeleted)
 		apiKeyLabels[apiKey] = analysisAPIKeyLabel(cell.APIKey, apiKeyInfos)
 		apiRequests[apiKey] += cell.Requests
 		modelRequests[cell.Model] += cell.Requests
@@ -517,7 +527,7 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 		if maxTokens > 0 {
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos, includeDeleted)
 		payloadCells = append(payloadCells, analysisHeatmapCell{
 			APIKey:              apiKey,
 			Model:               cell.Model,

@@ -87,14 +87,27 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 	}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, usageProvider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	for _, path := range []string{"/api/v1/usage/analysis?range=24h&include_deleted=true", "/api/v1/usage/api-keys/settings?include_deleted=true"} {
+		response := serveAPIGet(router, path, &http.Cookie{Name: standardSessionCookieName, Value: token})
+		if response.Code != http.StatusUnauthorized && response.Code != http.StatusForbidden {
+			t.Fatalf("viewer accessed an admin history route: status=%d", response.Code)
+		}
+	}
 
-	analysisResponse := serveAPIGet(router, "/api/v1/key-analysis?range=24h&api_key_id=99", &http.Cookie{Name: standardSessionCookieName, Value: token})
+	analysisResponse := serveAPIGet(router, "/api/v1/key-analysis?range=24h&api_key_id=99&include_deleted=true", &http.Cookie{Name: standardSessionCookieName, Value: token})
 
 	if analysisResponse.Code != http.StatusOK {
 		t.Fatalf("analysis status=%d, want 200: %s", analysisResponse.Code, analysisResponse.Body.String())
 	}
-	if len(usageProvider.analysisFilters) != 1 || usageProvider.analysisFilters[0].APIKeyID != "42" {
+	if len(usageProvider.analysisFilters) != 1 || usageProvider.analysisFilters[0].APIKeyID != "42" || usageProvider.analysisFilters[0].IncludeDeleted {
 		t.Fatalf("expected analysis filter to force session key 42, got %+v", usageProvider.analysisFilters)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(analysisResponse.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode analysis envelope: %v", err)
+	}
+	if _, ok := envelope["include_deleted"]; ok {
+		t.Fatal("viewer must not echo include_deleted")
 	}
 	var analysisPayload struct {
 		ModelSpeed struct {
@@ -129,12 +142,12 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 		t.Fatalf("expected viewer analysis not to list every API key, got %d calls", keyProvider.listCalls)
 	}
 
-	latencyResponse := serveAPIGet(router, "/api/v1/key-analysis/latency?range=24h&api_key_id=99", &http.Cookie{Name: standardSessionCookieName, Value: token})
+	latencyResponse := serveAPIGet(router, "/api/v1/key-analysis/latency?range=24h&api_key_id=99&include_deleted=true", &http.Cookie{Name: standardSessionCookieName, Value: token})
 
 	if latencyResponse.Code != http.StatusOK {
 		t.Fatalf("latency status=%d, want 200: %s", latencyResponse.Code, latencyResponse.Body.String())
 	}
-	if len(usageProvider.latencyFilters) != 1 || usageProvider.latencyFilters[0].APIKeyID != "42" {
+	if len(usageProvider.latencyFilters) != 1 || usageProvider.latencyFilters[0].APIKeyID != "42" || usageProvider.latencyFilters[0].IncludeDeleted {
 		t.Fatalf("expected latency filter to force session key 42, got %+v", usageProvider.latencyFilters)
 	}
 }

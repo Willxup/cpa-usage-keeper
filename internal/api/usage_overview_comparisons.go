@@ -62,7 +62,7 @@ func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRec
 				key = info.ID
 			} else {
 				// 已删除的 Key 仍需独立标识；不能以可能相同的脱敏文本合并不同历史 Key。
-				key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
+				key = legacyAPIKeyResponseKey(item.Key)
 			}
 		}
 		var cost *float64
@@ -89,4 +89,9 @@ func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRec
 		return result[i].TotalTokens > result[j].TotalTokens
 	})
 	return result
+}
+
+// legacyAPIKeyResponseKey 为无登记行的历史 Key 提供稳定且不泄露原值的标识，供 Analysis 和 Comparisons 共用。
+func legacyAPIKeyResponseKey(apiKey string) string {
+	return fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(apiKey)))
 }

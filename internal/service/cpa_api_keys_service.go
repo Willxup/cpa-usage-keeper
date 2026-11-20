@@ -21,6 +21,11 @@ type CPAAPIKeyProvider interface {
 	UpdateCPAAPIKeyAlias(ctx context.Context, id int64, keyAlias string) (entities.CPAAPIKey, error)
 }
 
+// CPAAPIKeyHistoryProvider 仅扩展管理员历史查询，不改变登录和普通列表的 active Key 合同。
+type CPAAPIKeyHistoryProvider interface {
+	ListAllCPAAPIKeys(ctx context.Context) ([]entities.CPAAPIKey, error)
+}
+
 type cpaAPIKeyService struct {
 	db *gorm.DB
 }
@@ -31,6 +36,10 @@ func NewCPAAPIKeyService(db *gorm.DB) CPAAPIKeyProvider {
 
 func (s *cpaAPIKeyService) ListCPAAPIKeys(ctx context.Context) ([]entities.CPAAPIKey, error) {
 	return repository.ListActiveCPAAPIKeys(s.db.WithContext(ctx))
+}
+
+func (s *cpaAPIKeyService) ListAllCPAAPIKeys(ctx context.Context) ([]entities.CPAAPIKey, error) {
+	return repository.ListAllCPAAPIKeys(s.db.WithContext(ctx))
 }
 
 func (s *cpaAPIKeyService) FindActiveCPAAPIKeyByValue(_ context.Context, apiKey string) (entities.CPAAPIKey, error) {

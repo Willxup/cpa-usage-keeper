@@ -621,7 +621,7 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 			})
 			continue
 		}
-		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos, false)
 		if _, ok := apiKeyInfos[item.Key]; !ok {
 			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
 		}

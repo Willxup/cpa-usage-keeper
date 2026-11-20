@@ -36,17 +36,21 @@ type analysisOverviewStatProjection struct {
 // Analysis 仅投影图表、构成和身份需要的旧计数／Token 字段，以及已存费用和端到端速度列。
 const analysisOverviewProjectionColumns = "bucket_start, api_group_key, model, auth_index, request_count, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, unavailable_cost_count, speed_tps_sum, speed_sample_count"
 
-// loadAnalysisOverviewHourlyStatsWithFilter 只读 active Key 的完整小时汇总，不拼原始事件。
+// loadAnalysisOverviewHourlyStatsWithFilter 默认只读 active Key；显式包含历史时不限制 Key 登记状态。
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]analysisOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	query := db.Model(&entities.UsageOverviewHourlyStat{})
+	if !filter.IncludeDeleted {
+		query = query.Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	}
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly")
 }
 
-// loadAnalysisOverviewDailyStatsWithFilter 保留自然日范围与 active Key JOIN，费用来自日汇总。
+// loadAnalysisOverviewDailyStatsWithFilter 保留自然日范围，默认只读 active Key，费用来自日汇总。
 func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]analysisOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewDailyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	query := db.Model(&entities.UsageOverviewDailyStat{})
+	if !filter.IncludeDeleted {
+		query = query.Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	}
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily")
 }
 
