@@ -255,7 +255,39 @@ func parseClaudeUsagePayload(response *apicall.Response) (*ClaudeUsagePayload, e
 		SevenDayCowork:    parseClaudeUsageWindow(objectField(object, "seven_day_cowork", "sevenDayCowork")),
 		IguanaNecktie:     parseClaudeUsageWindow(objectField(object, "iguana_necktie", "iguanaNecktie")),
 		ExtraUsage:        parseClaudeExtraUsage(objectField(object, "extra_usage", "extraUsage")),
+		ModelWeeklyLimits: parseClaudeModelWeeklyLimits(arrayField(object, "limits")),
 	}, nil
+}
+
+// parseClaudeModelWeeklyLimits 只读取 kind=weekly_scoped 且限定到模型的条目；共享窗口仍以 five_hour/seven_day 字段为准。
+func parseClaudeModelWeeklyLimits(items []json.RawMessage) []ClaudeModelWeeklyLimit {
+	var limits []ClaudeModelWeeklyLimit
+	for _, raw := range items {
+		object := rawObject(raw)
+		if stringField(object, "kind") != "weekly_scoped" {
+			continue
+		}
+		scope := objectField(object, "scope")
+		// 同时限定界面的条目只在该界面生效，不能当作模型的通用周额度展示。
+		if objectField(scope, "surface") != nil {
+			continue
+		}
+		model := objectField(scope, "model")
+		name := strings.TrimSpace(stringField(model, "display_name", "displayName"))
+		if name == "" {
+			name = strings.TrimSpace(stringField(model, "id"))
+		}
+		percent, hasPercent := floatValue(object, "percent")
+		if name == "" || !hasPercent || math.IsNaN(percent) || math.IsInf(percent, 0) {
+			continue
+		}
+		limits = append(limits, ClaudeModelWeeklyLimit{Model: name, Window: ClaudeUsageWindow{
+			Utilization:    percent,
+			ResetsAt:       stringField(object, "resets_at", "resetsAt"),
+			HasUtilization: true,
+		}})
+	}
+	return limits
 }
 
 func parseClaudeUsageWindow(object map[string]json.RawMessage) *ClaudeUsageWindow {

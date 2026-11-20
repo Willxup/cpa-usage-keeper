@@ -3,9 +3,11 @@ package quota
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"cpa-usage-keeper/internal/timeutil"
 )
@@ -83,6 +85,7 @@ func normalizeClaudeQuotaRows(result ClaudeResult) []QuotaRow {
 	rows = appendClaudeWindowQuotaRow(rows, "seven_day_sonnet", "7d Sonnet", "model", result.Usage.SevenDaySonnet)
 	rows = appendClaudeWindowQuotaRow(rows, "seven_day_cowork", "7d Cowork", "window", result.Usage.SevenDayCowork)
 	rows = appendClaudeWindowQuotaRow(rows, "iguana_necktie", "Iguana Necktie", "window", result.Usage.IguanaNecktie)
+	rows = appendClaudeModelWeeklyLimitRows(rows, result.Usage.ModelWeeklyLimits)
 	if result.Usage.ExtraUsage != nil {
 		rows = append(rows, QuotaRow{
 			Key:         "extra_usage",
@@ -95,6 +98,43 @@ func normalizeClaudeQuotaRows(result ClaudeResult) []QuotaRow {
 		})
 	}
 	return rows
+}
+
+// claudeLegacyModelWeeklyKeys 是 limits[] 中模型在官方顶层字段里已有的周额度行。
+var claudeLegacyModelWeeklyKeys = map[string]string{
+	"opus":   "seven_day_opus",
+	"sonnet": "seven_day_sonnet",
+}
+
+// appendClaudeModelWeeklyLimitRows 追加官方 limits[] 中的模型周额度。
+// 模型按规范化 key 识别：已有顶层字段（如 seven_day_opus）或同 key 的条目只保留先出现的一行，保证 row key 唯一。
+func appendClaudeModelWeeklyLimitRows(rows []QuotaRow, limits []ClaudeModelWeeklyLimit) []QuotaRow {
+	for _, limit := range limits {
+		slug := claudeModelLimitKey(limit.Model)
+		if slug == "" {
+			continue
+		}
+		key, legacy := claudeLegacyModelWeeklyKeys[slug]
+		if !legacy {
+			key = "seven_day_model." + slug
+		}
+		if slices.ContainsFunc(rows, func(row QuotaRow) bool { return row.Key == key }) {
+			continue
+		}
+		window := limit.Window
+		rows = appendClaudeWindowQuotaRow(rows, key, "7d "+limit.Model, "model", &window)
+	}
+	return rows
+}
+
+// claudeModelLimitKey 把官方模型展示名或 id 转成稳定的 quota key 片段。
+func claudeModelLimitKey(model string) string {
+	return strings.Trim(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return '_'
+	}, model), "_")
 }
 
 func appendClaudeWindowQuotaRow(rows []QuotaRow, key string, label string, scope string, window *ClaudeUsageWindow) []QuotaRow {
