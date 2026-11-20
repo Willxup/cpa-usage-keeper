@@ -62,7 +62,7 @@ const RESET_CREDITS_POPOVER_VIEWPORT_MARGIN = 12
 const RESET_CREDITS_POPOVER_OFFSET = 8
 const RESET_CREDITS_POPOVER_MAX_HEIGHT = 360
 // 与后端默认额度处理器一致；品牌图标支持的类型不等于额度接口支持的类型。
-const QUOTA_PROVIDER_TYPES = new Set(['antigravity', 'codex', 'gemini-cli', 'claude', 'kimi', 'xai'])
+const QUOTA_PROVIDER_TYPES = new Set(['antigravity', 'codex', 'gemini-cli', 'claude', 'kimi', 'meta', 'xai'])
 const CREDENTIAL_EXPIRY_TOOLTIP_SAFE_WIDTH = 300
 const CREDENTIAL_EXPIRY_TOOLTIP_ESTIMATED_HEIGHT = 48
 const CREDENTIAL_EXPIRY_TOOLTIP_OFFSET = 10
