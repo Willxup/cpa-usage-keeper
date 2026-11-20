@@ -437,7 +437,10 @@ func (s *Service) runRefreshTaskWithWorker(task *RefreshTaskRecord) {
 		response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
 	}
 	// quota rows 和 token/cost 都准备好后，把任务切到 completed 并写入长期成功缓存。
-	s.markRefreshTaskCompleted(task, response, upstreamResponses)
+	if s.markRefreshTaskCompleted(task, response, upstreamResponses) {
+		// 只有已发布的结果才能驱动 CPA 路由恢复，清理前启动的任务不得改变路由状态。
+		s.recoverCredentialRouting(authIndex, response)
+	}
 }
 
 func (s *Service) deleteRefreshTask(task *RefreshTaskRecord) {
@@ -517,7 +520,8 @@ func (s *Service) markRefreshTaskRunning(task *RefreshTaskRecord) (string, Refre
 	return task.AuthIndex, task.Source, true
 }
 
-func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response CheckResponse, upstreamResponses []UpstreamResponse) {
+// markRefreshTaskCompleted 返回结果是否写入了当前任务；失效任务的结果被丢弃。
+func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response CheckResponse, upstreamResponses []UpstreamResponse) bool {
 	// now 同时作为完成时间和成功缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// refreshTasks 是共享 map，写 completed 状态前必须加锁。
@@ -527,7 +531,7 @@ func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response Che
 	// 同锁比较代数和具体任务后发布，清理前的响应不能复活旧缓存或覆盖新任务。
 	if !s.refreshTaskCurrentLocked(task) || task.Status != RefreshTaskStatusRunning {
 		// 不再创建新记录，避免后台结果复活已清理任务。
-		return
+		return false
 	}
 	// 标记任务完成，前端轮询会停止 pending 状态。
 	task.Status = RefreshTaskStatusCompleted
@@ -537,6 +541,7 @@ func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response Che
 	task.Quota = &response
 	// raw 响应与当前 quota 同生命周期；同 auth_index 的下一次刷新会整体覆盖任务记录。
 	task.UpstreamResponses = cloneUpstreamResponses(upstreamResponses)
+	return true
 }
 
 func (s *Service) markQueuedRefreshTasksFailed(tasks []*RefreshTaskRecord, err error) {
