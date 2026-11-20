@@ -72,7 +72,7 @@ describe('RequestEventsDetailsCard compact columns', () => {
       'Speed',
       'Tokens',
       'Cache',
-      'Cost',
+      'Estimated cost',
       'Executor',
       'Client IP',
       'X-Forwarded-For',

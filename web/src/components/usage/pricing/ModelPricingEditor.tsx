@@ -51,6 +51,7 @@ export interface ModelPricingEditorProps {
 }
 
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
+const ruleKeys = ['api_group_key', 'model', 'auth_index', 'model_alias', 'service_tier', 'response_service_tier', 'reasoning_effort', 'endpoint', 'executor_type'] as const
 let nextBranchSerial = 0
 
 // 分支 id 只需在配置内稳定唯一，局域网 HTTP 页面也能创建草稿。
@@ -422,8 +423,23 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
         </summary>
         <div className={styles.conditionBody}>
         {draft.rules.map((rule, index) => <div className={styles.conditionRow} key={rule.id}>
-          {field(`conditional_multipliers[${index}].key`, t('usage_stats.model_price_rules_key'), rule.key,
-            (value) => editRule(rule.id, 'key', value))}
+          <label className={`${styles.field} ${errors[`conditional_multipliers[${index}].key`] ? styles.invalid : ''}`}>
+            <span>{t('usage_stats.model_price_rules_key')}</span>
+            <select value={rule.key} disabled={saving || locked}
+              data-pricing-field={`conditional_multipliers[${index}].key`}
+              aria-invalid={Boolean(errors[`conditional_multipliers[${index}].key`])}
+              aria-describedby={errors[`conditional_multipliers[${index}].key`] ? `${formId}-rule-${index}-error` : undefined}
+              onChange={(event) => editRule(rule.id, 'key', event.target.value)}>
+              <option value="">{t('usage_stats.pricing_settings_select_condition_field')}</option>
+              {rule.key && !ruleKeys.some((key) => key === rule.key) ? <option value={rule.key}>{rule.key}</option> : null}
+              {ruleKeys.map((key) => <option key={key} value={key}>{key === 'service_tier'
+                ? t('usage_stats.pricing_settings_requested_tier')
+                : key === 'response_service_tier' ? t('usage_stats.pricing_settings_reported_tier') : key}</option>)}
+            </select>
+            {errors[`conditional_multipliers[${index}].key`] ? <span id={`${formId}-rule-${index}-error`} className={styles.screenReaderOnly}>
+              {t(`usage_stats.pricing_settings_error_${['required', 'invalid', 'duplicate', 'conflict'].includes(errors[`conditional_multipliers[${index}].key`]) ? errors[`conditional_multipliers[${index}].key`] : 'invalid'}`)}
+            </span> : null}
+          </label>
           {field(`conditional_multipliers[${index}].value`, t('usage_stats.model_price_rules_value'), rule.value,
             (value) => editRule(rule.id, 'value', value))}
           {field(`conditional_multipliers[${index}].multiplier`, t('usage_stats.model_price_rules_multiplier'), rule.multiplier,
@@ -434,7 +450,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
           </Button>
         </div>)}
         <div className={styles.conditionFooter}>
-        <p className={styles.hint}>{t('usage_stats.pricing_settings_conditions_hint')}</p>
+        <p className={styles.hint}>{t('usage_stats.pricing_settings_conditions_hint')} {t('usage_stats.pricing_settings_tier_hint')}</p>
         <Button type="button" appearance="action" disabled={saving || locked}
           onClick={() => setDraft((current) => ({ ...current, rules: [...current.rules, { id: nextRuleId.current++, key: '', value: '', multiplier: '1' }] }))}>
           <IconPlus size={16} />{t('usage_stats.pricing_settings_add_condition')}

@@ -100,6 +100,8 @@ Keep usage history for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIP
 
 CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Homebrew, or binaries; login protection is enabled by default.
 
+Cost amounts are API price estimates based on recorded tokens and configured model prices, not actual provider charges or ChatGPT subscription billing. In model pricing, conditional multipliers can match either the requested `service_tier` or the `response_service_tier` reported in the response. Matching is exact and case-sensitive, a missing response tier does not fall back to the request, and every matching condition multiplies together. Some older response tier values were backfilled from the request during a migration. Changing prices or rules affects new usage; stored historical costs change only when explicitly recalculated.
+
 ## Sponsors and Special Thanks
 
 - Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
