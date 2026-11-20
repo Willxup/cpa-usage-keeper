@@ -30,7 +30,16 @@ function button(label: string): HTMLButtonElement {
 describe('credential stats reset confirmation', () => {
   let root: Root
   let container: HTMLDivElement
+  let unexpectedRequests: string[]
   beforeEach(async () => {
+    unexpectedRequests = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/usage/identities/1/activity') return Response.json({ latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false })
+      if (url.pathname === '/api/v1/usage/identities/1/models' && url.searchParams.get('range') === '7d') return Response.json({ models: [], summary: { total_tokens: 0 } })
+      unexpectedRequests.push(url.pathname)
+      throw new Error('Unexpected fetch')
+    })
     await i18n.changeLanguage('en')
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -40,6 +49,29 @@ describe('credential stats reset confirmation', () => {
     await act(async () => root.unmount())
     container.remove()
     vi.restoreAllMocks()
+    await i18n.changeLanguage('en')
+    expect(unexpectedRequests).toEqual([])
+  })
+
+  it.each([
+    ['en', 'Cumulative statistics', 'Reset statistics', 'Reset', 'Since reset:'],
+    ['zh', '累计统计', '重置统计', '确认重置', '上次重置：'],
+    ['zh-TW', '累計統計', '重置統計', '確認重置', '上次重置：'],
+  ])('shows one cumulative heading before reset and the reset origin afterward in %s', async (language, heading, openLabel, confirmLabel, sinceLabel) => {
+    await i18n.changeLanguage(language)
+    const reset = vi.fn().mockResolvedValue(resetIdentity)
+    await act(async () => root.render(<Harness reset={reset} />))
+    const toolbar = document.querySelector<HTMLElement>('[data-credential-overview-section="cumulative"] [class*="summaryToolbar"]')!
+    expect(toolbar.querySelector('h3')?.textContent).toBe(heading)
+    expect([...toolbar.children].filter(child => child.tagName === 'SPAN')).toHaveLength(0)
+    expect(toolbar.textContent?.split(heading)).toHaveLength(2)
+    await act(async () => button(openLabel).click())
+    await act(async () => button(confirmLabel).click())
+    const origin = [...toolbar.children].find(child => child.tagName === 'SPAN')
+    expect(origin?.textContent).toContain(sinceLabel)
+    expect(origin?.textContent).toContain('2026-09-10 16:00:00 UTC+08:00')
+    expect(toolbar.querySelector('h3')?.textContent).toBe(heading)
+    expect(reset).toHaveBeenCalledExactlyOnceWith('1')
   })
 
   it('confirms once, disables repeat submission and displays the server reset time and empty period', async () => {

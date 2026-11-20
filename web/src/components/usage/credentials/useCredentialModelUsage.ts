@@ -6,7 +6,7 @@ type ModelUsageResult =
   | { key: string; data: UsageIdentityModelsResponse; error: null }
   | { key: string; data: null; error: 'costs_busy' | 'load_failed' }
 
-export function useCredentialModelUsage(identityId: string, range: UsageIdentityModelsRange, onAuthRequired?: () => void) {
+export function useCredentialModelUsage(identityId: string, range: UsageIdentityModelsRange, onAuthRequired?: () => void, enabled = true) {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<ModelUsageResult | null>(null)
   const onAuthRequiredRef = useRef(onAuthRequired)
@@ -14,6 +14,7 @@ export function useCredentialModelUsage(identityId: string, range: UsageIdentity
 
   useEffect(() => { onAuthRequiredRef.current = onAuthRequired }, [onAuthRequired])
   useEffect(() => {
+    if (!enabled) return
     const controller = new AbortController()
     void fetchUsageIdentityModels(identityId, range, controller.signal).then(data => {
       if (!controller.signal.aborted) setResult({ key, data, error: null })
@@ -23,7 +24,7 @@ export function useCredentialModelUsage(identityId: string, range: UsageIdentity
       setResult({ key, data: null, error: isCostsBusy(error) ? 'costs_busy' : 'load_failed' })
     })
     return () => controller.abort()
-  }, [identityId, range, key])
+  }, [identityId, range, key, enabled])
 
   const retry = useCallback(() => setAttempt(value => value + 1), [])
   // 输入或重试轮次变化时立即隔离旧数据，即使 effect 清理尚未运行。

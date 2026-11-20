@@ -22,6 +22,7 @@ interface CredentialModelUsageProps {
   identityId: string
   kind: 'credential' | 'ai-provider'
   onAuthRequired?: () => void
+  enabled?: boolean
 }
 
 export function CredentialModelUsage(props: CredentialModelUsageProps) {
@@ -29,10 +30,10 @@ export function CredentialModelUsage(props: CredentialModelUsageProps) {
   return <ModelUsage key={props.identityId} {...props} />
 }
 
-function ModelUsage({ identityId, kind, onAuthRequired }: CredentialModelUsageProps) {
+function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: CredentialModelUsageProps) {
   const { t } = useTranslation()
   const [range, setRange] = useState<UsageIdentityModelsRange>('7d')
-  const { data, loading, error, retry } = useCredentialModelUsage(identityId, range, onAuthRequired)
+  const { data, loading, error, retry } = useCredentialModelUsage(identityId, range, onAuthRequired, enabled)
   const models = data ? [...data.models].sort((a, b) => b.total_tokens - a.total_tokens) : []
   return (
     <section className={styles.panel} data-credential-model-usage>
@@ -69,7 +70,7 @@ function ModelUsage({ identityId, kind, onAuthRequired }: CredentialModelUsagePr
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
                     <td className={styles.tokensCell}>
                       <div className={styles.tokenNumbers}><strong>{formatCompactTokenValue(model.total_tokens)}</strong><span>{data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'}</span></div>
-                      <TokenBreakdown model={model} name={name} />
+                      <TokenBreakdown model={model} name={name} enabled={enabled} />
                     </td>
                     <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>
                   </tr>
@@ -96,7 +97,7 @@ function TokenLegend() {
   return <span className={styles.tokenLegend}>{TOKEN_PARTS.map(part => <span key={part.key}><i style={{ background: part.color }} />{t(part.label)}</span>)}</span>
 }
 
-function TokenBreakdown({ model, name }: { model: UsageIdentityModel; name: string }) {
+function TokenBreakdown({ model, name, enabled }: { model: UsageIdentityModel; name: string; enabled: boolean }) {
   const { t } = useTranslation()
   const id = `model-token-${useId()}`
   const anchor = useRef<HTMLDivElement>(null)
@@ -119,7 +120,10 @@ function TokenBreakdown({ model, name }: { model: UsageIdentityModel; name: stri
     reasoning: model.reasoning_tokens,
   }
   useEffect(() => {
-    if (!isOpen) return
+    if (!enabled) dismiss()
+  }, [enabled, dismiss])
+  useEffect(() => {
+    if (!isOpen || !enabled) return
     const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node)) dismiss() }
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && dismiss()) { event.preventDefault(); event.stopPropagation() }
@@ -127,21 +131,21 @@ function TokenBreakdown({ model, name }: { model: UsageIdentityModel; name: stri
     document.addEventListener('pointerdown', outside, true)
     document.addEventListener('keydown', escape, true)
     return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true) }
-  }, [isOpen, dismiss])
+  }, [isOpen, enabled, dismiss])
 
   return <>
-    <div ref={anchor} className={styles.tokenTarget} data-token-breakdown role="img" tabIndex={0}
+    <div ref={anchor} className={styles.tokenTarget} data-token-breakdown role="img" tabIndex={enabled ? 0 : -1}
       aria-label={lines.join('; ')} aria-describedby={tooltip ? id : undefined}
       onPointerDown={event => { pointerType.current = event.pointerType }}
-      onPointerEnter={event => { if (event.pointerType !== 'touch') showOnMouseEnter(lines, event.currentTarget) }}
+      onPointerEnter={event => { if (enabled && event.pointerType !== 'touch') showOnMouseEnter(lines, event.currentTarget) }}
       onPointerLeave={event => { if (event.pointerType !== 'touch') dismiss() }}
-      onFocus={event => { if (!pointerType.current) showOnFocus(lines, event.currentTarget) }}
+      onFocus={event => { if (enabled && !pointerType.current) showOnFocus(lines, event.currentTarget) }}
       onBlur={event => { pointerType.current = null; hideOnBlur(event.currentTarget) }}
-      onClick={event => { if (pointerType.current === 'touch' || pointerType.current === 'pen') { if (isOpen) dismiss(); else showOnFocus(lines, event.currentTarget) } }}>
+      onClick={event => { if (enabled && (pointerType.current === 'touch' || pointerType.current === 'pen')) { if (isOpen) dismiss(); else showOnFocus(lines, event.currentTarget) } }}>
       <div className={styles.tokenTrack}>
         {TOKEN_PARTS.map(part => <span key={part.key} data-token-part={part.key} data-token-value={values[part.key]} style={{ width: `${model.total_tokens > 0 ? values[part.key] / model.total_tokens * 100 : 0}%`, background: part.color }} />)}
       </div>
     </div>
-    <PortalTooltip id={id} tooltip={tooltip ? { ...tooltip, lines } : null} />
+    <PortalTooltip id={id} tooltip={enabled && tooltip ? { ...tooltip, lines } : null} />
   </>
 }

@@ -11,12 +11,16 @@ import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 const fetchUsageEvents = vi.fn()
 const fetchErrorEvents = vi.fn()
 const fetchCodexQuotaHistory = vi.fn()
+const fetchUsageIdentityActivity = vi.fn()
+const fetchUsageIdentityModels = vi.fn()
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
     fetchCodexQuotaHistory: (...args: unknown[]) => fetchCodexQuotaHistory(...args),
+    fetchUsageIdentityActivity: (...args: unknown[]) => fetchUsageIdentityActivity(...args),
+    fetchUsageIdentityModels: (...args: unknown[]) => fetchUsageIdentityModels(...args),
     fetchErrorEvents: (...args: unknown[]) => fetchErrorEvents(...args),
     fetchUsageEvents: (...args: unknown[]) => fetchUsageEvents(...args),
   }
@@ -215,8 +219,14 @@ const errorResponse = (id: string, cursor?: string) => ({
 describe('CredentialDetailDrawer', () => {
   let container: HTMLDivElement
   let root: Root
+  let unexpectedRequests: string[]
 
   beforeEach(() => {
+    unexpectedRequests = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      unexpectedRequests.push(String(input))
+      throw new Error('Unexpected fetch')
+    })
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
     fetchUsageEvents.mockReset()
@@ -225,6 +235,8 @@ describe('CredentialDetailDrawer', () => {
     fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
     fetchCodexQuotaHistory.mockReset()
     fetchCodexQuotaHistory.mockResolvedValue(quotaHistoryResponse)
+    fetchUsageIdentityActivity.mockReset().mockResolvedValue({ identity_id: 'provider-1', timezone: 'UTC', window_start: '2026-08-17T05:00:00Z', window_end: '2026-08-17T10:00:00Z', latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false })
+    fetchUsageIdentityModels.mockReset().mockResolvedValue({ identity_id: 'provider-1', range: '7d', timezone: 'UTC', models: [], summary: { total_tokens: 0 } })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -237,6 +249,7 @@ describe('CredentialDetailDrawer', () => {
     container.remove()
     vi.restoreAllMocks()
     vi.useRealTimers()
+    expect(unexpectedRequests).toEqual([])
   })
 
   const renderDrawer = async (props: Partial<Parameters<typeof CredentialDetailDrawer>[0]> = {}) => {
@@ -274,7 +287,6 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer({ selection: { kind: 'credential', row: metaCredential } })
     expect(document.body.querySelector('[data-provider-brand-icon="muse"]')?.getAttribute('aria-label')).toBe('Muse')
     expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent).toBe(metaIdentity.file_name)
-    expect(document.body.querySelector('dl')?.textContent).toContain('Muse')
     expect(document.body.textContent).toContain('My Meta account')
     expect(document.body.querySelector('[data-provider-brand-icon="meta"]')).toBeNull()
 
@@ -417,8 +429,112 @@ describe('CredentialDetailDrawer', () => {
     expect(tones).toEqual(['warning', 'neutral'])
     expect(document.body.textContent).toContain('usage_stats.success 9')
     expect(document.body.textContent).toContain('usage_stats.failure 1')
-    expect(document.body.textContent).toContain('usage_stats.credentials_health_cache_rate_5h')
-    expect(document.body.textContent).toContain('42.50%')
+    expect(document.body.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
+  })
+
+  it('renders the provider overview in order without identity or quota placeholders', async () => {
+    await renderDrawer()
+    const sections = [...document.body.querySelectorAll('[role="tabpanel"] > section')]
+    expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'models'])
+    expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_identity')
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBeNull()
+    expect(fetchUsageIdentityActivity).toHaveBeenCalledWith('provider-1', expect.any(AbortSignal))
+    expect(fetchUsageIdentityModels).toHaveBeenCalledWith('provider-1', '7d', expect.any(AbortSignal))
+  })
+
+  it('keeps native quota window data and independently shows recent activity and bounded streak', async () => {
+    const failure = { timestamp: '2026-08-17T09:59:00Z', failed: true, status_code: 429 }
+    fetchUsageIdentityActivity.mockResolvedValue({ identity_id: 'credential-1', latest: failure, last_success: { timestamp: '2026-08-17T09:30:00Z', failed: false }, last_failure: failure, streak: 100, streak_at_least: true })
+    const quotas = [
+      { key: 'primary', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, windowUsage: { tokens: '1.00M', cost: '$2.50' } },
+      { key: 'weekly', label: 'Weekly', percent: 50, barPercent: 50, percentKind: 'used' as const, status: 'warning' as const },
+    ]
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: quotas } } })
+    const sections = [...document.body.querySelectorAll('[role="tabpanel"] > section')]
+    expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'quota', 'models'])
+    const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
+    expect(activity.textContent).toContain('HTTP 429')
+    expect(activity.textContent).toContain('2026-08-17 09:59:00 UTC')
+    expect(activity.querySelector('time[datetime="2026-08-17T09:59:00Z"]')).not.toBeNull()
+    expect(activity.textContent).toContain('usage_stats.credentials_activity_limited')
+    expect(activity.textContent).toContain('usage_stats.credentials_activity_at_least:{"count":100}')
+    expect(activity.textContent).not.toContain('quota exhausted')
+    expect(activity.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    expect(quota.querySelectorAll('[data-quota-key]')).toHaveLength(2)
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.50')
+    expect(quota.textContent).not.toContain('Gemini Models')
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('credential-1', 'today', expect.any(AbortSignal))
+    expect(fetchUsageIdentityActivity).toHaveBeenCalledTimes(1)
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.50')
+  })
+
+  it('retains only the native Antigravity quota group headings and their window usage', async () => {
+    const base = { label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, scope: 'quota_group', windowUsage: { tokens: '1.00M', cost: '$2.80' } }
+    const displayQuotas = [
+      { ...base, key: 'gemini-5h', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' },
+      { ...base, key: 'gemini-weekly', label: 'Weekly', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' },
+      { ...base, key: 'claude-5h', groupKey: 'antigravity-claude-and-gpt-models', groupLabel: 'Claude and GPT models' },
+    ]
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, displayQuotas } } })
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    expect([...quota.querySelectorAll('[data-quota-group]')].map(group => group.getAttribute('data-quota-group'))).toEqual(['antigravity-gemini-models', 'antigravity-claude-and-gpt-models'])
+    expect(quota.querySelectorAll('[data-quota-key]')).toHaveLength(3)
+    expect(quota.textContent?.match(/Gemini Models/g)).toHaveLength(1)
+    expect(quota.textContent?.match(/Claude and GPT models/g)).toHaveLength(1)
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.80')
+  })
+
+  it('shows exact streaks and retry without coupling the model section', async () => {
+    const latest = { timestamp: '2026-08-17T09:59:00Z', failed: false }
+    fetchUsageIdentityActivity.mockRejectedValueOnce(new Error('unavailable')).mockResolvedValueOnce({ identity_id: 'provider-1', latest, last_success: latest, last_failure: null, streak: 100, streak_at_least: false })
+    await renderDrawer()
+    const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
+    expect(activity.textContent).toContain('usage_stats.credentials_activity_load_failed')
+    expect(document.body.querySelector('[data-credential-model-usage]')?.textContent).toContain('usage_stats.credentials_models_empty')
+    await act(async () => activity.querySelector<HTMLButtonElement>('button')!.click())
+    expect(activity.textContent).toContain('usage_stats.credentials_activity_count:{"count":100}')
+    expect(activity.textContent).not.toContain('usage_stats.credentials_activity_at_least')
+    expect(fetchUsageIdentityModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts activity and models immediately on close and discards late activity from another identity', async () => {
+    const old = Promise.withResolvers<unknown>()
+    const next = Promise.withResolvers<unknown>()
+    const models = Promise.withResolvers<unknown>()
+    fetchUsageIdentityActivity.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
+    fetchUsageIdentityModels.mockReturnValue(models.promise)
+    const onAuthRequired = vi.fn()
+    await renderDrawer({ onAuthRequired })
+    const firstActivitySignal = fetchUsageIdentityActivity.mock.calls[0][1] as AbortSignal
+    const firstModelsSignal = fetchUsageIdentityModels.mock.calls[0][2] as AbortSignal
+    await renderDrawer({ selection: secondSelection, onAuthRequired })
+    expect(firstActivitySignal.aborted).toBe(true)
+    expect(firstModelsSignal.aborted).toBe(true)
+    const secondActivitySignal = fetchUsageIdentityActivity.mock.calls[1][1] as AbortSignal
+    const secondModelsSignal = fetchUsageIdentityModels.mock.calls[1][2] as AbortSignal
+    await act(async () => old.reject(new ApiError('expired', 401)))
+    expect(onAuthRequired).not.toHaveBeenCalled()
+    await renderDrawer({ selection: secondSelection, open: false, onAuthRequired })
+    expect(secondActivitySignal.aborted).toBe(true)
+    expect(secondModelsSignal.aborted).toBe(true)
+    await act(async () => next.reject(new ApiError('expired', 401)))
+    expect(onAuthRequired).not.toHaveBeenCalled()
+  })
+
+  it('cleans an open model tooltip on close while preserving the drawer animation snapshot', async () => {
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    fetchUsageIdentityModels.mockResolvedValue({ identity_id: 'provider-1', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals })
+    await renderDrawer()
+    await act(async () => document.body.querySelector<HTMLElement>('[data-token-breakdown]')!.focus())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).not.toBeNull()
+    await renderDrawer({ open: false })
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).toBeNull()
+    expect(document.body.querySelector('[data-credential-overview-section="cumulative"]')).not.toBeNull()
   })
 
   it.each([
