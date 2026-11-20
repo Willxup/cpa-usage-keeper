@@ -472,6 +472,36 @@ describe('CredentialDetailDrawer', () => {
     expect(quota.textContent).toContain('$2.50')
   })
 
+  it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce({ identity_id: 'credential-1', range: '7d', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals }).mockReturnValueOnce(pending.promise)
+    await renderDrawer({ selection: credentialSelection })
+    const panel = document.body.querySelector<HTMLElement>('[data-credential-model-usage]')!
+    const scroller = panel.closest<HTMLElement>('.modal-body')!
+    vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 900))
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1900 },
+      scrollTop: { configurable: true, writable: true, value: 900 },
+    })
+    const table = panel.querySelector('table')
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    await act(async () => panel.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(scroller.scrollTop).toBe(900)
+    expect(panel.querySelector('table')).toBe(table)
+    expect(panel.textContent).toContain('public')
+    expect(panel.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
+    expect(fetchUsageIdentityActivity).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBe(quota)
+    await act(async () => pending.resolve({ identity_id: 'credential-1', range: 'today', models: [], summary: totals }))
+    expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(panel.textContent).toContain('usage_stats.credentials_models_empty')
+    expect(panel.style.minHeight).toBe('300px')
+    expect(scroller.scrollTop).toBe(900)
+  })
+
   it('retains only the native Antigravity quota group headings and their window usage', async () => {
     const base = { label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, scope: 'quota_group', windowUsage: { tokens: '1.00M', cost: '$2.80' } }
     const displayQuotas = [
@@ -524,6 +554,27 @@ describe('CredentialDetailDrawer', () => {
     expect(secondModelsSignal.aborted).toBe(true)
     await act(async () => next.reject(new ApiError('expired', 401)))
     expect(onAuthRequired).not.toHaveBeenCalled()
+  })
+
+  it('cancels a pending model range and cleans its tooltip when leaving the Overview tab', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    const initial = { identity_id: 'provider-1', range: '7d', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals }
+    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce(initial).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(initial)
+    await renderDrawer()
+    const target = document.body.querySelector<HTMLElement>('[data-token-breakdown]')!
+    await act(async () => target.focus())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).not.toBeNull()
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).toBeNull()
+    const signal = fetchUsageIdentityModels.mock.calls[1][2] as AbortSignal
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(signal.aborted).toBe(true)
+    await act(async () => pending.resolve({ ...initial, range: 'today', models: [] }))
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('provider-1', '7d', expect.any(AbortSignal))
+    expect(document.body.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(document.body.querySelector('[data-credential-model-usage]')?.textContent).toContain('public')
   })
 
   it('cleans an open model tooltip on close while preserving the drawer animation snapshot', async () => {

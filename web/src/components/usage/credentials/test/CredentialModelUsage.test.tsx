@@ -130,7 +130,7 @@ describe('CredentialModelUsage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
-  it('distinguishes unpriced zero from free, and hides old rows while the new range loads', async () => {
+  it('distinguishes unpriced zero from free, and keeps the displayed range while a new range loads', async () => {
     const pending = Promise.withResolvers<Response>()
     const data = response({ models: [model({ cost_usd: 0, unavailable_cost_count: 2, cost_available: false })] })
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(data)).mockReturnValueOnce(pending.promise)
@@ -139,10 +139,13 @@ describe('CredentialModelUsage', () => {
     expect(row.textContent).toContain('$0.0000')
     expect(row.querySelector('abbr')?.getAttribute('title')).toContain('zero does not mean free')
     await selectRange('today')
-    expect(container.textContent).toContain('Loading...')
-    expect(container.textContent).not.toContain('public')
+    expect(container.textContent).toContain('public')
+    expect(container.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(container.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('false')
+    expect(container.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
     await act(async () => { pending.resolve(json(response({ range: 'today', models: [] }))) })
     expect(container.textContent).toContain('No aggregated usage yet.')
+    expect(container.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('true')
   })
 
   it('notifies authentication failure and aborts an in-flight request on unmount', async () => {
@@ -194,7 +197,7 @@ describe('CredentialModelUsage', () => {
   })
 
   it('cleans the tooltip on range or identity switch and displays zero-valued tooltip fields', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response())).mockResolvedValueOnce(json(response())).mockResolvedValueOnce(json(response()))
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response())).mockResolvedValueOnce(json(response({ range: '30d' }))).mockResolvedValueOnce(json(response({ identity_id: '2' })))
     await render()
     const targets = container.querySelectorAll<HTMLElement>('[data-token-breakdown]')
     await act(async () => targets[1].focus())
