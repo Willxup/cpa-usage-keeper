@@ -19,6 +19,10 @@ const OFFICIAL_PLAN_LABELS = {
   'usage_stats.credentials_subscription_antigravity_pro': 'Pro',
   'usage_stats.credentials_subscription_antigravity_ultra_lite': 'Ultra Lite',
   'usage_stats.credentials_subscription_antigravity_ultra': 'Ultra',
+  'usage_stats.credentials_subscription_meta_everyday': 'Everyday',
+  'usage_stats.credentials_subscription_meta_high': 'High',
+  'usage_stats.credentials_subscription_meta_power': 'Power',
+  'usage_stats.credentials_subscription_meta_maximum': 'Maximum',
 } as const
 
 describe('credential subscription translations', () => {
