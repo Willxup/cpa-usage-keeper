@@ -754,7 +754,7 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
 }
 
 export interface FetchCodexQuotaHistoryOptions {
-  windowRole?: 'primary' | 'secondary'
+  windowRole?: string
 }
 
 export async function fetchCodexQuotaHistory(

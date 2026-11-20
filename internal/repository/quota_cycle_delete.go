@@ -48,15 +48,18 @@ func DeleteQuotaCycle(ctx context.Context, db *gorm.DB, provider string, authInd
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	primaryKey, validProvider := repositorydto.QuotaWindowKey(provider, "primary")
 	secondaryKey, _ := repositorydto.QuotaWindowKey(provider, "secondary")
-	if db == nil || authIndex == "" || cycleID <= 0 || !validProvider {
+	if db == nil || authIndex == "" || cycleID <= 0 || (provider != "antigravity" && !validProvider) {
 		return deletion, fmt.Errorf("delete codex quota cycle: invalid database, auth_index or cycle_id")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	err := db.WithContext(ctx).Clauses(dbresolver.Write).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("id = ? AND provider = ? AND auth_index = ? AND quota_key IN ?",
-			cycleID, provider, authIndex, []string{primaryKey, secondaryKey}).Take(cycle).Error; err != nil {
+		query := tx.Where("id = ? AND provider = ? AND auth_index = ?", cycleID, provider, authIndex)
+		if provider != "antigravity" {
+			query = query.Where("quota_key IN ?", []string{primaryKey, secondaryKey})
+		}
+		if err := query.Take(cycle).Error; err != nil {
 			return err
 		}
 		// 只在低频删除时读取该账号角色的父行身份，不给正常采样增加查询或改变写入接口。
