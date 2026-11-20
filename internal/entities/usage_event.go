@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+const UsageIdentityActivityIndex = "idx_usage_events_identity_activity"
+
+// SQLite 存储时间带可变长度小数和时区 offset，直接按文本排序不能保证真实时间顺序。
+// 固定宽度 UTC 表达式供活动索引和范围查询共用，不改写原始 timestamp。
+const UsageIdentityActivityTimestamp = "strftime('%Y-%m-%dT%H:%M:%S', substr(timestamp,1,19) || " +
+	"CASE WHEN substr(timestamp,-1)='Z' THEN 'Z' ELSE substr(timestamp,-6) END) || '.' || " +
+	"CASE WHEN substr(timestamp,20,1)='.' THEN " +
+	"substr(substr(timestamp,21,length(timestamp)-20-(CASE WHEN substr(timestamp,-1)='Z' THEN 1 ELSE 6 END)) || '000000000',1,9) " +
+	"ELSE '000000000' END || 'Z'"
+
 // UsageEvent 是落库后的单条 usage 请求事件实体。
 type UsageEvent struct {
 	ID                   int64 `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`

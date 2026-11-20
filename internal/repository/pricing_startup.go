@@ -29,6 +29,9 @@ func InitializeFreshPricingDatabase(ctx context.Context, db *gorm.DB) error {
 	if err := db.WithContext(ctx).AutoMigrate(entities.All()...); err != nil {
 		return fmt.Errorf("create fresh database schema: %w", err)
 	}
+	if err := migration.EnsureUsageIdentityActivityIndex(db.WithContext(ctx)); err != nil {
+		return err
+	}
 	if err := migration.MarkAllAsApplied(db.WithContext(ctx)); err != nil {
 		return fmt.Errorf("mark fresh schema migrations: %w", err)
 	}
