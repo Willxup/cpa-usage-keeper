@@ -569,7 +569,7 @@ const resources = {
         credentials_models_token_composition: 'Token composition',
         credentials_models_cost: 'Cost',
         credentials_models_total: 'Range total',
-        credentials_models_share: '{{percent}}% of tokens',
+        credentials_models_share: '{{percent}}%',
         credentials_models_empty: 'No aggregated usage yet.',
         credentials_models_load_failed: 'Failed to load model usage.',
         credentials_models_cost_incomplete: 'Pricing is incomplete. Only calculated costs are shown; zero does not mean free.',

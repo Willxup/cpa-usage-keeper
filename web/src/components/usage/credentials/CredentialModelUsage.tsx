@@ -77,6 +77,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
           ))}
         </div>
       </div>
+      {data && models.length > 0 ? <div className={styles.legendRow}><TokenLegend /></div> : null}
       {!data && loading ? <div className={styles.state} role="status">{t('common.loading')}</div> : null}
       {error ? <div className={styles.state} role="status">
         <span>{t(error === 'costs_busy' ? 'usage_stats.costs_busy' : 'usage_stats.credentials_models_load_failed')}</span>
@@ -88,7 +89,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                 <thead><tr>
                   <th scope="col">{t(kind === 'ai-provider' ? 'usage_stats.credentials_models_mapping_column' : 'usage_stats.credentials_models_model')}</th>
                   <th scope="col">{t('usage_stats.credentials_metric_requests')}</th>
-                  <th scope="col"><div className={styles.tokenHeading}>{t('usage_stats.credentials_models_token_composition')}<TokenLegend /></div></th>
+                  <th scope="col">{t('usage_stats.credentials_models_token_composition')}</th>
                   <th scope="col">{t('usage_stats.credentials_models_cost')}</th>
                 </tr></thead>
                 <tbody>{models.map(model => {
@@ -98,8 +99,11 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                     <th scope="row"><strong>{name}</strong>{kind === 'ai-provider' && alias && model.model && alias !== model.model ? <span className={styles.upstream}>→ {model.model}</span> : null}</th>
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
                     <td className={styles.tokensCell}>
-                      <div className={styles.tokenNumbers}><strong>{formatCompactTokenValue(model.total_tokens)}</strong><span>{data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'}</span></div>
-                      <TokenBreakdown model={model} name={name} enabled={enabled && !loading} />
+                      <div className={styles.tokenComposition}>
+                        <strong>{formatCompactTokenValue(model.total_tokens)}</strong>
+                        <TokenBreakdown model={model} name={name} enabled={enabled && !loading} />
+                        <span>{data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'}</span>
+                      </div>
                     </td>
                     <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>
                   </tr>
@@ -110,7 +114,6 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} /></td>
                 </tr></tfoot>
               </table>
-              <div className={styles.mobileLegend} aria-hidden="true"><TokenLegend /></div>
             </> : null}
     </section>
   )
