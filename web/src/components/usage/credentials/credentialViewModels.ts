@@ -1,6 +1,7 @@
 import type { ClaudeResetGrantStatus, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
+import { credentialBrandOverride } from './credentialBrand'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 export const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const
@@ -180,13 +181,15 @@ export function buildCredentialRows(
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota).filter(isDisplayableQuota)
     const subscriptionBadge = resolveCredentialSubscriptionBadge(quotaResponse?.subscription ?? identity.subscription)
+    const brand = credentialBrandOverride(identity.type)
+    const providerLabel = credentialProviderLabel(identity)
 
     return {
       identity,
       displayName: credentialDisplayName(identity),
       maskedIdentity: identity.identity,
-      providerLabel: credentialProviderLabel(identity),
-      typeLabel: credentialTypeLabel(identity),
+      providerLabel: brand && providerLabel.toLowerCase() === identity.type.trim().toLowerCase() ? brand.name : providerLabel,
+      typeLabel: brand?.name ?? credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
       priorityLabel: credentialPriorityLabel(identity.priority),
       subscriptionBadge,

@@ -26,6 +26,7 @@ const CREDENTIAL_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
   // Gemini Credential 兼容 CPA 的原始与 CLI type，并统一复用 Gemini 品牌筛选。
   { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-cli'] },
   { key: 'kimi', labelKey: 'usage_stats.credentials_filter_kimi', types: ['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'] },
+  { key: 'meta', labelKey: 'usage_stats.credentials_filter_meta', types: ['meta'] },
   { key: 'xai', labelKey: 'usage_stats.credentials_filter_xai', types: ['xai'] },
   { key: 'vertex', labelKey: 'usage_stats.credentials_filter_vertex', types: ['vertex'] },
 ]

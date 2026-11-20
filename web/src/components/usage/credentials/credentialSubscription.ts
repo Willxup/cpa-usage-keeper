@@ -58,7 +58,16 @@ const ANTIGRAVITY_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, '
   ['ultra', { kind: 'antigravity-ultra', labelKey: 'usage_stats.credentials_subscription_antigravity_ultra' }],
 ])
 
+// Muse 复用已有动效：Codex Pro 10x 仍是原金色，Pro 20x 使用原 Enterprise 淡紫色。
+const META_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallbackLabel'>>([
+  ['everyday usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_everyday' }],
+  ['high usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_high' }],
+  ['power usage', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_meta_power' }],
+  ['maximum usage', { kind: 'codex-pro20x', labelKey: 'usage_stats.credentials_subscription_meta_maximum' }],
+])
+
 const PRESENTATIONS_BY_PROVIDER = new Map([
+  ['meta', META_PRESENTATIONS],
   ['codex', CODEX_PRESENTATIONS],
   ['claude', CLAUDE_PRESENTATIONS],
   ['antigravity', ANTIGRAVITY_PRESENTATIONS],

@@ -72,6 +72,19 @@ describe('credentialViewModels', () => {
     expect(cleared.row.priorityLabel).toBe('P0')
   })
 
+  it('uses Muse only for Meta credential brand fields, preserving user names and raw identities', () => {
+    const meta = identity({ type: 'meta', provider: 'Meta', displayName: 'My Meta account', alias: 'My Meta account' })
+    const [credential] = buildCredentialRows([meta])
+    const [provider] = buildAiProviderCredentialRows([{ ...meta, auth_type: 2 }])
+
+    expect(credential).toMatchObject({ displayName: 'My Meta account', providerLabel: 'Muse', typeLabel: 'Muse', identity: meta })
+    expect(provider).toMatchObject({ displayName: 'My Meta account', providerLabel: 'Meta', typeLabel: 'meta' })
+    expect(buildCredentialRows([{ ...meta, displayName: 'Meta', alias: 'Meta' }])[0].displayName).toBe('Meta')
+    expect(buildCredentialRows([{ ...meta, provider: 'My Meta Team' }])[0].providerLabel).toBe('My Meta Team')
+    expect(buildCredentialRows([{ ...meta, type: 'claude', provider: 'meta' }])[0].providerLabel).toBe('meta')
+    expect(buildCredentialRows([{ ...meta, type: ' META ', provider: '' }])[0]).toMatchObject({ providerLabel: 'Muse', typeLabel: 'Muse' })
+  })
+
   it('splits usage identities by auth type while keeping deleted rows for traffic display', () => {
     const groups = splitCredentialIdentities([
       identity({ id: '1', auth_type: 1, identity: 'credential' }),
@@ -158,6 +171,23 @@ describe('credentialViewModels', () => {
       { kind: 'antigravity-ultra', labelKey: 'usage_stats.credentials_subscription_antigravity_ultra' },
       undefined,
     ])
+  })
+
+  it('displays only Meta windows with known percentages, without invented usage or projections', () => {
+    const meta = identity({ identity: 'meta-auth', type: 'meta', provider: 'meta' })
+    const quota = quotaResponse('meta-auth', [
+      { key: 'meta.window', label: '2h', scope: 'meta_window', usedPercent: 25, window: { seconds: 7200 } },
+      { key: 'meta.weekly', label: 'Weekly', scope: 'meta_window', usedPercent: 0 },
+    ], undefined, { provider: 'meta', plan: 'High Usage' })
+    const [row] = buildCredentialRows([meta], new Map([['meta-auth', quota]]))
+    expect(row.subscriptionBadge).toEqual({ kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_high' })
+    expect(row.displayQuotas.map(({ label, barPercent, windowUsage, windowUsageEstimate }) => ({ label, barPercent, windowUsage, windowUsageEstimate }))).toEqual([
+      { label: '2h', barPercent: 75, windowUsage: undefined, windowUsageEstimate: undefined },
+      { label: 'Weekly', barPercent: 100, windowUsage: undefined, windowUsageEstimate: undefined },
+    ])
+    expect(buildCredentialRows([meta], new Map([['meta-auth', quotaResponse('meta-auth', [
+      { key: 'meta.window', label: 'Current', scope: 'meta_window' },
+    ])]]))[0].displayQuotas).toEqual([])
   })
 
   it('prefers refreshed quota subscription over usage identity subscription', () => {

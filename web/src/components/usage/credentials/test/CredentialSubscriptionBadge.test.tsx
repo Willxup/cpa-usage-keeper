@@ -58,6 +58,22 @@ describe('CredentialSubscriptionBadge', () => {
     },
   )
 
+  it.each([
+    ['Everyday', 'credentialPlanBadgePlus'],
+    ['High', 'credentialPlanBadgePlus'],
+    ['Power', 'credentialPlanBadgePro5x'],
+    ['Maximum', 'credentialPlanBadgeEnterprise'],
+  ])('keeps Muse %s on the specified animated presentation', async (label, className) => {
+    await i18n.changeLanguage('en')
+    const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: resolveCredentialSubscriptionBadge({ provider: 'meta', plan: `${label} Usage` })!,
+    }))
+    expect(html).toContain(className)
+    expect(html.replace(/<[^>]+>/g, '')).toBe(label)
+    expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
+    expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
+  })
+
   it('resolves known labels through i18n', async () => {
     await i18n.changeLanguage('en')
     const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {

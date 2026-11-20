@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { CredentialProviderFilterBar } from '../CredentialProviderFilterBar'
+import museIcon from '@/assets/icons/muse.svg'
+import metaIcon from '@/assets/icons/meta.svg'
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
@@ -48,6 +50,21 @@ describe('CredentialProviderFilterBar', () => {
     expect(credentialsHtml).toContain('data-provider-brand-icon="devin"')
     expect(providersHtml).toContain('usage_stats.credentials_filter_meta')
     expect(providersHtml).toContain('data-provider-brand-icon="meta"')
+  })
+
+  it('renders Muse for Meta authentication files without changing the AI Provider brand', () => {
+    const props = { typeCounts: [{ type: 'meta', count: 3 }], value: 'meta' as const, onChange: () => undefined }
+    const credentialsHtml = renderToStaticMarkup(<CredentialProviderFilterBar scope="credentials" {...props} />)
+    const providersHtml = renderToStaticMarkup(<CredentialProviderFilterBar scope="ai-provider" {...props} />)
+
+    expect(credentialsHtml).toContain('usage_stats.credentials_filter_muse')
+    expect(credentialsHtml).toContain('data-provider-brand-icon="muse"')
+    expect(credentialsHtml).toContain(renderToStaticMarkup(<img src={museIcon} alt="" />).match(/src="[^"]+"/)![0])
+    expect(credentialsHtml).not.toContain('data-provider-brand-icon="meta"')
+    expect(providersHtml).toContain('usage_stats.credentials_filter_meta')
+    expect(providersHtml).toContain('data-provider-brand-icon="meta"')
+    expect(providersHtml).toContain(renderToStaticMarkup(<img src={metaIcon} alt="" />).match(/src="[^"]+"/)![0])
+    expect(providersHtml).not.toContain('data-provider-brand-icon="muse"')
   })
 
   it('renders Kimi, Vertex, and Gemini CLI branding without iFlow', () => {

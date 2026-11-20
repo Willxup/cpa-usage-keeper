@@ -16,6 +16,7 @@ import { CredentialKimiSiteBadge } from './CredentialKimiSiteBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
 import { formatCredentialTimestamp, type CredentialDetailSelection } from './credentialViewModels'
+import { credentialBrandOverride } from './credentialBrand'
 import styles from './CredentialDetailDrawer.module.scss'
 import credentialStyles from './CredentialSections.module.scss'
 
@@ -426,7 +427,7 @@ export function CredentialDetailDrawer({
 
   const title = (
     <div className={styles.drawerTitle}>
-      <ProviderBrandIcon providerType={identity.type} size={36} ariaLabel={row.typeLabel} />
+      <ProviderBrandIcon providerType={(selection.kind === 'credential' ? credentialBrandOverride(identity.type)?.iconType : undefined) ?? identity.type} size={36} ariaLabel={row.typeLabel} />
       <div className={styles.drawerTitleText}>
         <strong>{row.displayName}</strong>
         <span data-credential-detail-subtitle>

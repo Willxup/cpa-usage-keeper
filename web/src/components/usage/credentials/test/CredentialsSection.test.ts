@@ -139,6 +139,19 @@ describe('CredentialsSection account details and metrics', () => {
     }
   })
 
+  it.each([false, true])('shows the Muse brand for a Meta credential with disabled=%s', (disabled) => {
+    const row = createRow({
+      identity: { id: 'meta-1', identity: 'meta-auth', type: 'meta', provider: 'meta', is_deleted: false, disabled },
+      displayName: 'My Meta account',
+    })
+    const html = renderToStaticMarkup(createElement(CredentialsSection, createCredentialSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).toContain('data-provider-brand-icon="muse"')
+    expect(html).not.toContain('data-provider-brand-icon="meta"')
+    expect(html).toContain('My Meta account')
+    expect(html).toContain(`data-credential-status-disabled="${disabled}"`)
+  })
+
   it('renders credential metrics and status controls', () => {
     const row = createRow({
       identity: { id: '1', identity: 'auth-1', type: 'codex', is_deleted: false },
@@ -283,6 +296,24 @@ describe('CredentialsSection quota usage mode rendering', () => {
 
     expect(estimatedHtml).toContain('1.00M')
     expect(estimatedHtml).toContain('$2.50')
+  })
+
+  it('keeps Meta quota identical in current and estimated modes without fabricated metrics', () => {
+    const metaRow = createRow({
+      identity: { id: 'meta', identity: 'meta-auth', type: 'meta', provider: 'meta', is_deleted: false },
+      displayQuotas: [{ key: 'meta.window', label: 'Current', scope: 'meta_window', percent: 25, barPercent: 75, percentKind: 'used', status: 'ok' }],
+    })
+    const current = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: metaRow, quotaUsageMode: 'current' }))
+    const estimated = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: metaRow, quotaUsageMode: 'estimated' }))
+    expect(current).toBe(estimated)
+    expect(current).toContain('Current')
+    expect(current).toContain('75%')
+    expect(current).not.toContain('credentials_quota_window_usage_aria')
+
+    const renderState = (overrides: Partial<CredentialRow>) => renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: { ...metaRow, ...overrides }, quotaUsageMode: 'current' }))
+    expect(renderState({ displayQuotas: [] })).toContain('usage_stats.credentials_quota_unavailable')
+    expect(renderState({ quotaLoading: true })).toContain('usage_stats.credentials_quota_loading')
+    expect(renderState({ quotaError: 'HTTP 401' })).toContain('401')
   })
 
   it('renders each canonical Antigravity group once above its window bars', () => {
@@ -664,6 +695,19 @@ describe('CredentialsSection inspection results', () => {
     type: 'codex',
     status,
     refreshed_at: `2026-06-03T10:${String(index).padStart(2, '0')}:00Z`,
+  })
+
+  it('uses the Muse icon for Meta authentication-file inspection results without changing their names', () => {
+    const result = { ...makeInspectionResult(1), type: 'meta', name: 'My Meta account' }
+    const html = renderToStaticMarkup(createElement(QuotaInspectionModal, {
+      open: true,
+      status: { total: 1, cached: 1, running: false, completed: true, normal: 1, limit_reached: 0, unauthorized_401: 0, payment_required_402: 0, unauthorized_401_402: 0, other_failed: 0, unknown: 0, results: [result] },
+      loading: false, starting: false, error: '',
+      onClose: () => undefined, onStart: async () => undefined, onRefreshStatus: async () => undefined,
+    }))
+    expect(html).toContain('data-provider-brand-icon="muse"')
+    expect(html).not.toContain('data-provider-brand-icon="meta"')
+    expect(html).toContain('My Meta account')
   })
 
   it('paginates inspection results with the selectable page sizes instead of a fixed eight rows', () => {

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
-import type { AiProviderCredentialRow, CredentialRow, CredentialDetailSelection } from '../credentialViewModels'
+import { buildAiProviderCredentialRows, buildCredentialRows, type AiProviderCredentialRow, type CredentialRow, type CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 
 const fetchUsageEvents = vi.fn()
@@ -268,6 +268,24 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
   })
 
+  it('shows Muse brand details only for authentication files and preserves account names', async () => {
+    const metaIdentity = { ...credentialRow.identity, type: 'meta', provider: 'Meta', displayName: 'My Meta account' }
+    const [metaCredential] = buildCredentialRows([metaIdentity])
+    await renderDrawer({ selection: { kind: 'credential', row: metaCredential } })
+    expect(document.body.querySelector('[data-provider-brand-icon="muse"]')?.getAttribute('aria-label')).toBe('Muse')
+    expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent).toBe(metaIdentity.file_name)
+    expect(document.body.querySelector('dl')?.textContent).toContain('Muse')
+    expect(document.body.textContent).toContain('My Meta account')
+    expect(document.body.querySelector('[data-provider-brand-icon="meta"]')).toBeNull()
+
+    const [metaProvider] = buildAiProviderCredentialRows([{ ...metaIdentity, auth_type: 2 }])
+    await renderDrawer({ selection: { kind: 'ai-provider', row: metaProvider } })
+    expect(document.body.querySelector('[data-provider-brand-icon="meta"]')?.getAttribute('aria-label')).toBe('meta')
+    expect(document.body.querySelector('[data-provider-brand-icon="muse"]')).toBeNull()
+    expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent).toContain('Meta · meta')
+    expect(document.body.textContent).toContain('My Meta account')
+  })
+
   it('shows the concrete Credential filename as the subtitle', async () => {
     await renderDrawer({ selection: credentialSelection })
 
@@ -298,6 +316,11 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer({ selection: unsupportedCredentialSelection })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
+
+    const callsBeforeMeta = fetchCodexQuotaHistory.mock.calls.length
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, identity: { ...credentialRow.identity, type: 'meta', provider: 'meta' } } } })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(callsBeforeMeta)
   })
 
   it('loads stored cycle cost again when the Codex history tab is reopened', async () => {

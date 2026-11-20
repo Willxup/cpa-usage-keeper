@@ -27,6 +27,22 @@ describe('credentialSubscription', () => {
   })
 
   it.each([
+    ['Everyday Usage', 'codex-plus', 'everyday'],
+    ['High Usage', 'codex-plus', 'high'],
+    ['Power Usage', 'codex-pro10x', 'power'],
+    ['Maximum Usage', 'codex-pro20x', 'maximum'],
+  ] as const)('maps Meta %s directly to the shared badge presentation', (plan, kind, label) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: ' META ', plan: ` ${plan.toUpperCase()} ` })).toEqual({
+      kind,
+      labelKey: `usage_stats.credentials_subscription_meta_${label}`,
+    })
+  })
+
+  it.each(['1234567890123456', 'Super Power Usage', 'high', 'unknown', ''])('hides unrecognized Meta plan %s', (plan) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: 'meta', plan })).toBeUndefined()
+  })
+
+  it.each([
     ['free', 'claude-free', 'usage_stats.credentials_subscription_claude_free'],
     ['pro', 'claude-pro', 'usage_stats.credentials_subscription_claude_pro'],
     ['max', 'claude-max', 'usage_stats.credentials_subscription_claude_max'],
