@@ -57,14 +57,15 @@ export function CredentialRecentActivity({ identityId, displayName, disabled, he
       : current.error ? <div className={styles.activityMessage} role="status">
         <span>{t('usage_stats.credentials_activity_load_failed')}</span>
         <Button type="button" variant="secondary" size="sm" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button>
-      </div> : latest && activity ? <div className={styles.activityTrace} aria-label={t('usage_stats.credentials_activity_trace')}>
-        {trace.map(fact => <div key={fact.key}><span>{fact.label}</span><ActivityTime event={fact.event} />{fact.event?.status_code && fact.event.status_code >= 400 ? <span className={styles.statusCode} data-tone={fact.event.status_code === 429 ? 'warning' : 'danger'}>HTTP {fact.event.status_code}</span> : null}</div>)}
-        <div><span>{t(latest.failed ? 'usage_stats.credentials_activity_failure_streak' : 'usage_stats.credentials_activity_success_streak')}</span><strong>{t(activity.streak_at_least ? 'usage_stats.credentials_activity_at_least' : 'usage_stats.credentials_activity_count', { count: activity.streak })}</strong></div>
       </div> : null}
     <div className={styles.signalRow}>
       <span className={styles.signalLabel}>{t('usage_stats.credentials_activity_health')}</span>
       <div className={styles.healthStrip}><CredentialHealthPanel variant="compact" displayName={displayName} health={health} /></div>
     </div>
+    {current && !current.error && latest && activity ? <div className={styles.activityTrace} aria-label={t('usage_stats.credentials_activity_trace')}>
+      {trace.map(fact => <div key={fact.key}><span>{fact.label}</span><ActivityTime event={fact.event} />{fact.event?.status_code && fact.event.status_code >= 400 ? <span className={styles.statusCode} data-tone={fact.event.status_code === 429 ? 'warning' : 'danger'}>HTTP {fact.event.status_code}</span> : null}</div>)}
+      <div><span>{t(latest.failed ? 'usage_stats.credentials_activity_failure_streak' : 'usage_stats.credentials_activity_success_streak')}</span><strong>{t(activity.streak_at_least ? 'usage_stats.credentials_activity_at_least' : 'usage_stats.credentials_activity_count', { count: activity.streak })}</strong></div>
+    </div> : null}
   </section>
 }
 

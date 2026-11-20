@@ -2031,18 +2031,18 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
           </strong>
         )}
         {windowUsage && (
-          <strong className={styles.credentialQuotaWindowUsage} aria-label={formatQuotaWindowUsageAriaLabel(t, windowUsage)}>
-            <span className={styles.credentialQuotaUsageMetric}>
+          <strong className={styles.credentialQuotaWindowUsage} data-quota-window-usage aria-label={formatQuotaWindowUsageAriaLabel(t, windowUsage)}>
+            <span className={styles.credentialQuotaUsageMetric} data-quota-metric="tokens">
               <img src={quotaTokenIcon} alt="" aria-hidden="true" />
               <span>{windowUsage.tokens}</span>
             </span>
-            <span className={styles.credentialQuotaUsageMetric}>
+            <span className={styles.credentialQuotaUsageMetric} data-quota-metric="cost">
               <img src={quotaCostIcon} alt="" aria-hidden="true" />
               <span>{windowUsage.cost}</span>
             </span>
           </strong>
         )}
-        {!compact && resetLabel && <span className={styles.credentialQuotaResetTime}>{resetLabel}</span>}
+        {!compact && resetLabel && <span className={styles.credentialQuotaResetTime} data-quota-reset-time>{resetLabel}</span>}
       </div>
     </div>
   )

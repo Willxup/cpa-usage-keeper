@@ -547,7 +547,7 @@ export function CredentialDetailDrawer({
             <h3>{t('usage_stats.credentials_detail_cumulative')}</h3>
             {identity.stats_reset_at ? <span>{t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(identity.stats_reset_at) ?? identity.stats_reset_at })}</span> : null}
             {onResetStats ? (
-              <Button type="button" variant="danger" size="sm" appearance="action" className={styles.statsResetButton} disabled={resettingStats} onClick={() => {
+              <Button type="button" variant="secondary" size="sm" appearance="action" className={styles.statsResetButton} disabled={resettingStats} onClick={() => {
                 setStatsResetError('')
                 setResetTarget({ id: identityId, name: row.displayName })
               }}>

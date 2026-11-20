@@ -16,6 +16,7 @@ describe('CredentialDetailDrawer styles', () => {
   })
 
   it('stacks native quota windows and native groups without changing the list layout', () => {
-    expect(drawerStyles).toMatch(/\.quotaRows \[data-credential-quota-variant\] > div,\s*\.quotaRows \[data-quota-group\] > div:last-child\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    expect(drawerStyles).toMatch(/\.quotaRows \[data-quota-key\]\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
+    expect(drawerStyles).toMatch(/\.quotaRows \[data-quota-group\]\s*\{[^}]*> div\s*\{\s*grid-column:\s*1\s*\/\s*-1;/)
   })
 })
