@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useCredentialEnterSave } from './useCredentialEnterSave'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { IconCheck, IconX } from '@/components/ui/icons'
+import { IconPencil } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 
 interface CredentialPriorityEditorProps {
@@ -108,17 +108,13 @@ export function CredentialPriorityEditor({ priority, displayName, readOnly = fal
     setError('')
     setPosition(null)
   }
-  const cancel = () => {
-    setDraft(String(currentPriority))
-    close(true)
-  }
 
   useEffect(() => {
     if (!editing || typeof document === 'undefined') return
     const handlePointerDown = (event: PointerEvent) => {
       if (busyRef.current || !(event.target instanceof Node)) return
       if (triggerRef.current?.contains(event.target) || popoverRef.current?.contains(event.target)) return
-      // 点击其它控件时让焦点自然落在被点位置，只有显式取消与键盘关闭才还给标签。
+      // 点击其它控件时让焦点自然落在被点位置，键盘关闭时才还给标签。
       setEditing(false)
       setError('')
       setPosition(null)
@@ -189,7 +185,10 @@ export function CredentialPriorityEditor({ priority, displayName, readOnly = fal
         aria-haspopup="dialog"
         aria-expanded={editing}
         aria-controls={editing ? popoverId : undefined}
-      >P{currentPriority}</button>
+      >
+        <span>P{currentPriority}</span>
+        <IconPencil size={10} aria-hidden="true" />
+      </button>
       {editing && typeof document !== 'undefined' && createPortal(
         <div
           id={popoverId}
@@ -216,10 +215,9 @@ export function CredentialPriorityEditor({ priority, displayName, readOnly = fal
             />
             <button type="button" className={styles.credentialPriorityAction} onClick={() => void save()} disabled={saving}
               aria-label={saving ? t('usage_stats.credentials_priority_saving') : t('usage_stats.credentials_priority_save')}>
-              {saving ? <LoadingSpinner size={12} /> : <IconCheck size={13} />}
+              {saving && <LoadingSpinner size={12} />}
+              {t('common.save')}
             </button>
-            <button type="button" className={styles.credentialPriorityAction} onClick={cancel} disabled={saving}
-              aria-label={t('usage_stats.credentials_priority_cancel')}><IconX size={13} /></button>
           </div>
           <span id={hintId} className={styles.credentialPriorityScope}>{t('usage_stats.credentials_priority_order_hint')}</span>
           {openAIShared && <span id={noteId} className={styles.credentialPriorityScope}>{t('usage_stats.credentials_priority_openai_scope')}</span>}

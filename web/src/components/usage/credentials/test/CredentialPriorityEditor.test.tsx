@@ -51,6 +51,8 @@ describe('CredentialPriorityEditor', () => {
     expect(trigger.textContent).toBe('P0')
     await act(async () => trigger.click())
     expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(popover()!.querySelectorAll('button')).toHaveLength(1)
+    expect(popover()!.querySelector('button')!.textContent).toBe('common.save')
     const input = popover()!.querySelector<HTMLInputElement>('input')!
     expect(document.activeElement).toBe(input)
     expect(input.getAttribute('aria-describedby')).toContain(popover()!.querySelector('span')!.id)
@@ -102,9 +104,12 @@ describe('CredentialPriorityEditor', () => {
       await act(async () => root.render(<CredentialPriorityEditor priority={1} displayName="Auth" onSave={onSave} />))
       const trigger = container.querySelector<HTMLButtonElement>('button')!
       await act(async () => trigger.click())
+      await act(async () => changeInput(popover()!.querySelector('input')!, '9'))
       await act(async () => outside.dispatchEvent(new Event('pointerdown', { bubbles: true })))
       expect(popover()).toBeNull()
+      expect(onSave).not.toHaveBeenCalled()
       await act(async () => trigger.click())
+      expect(popover()!.querySelector<HTMLInputElement>('input')!.value).toBe('1')
       await act(async () => changeInput(popover()!.querySelector('input')!, '2'))
       await act(async () => popover()!.querySelector<HTMLButtonElement>('button[aria-label="usage_stats.credentials_priority_save"]')!.click())
       expect(popover()?.getAttribute('aria-busy')).toBe('true')

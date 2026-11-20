@@ -24,7 +24,7 @@ describe('credential priority entry in both sections', () => {
     const authHTML = renderToStaticMarkup(<CredentialsSection {...createCredentialSectionProps({ rows: authRows, total: 1, onSavePriority })} />)
     const aiHTML = renderToStaticMarkup(<AiProviderCredentialsSection {...createAiProviderSectionProps({ rows: aiRows, total: 1, onSavePriority })} />)
     for (const html of [authHTML, aiHTML]) {
-      expect(html).toContain('>P0</button>')
+      expect(html).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*><span>P0<\/span><svg[^>]*aria-hidden="true"/)
       expect(html).toContain('usage_stats.credentials_priority_edit')
     }
   })
