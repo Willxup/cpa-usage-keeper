@@ -32,9 +32,10 @@ interface CredentialHealthPanelProps {
   statsUpdatedAt?: string
   /** 最近 5h 窗口缓存率；传入时在 meta 区多加一行文字，不额外画图形。 */
   windowCacheReadRate?: number | null
-  /** 卡片仅压缩呈现，详情仍使用默认的完整面板。 */
   variant?: 'full' | 'compact'
   showCompactMeta?: boolean
+  showWindowLabel?: boolean
+  missingSnapshotAsUnavailable?: boolean
 }
 
 const HEALTH_WINDOW_MINUTES = 5 * 60
@@ -64,7 +65,7 @@ export function useCredentialHealth(health: UsageCredentialHealth | undefined, t
   return { buckets, summary: resolveCredentialHealthSummary(buckets, health, t) }
 }
 
-export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt, windowCacheReadRate, variant = 'full', showCompactMeta = false }: CredentialHealthPanelProps) {
+export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt, windowCacheReadRate, variant = 'full', showCompactMeta = false, showWindowLabel = true, missingSnapshotAsUnavailable = false }: CredentialHealthPanelProps) {
   const { t } = useTranslation()
   const { buckets, summary } = useCredentialHealth(health, t)
   const score = resolveCredentialHealthScore(health, buckets)
@@ -72,13 +73,15 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
   const showWindowCacheReadRate = windowCacheReadRate !== undefined
   const compact = variant === 'compact'
+  const unavailable = missingSnapshotAsUnavailable && !health
+  const scoreLabel = unavailable ? '—' : `${score.toFixed(1)}%`
 
   return (
-    <div className={`${styles.credentialHealthPanel} ${compact ? styles.credentialHealthCompact : ''}`.trim()} data-credential-health-variant={variant}>
+    <div className={`${styles.credentialHealthPanel} ${compact ? styles.credentialHealthCompact : ''} ${compact && !showWindowLabel ? styles.credentialHealthCompactNoWindow : ''}`.trim()} data-credential-health-variant={variant}>
       <div className={styles.credentialHealthChart}>
-        {compact ? <span className={styles.credentialHealthWindow} title={t('usage_stats.credentials_health_last_5h')}>5h</span> : <div className={styles.credentialHealthHeader}>
+        {compact ? showWindowLabel && <span className={styles.credentialHealthWindow} title={t('usage_stats.credentials_health_last_5h')}>5h</span> : <div className={styles.credentialHealthHeader}>
           <span>{t('usage_stats.credentials_health_last_5h')}</span>
-          <strong>{score.toFixed(1)}%</strong>
+          <strong>{scoreLabel}</strong>
         </div>}
         <div
           className={styles.credentialHealthGrid}
@@ -93,7 +96,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
                 key={`health-${index}`}
                 role="listitem"
                 className={`${styles.credentialHealthCell} ${healthCellStateClassName[bucket.state]}`.trim()}
-                aria-label={t('usage_stats.credentials_health_bucket_aria', {
+                aria-label={unavailable ? `${timeRange}: ${t('usage_stats.no_data')}` : t('usage_stats.credentials_health_bucket_aria', {
                   timeRange,
                   status,
                   successCount: bucket.successCount,
@@ -114,17 +117,17 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
                   aria-hidden="true"
                 >
                   <span className={styles.credentialHealthTooltipTime}>{timeRange}</span>
-                  <span className={styles.credentialHealthTooltipStats}>
+                  <span className={styles.credentialHealthTooltipStats}>{unavailable ? t('usage_stats.no_data') : <>
                     <span className={styles.credentialHealthTooltipSuccess}>{t('usage_stats.credentials_health_ok')} {bucket.successCount}</span>
                     <span className={styles.credentialHealthTooltipFailure}>{t('usage_stats.credentials_health_fail')} {bucket.failureCount}</span>
                     <span>{bucket.successRateLabel}</span>
-                  </span>
+                  </>}</span>
                 </span>
               </span>
             )
           })}
         </div>
-        {compact && <strong className={styles.credentialHealthCompactScore}>{score.toFixed(1)}%</strong>}
+        {compact && <strong className={styles.credentialHealthCompactScore}>{scoreLabel}</strong>}
       </div>
       {compact ? showCompactMeta && (
         <div className={`${styles.credentialHealthCompactMeta} ${healthMetaToneClassName[summary.tone]}`.trim()}>

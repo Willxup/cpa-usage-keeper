@@ -67,7 +67,6 @@ describe('UsagePage credential detail statistics', () => {
     await i18n.changeLanguage('en');
     localStorage.clear();
     Object.values(api).forEach((mock) => mock.mockReset());
-    api.fetchUsageIdentityActivity.mockResolvedValue({ latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false });
     api.fetchUsageIdentityModels.mockResolvedValue({ models: [], summary: { total_tokens: 0 } });
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -89,6 +88,7 @@ describe('UsagePage credential detail statistics', () => {
   };
   const metric = () => document.querySelector('[role="tabpanel"] strong')?.textContent;
   const healthPanel = () => document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] [data-credential-health-variant="compact"]')!;
+  const activityMetrics = () => [...document.querySelectorAll('[data-credential-overview-section="activity"] [data-credential-activity-metric] strong')].map(node => node.textContent);
   const expectHealth = (score: string) => {
     expect(healthPanel().querySelector('strong')?.textContent).toBe(score);
   };
@@ -187,9 +187,9 @@ describe('UsagePage credential detail statistics', () => {
     await open();
     expect(metric()).toBe('10');
     expectHealth('90.0%');
+    expect(activityMetrics()).toEqual(['10', '1', '25.00%']);
     const initialBuckets = healthPanel().querySelector('[role="list"]')?.textContent;
     const modelRequestsBeforeReset = api.fetchUsageIdentityModels.mock.calls.length;
-    const activityRequestsBeforeReset = api.fetchUsageIdentityActivity.mock.calls.length;
     const reset = { ...identity(authType, 0), credential_health: undefined, stats_reset_at: '2026-09-10T10:00:00Z' };
     api.resetUsageIdentityStats.mockResolvedValue(reset);
     api.fetchUsageIdentity.mockResolvedValue(reset);
@@ -198,13 +198,15 @@ describe('UsagePage credential detail statistics', () => {
     await act(async () => button('Reset').click());
     expect(metric()).toBe('0');
     expectHealth('90.0%');
+    expect(activityMetrics()).toEqual(['10', '1', '25.00%']);
     expect(api.fetchUsageIdentityModels).toHaveBeenCalledTimes(modelRequestsBeforeReset);
-    expect(api.fetchUsageIdentityActivity).toHaveBeenCalledTimes(activityRequestsBeforeReset);
+    expect(api.fetchUsageIdentityActivity).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain('Fixture 1');
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 5), credential_health: health(4, 1, 200, 100, '2026-09-11T16:10:00+08:00') });
     await tick();
     expect(metric()).toBe('5');
     expectHealth('80.0%');
+    expect(activityMetrics()).toEqual(['5', '1', '50.00%']);
     expect(healthPanel().querySelector('[role="list"]')?.textContent).not.toBe(initialBuckets);
     expect(api.fetchUsageIdentity).toHaveBeenLastCalledWith('1', expect.any(AbortSignal));
     api.fetchUsageIdentity.mockRejectedValue(new Error('offline'));
@@ -216,11 +218,13 @@ describe('UsagePage credential detail statistics', () => {
     await act(async () => triggerHeaderRefresh());
     expect(metric()).toBe('7');
     expectHealth('71.4%');
+    expect(activityMetrics()).toEqual(['7', '2', '75.00%']);
     // 没有新增用量也要推进健康窗口，过期数据不能一直留在图上。
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 7), credential_health: health(0, 0, 0, 0, '2026-09-11T22:00:00+08:00') });
     await tick();
     expect(metric()).toBe('7');
     expectHealth('0.0%');
+    expect(activityMetrics()).toEqual(['0', '0', '—']);
     await act(async () => button('Close').click());
     await act(async () => vi.advanceTimersByTimeAsync(350));
     expect(document.querySelector('[role="dialog"]')).toBeNull();

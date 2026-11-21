@@ -4,7 +4,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
-import type { UsageIdentity } from '@/lib/types'
+import type { UsageCredentialHealth, UsageIdentity } from '@/lib/types'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 import { buildAiProviderCredentialRows, updateCredentialDetailStats, type CredentialDetailSelection } from '../credentialViewModels'
 
@@ -35,7 +35,6 @@ describe('credential stats reset confirmation', () => {
     unexpectedRequests = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = new URL(String(input), 'http://localhost')
-      if (url.pathname === '/api/v1/usage/identities/1/activity') return Response.json({ latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false })
       if (url.pathname === '/api/v1/usage/identities/1/models' && url.searchParams.get('range') === '7d') return Response.json({ models: [], summary: { total_tokens: 0 } })
       unexpectedRequests.push(url.pathname)
       throw new Error('Unexpected fetch')
@@ -105,5 +104,26 @@ describe('credential stats reset confirmation', () => {
     await act(async () => button('Reset').click())
     expect(reset).toHaveBeenCalledTimes(2)
     expect(document.querySelector('[role="tabpanel"] strong')?.textContent).toBe('0')
+  })
+
+  it('updates cached activity labels when the language changes', async () => {
+    const health: UsageCredentialHealth = {
+      window_seconds: 18_000, bucket_seconds: 600,
+      window_start: '2026-09-10T11:00:00+08:00', window_end: '2026-09-10T16:00:00+08:00',
+      total_success: 610, total_failure: 12, success_rate: 98.1,
+      input_tokens: 400, cache_read_tokens: 200, buckets: [],
+    }
+    const row = buildAiProviderCredentialRows([{ ...identity, credential_health: health }])[0]
+    await act(async () => root.render(<CredentialDetailDrawer open selection={{ kind: 'ai-provider', row }} onClose={() => undefined} />))
+    const activity = () => document.querySelector('[data-credential-overview-section="activity"]')!
+    const metricTexts = () => [...activity().querySelectorAll('[data-credential-activity-metric]')].map(node => node.textContent)
+    expect(metricTexts()).toEqual(['Requests622', 'Fail12', 'Cache rate50.00%'])
+    expect(activity().textContent).toContain('Last 5h')
+    await act(async () => i18n.changeLanguage('zh'))
+    expect(metricTexts()).toEqual(['请求数622', '失败12', '缓存率50.00%'])
+    expect(activity().textContent).toContain('最近 5 小时')
+    await act(async () => i18n.changeLanguage('zh-TW'))
+    expect(metricTexts()).toEqual(['請求數622', '失敗12', '快取率50.00%'])
+    expect(activity().querySelectorAll('[role="listitem"]')).toHaveLength(30)
   })
 })

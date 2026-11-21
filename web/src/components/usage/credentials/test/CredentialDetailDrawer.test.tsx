@@ -94,6 +94,22 @@ const row = {
 
 const selection: CredentialDetailSelection = { kind: 'ai-provider', row }
 
+function withHealth(base: AiProviderCredentialRow, health: UsageCredentialHealth | undefined): AiProviderCredentialRow {
+  const identity = { ...base.identity, credential_health: health }
+  const derived = buildAiProviderCredentialRows([identity])[0]
+  return { ...base, identity, credentialHealth: derived.credentialHealth, windowCacheReadRate: derived.windowCacheReadRate }
+}
+
+function healthSnapshot(success: number, failure: number, input: number, cached: number): UsageCredentialHealth {
+  const total = success + failure
+  return {
+    ...credentialHealth,
+    total_success: success, total_failure: failure, success_rate: total ? success / total * 100 : 0,
+    input_tokens: input, cache_read_tokens: cached,
+    buckets: [{ start_time: '2026-08-17T09:50:00Z', end_time: '2026-08-17T10:00:00Z', success, failure, rate: total ? success / total : 0 }],
+  }
+}
+
 const secondSelection: CredentialDetailSelection = {
   kind: 'ai-provider',
   row: {
@@ -237,7 +253,7 @@ describe('CredentialDetailDrawer', () => {
     fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
     fetchCodexQuotaHistory.mockReset()
     fetchCodexQuotaHistory.mockResolvedValue(quotaHistoryResponse)
-    fetchUsageIdentityActivity.mockReset().mockResolvedValue({ identity_id: 'provider-1', timezone: 'UTC', window_start: '2026-08-17T05:00:00Z', window_end: '2026-08-17T10:00:00Z', latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false })
+    fetchUsageIdentityActivity.mockReset()
     fetchUsageIdentityModels.mockReset().mockResolvedValue({ identity_id: 'provider-1', range: '7d', timezone: 'UTC', models: [], summary: { total_tokens: 0 } })
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -440,13 +456,11 @@ describe('CredentialDetailDrawer', () => {
     expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'models'])
     expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_identity')
     expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBeNull()
-    expect(fetchUsageIdentityActivity).toHaveBeenCalledWith('provider-1', expect.any(AbortSignal))
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(fetchUsageIdentityModels).toHaveBeenCalledWith('provider-1', '7d', expect.any(AbortSignal))
   })
 
-  it('keeps native quota window data and independently shows recent activity and bounded streak', async () => {
-    const failure = { timestamp: '2026-08-17T09:59:00Z', failed: true, status_code: 429 }
-    fetchUsageIdentityActivity.mockResolvedValue({ identity_id: 'credential-1', latest: failure, last_success: { timestamp: '2026-08-17T09:30:00Z', failed: false }, last_failure: failure, streak: 100, streak_at_least: true })
+  it('keeps native quota window data and independently shows cached recent activity', async () => {
     const quotas = [
       { key: 'primary', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, windowUsage: { tokens: '1.00M', cost: '$2.50' } },
       { key: 'weekly', label: 'Weekly', percent: 50, barPercent: 50, percentKind: 'used' as const, status: 'warning' as const },
@@ -455,13 +469,10 @@ describe('CredentialDetailDrawer', () => {
     const sections = [...document.body.querySelectorAll('[role="tabpanel"] > section')]
     expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'quota', 'models'])
     const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
-    expect(activity.textContent).toContain('HTTP 429')
-    expect(activity.textContent).toContain('2026-08-17 09:59:00')
-    const latestTime = activity.querySelector('time[datetime="2026-08-17T09:59:00Z"]')!
-    expect(latestTime.textContent).toBe('2026-08-17 09:59:00')
-    expect(latestTime.getAttribute('aria-label')).toBe('2026-08-17 09:59:00 UTC')
     expect(activity.textContent).toContain('usage_stats.credentials_health_summary_healthy')
-    expect(activity.textContent).toContain('usage_stats.credentials_activity_at_least:{"count":100}')
+    expect(activity.querySelector('[data-credential-activity-metric="requests"] strong')?.textContent).toBe('10')
+    expect(activity.querySelector('[data-credential-activity-metric="failures"] strong')?.textContent).toBe('1')
+    expect(activity.querySelector('[data-credential-activity-metric="cache-rate"] strong')?.textContent).toBe('42.50%')
     expect(activity.textContent).not.toContain('quota exhausted')
     expect(activity.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
     const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
@@ -471,7 +482,7 @@ describe('CredentialDetailDrawer', () => {
     expect(quota.textContent).not.toContain('Gemini Models')
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
     expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('credential-1', 'today', expect.any(AbortSignal))
-    expect(fetchUsageIdentityActivity).toHaveBeenCalledTimes(1)
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(quota.textContent).toContain('1.00M')
     expect(quota.textContent).toContain('$2.50')
   })
@@ -482,10 +493,8 @@ describe('CredentialDetailDrawer', () => {
     [1, 2, 'unhealthy'],
     [0, 0, 'quiet'],
   ] as const)('matches the external card health with %i successes and %i failures', async (success, failure, tone) => {
-    const latest = { timestamp: '2026-08-17T17:59:00+08:00', failed: false }
-    const health = { ...credentialHealth, total_success: success, total_failure: failure }
-    fetchUsageIdentityActivity.mockResolvedValue({ identity_id: 'provider-1', latest, last_success: latest, last_failure: null, streak: 1, streak_at_least: false })
-    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, credentialHealth: health } } })
+    const health = healthSnapshot(success, failure, success + failure ? 400 : 0, success + failure ? 170 : 0)
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, health) } })
 
     const card = document.createElement('div')
     card.innerHTML = renderToStaticMarkup(<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={health} />)
@@ -493,21 +502,29 @@ describe('CredentialDetailDrawer', () => {
     const activityState = document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] [class*="activityState"]')!
     expect(activityState.textContent).toBe(cardState.textContent)
     expect(activityState.dataset.tone).toBe(tone)
-    const latestTime = document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] time[datetime="2026-08-17T17:59:00+08:00"]')!
-    expect(latestTime.textContent).toBe('2026-08-17 17:59:00')
-    expect(latestTime.getAttribute('aria-label')).toBe('2026-08-17 17:59:00 UTC+08:00')
+    const cardBuckets = [...card.querySelectorAll('[role="listitem"]')]
+    const detailBuckets = [...document.querySelectorAll('[data-credential-overview-section="activity"] [role="listitem"]')]
+    expect(detailBuckets).toHaveLength(30)
+    expect(detailBuckets.map(bucket => bucket.getAttribute('aria-label'))).toEqual(cardBuckets.map(bucket => bucket.getAttribute('aria-label')))
+    expect(detailBuckets.map(bucket => bucket.querySelector('[role="tooltip"]')?.textContent)).toEqual(cardBuckets.map(bucket => bucket.querySelector('[role="tooltip"]')?.textContent))
   })
 
-  it('does not report an unknown health snapshot as quiet while activity is loading or failed', async () => {
-    const pending = Promise.withResolvers<unknown>()
-    fetchUsageIdentityActivity.mockReturnValueOnce(pending.promise)
-    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, credentialHealth: undefined } } })
+  it('shows unavailable metrics without a snapshot and zeros for a valid empty snapshot', async () => {
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, undefined) } })
     const activity = document.querySelector('[data-credential-overview-section="activity"]')!
-    expect(activity.textContent).toContain('common.loading')
     expect(activity.querySelector('[class*="activityState"]')).toBeNull()
-    await act(async () => pending.reject(new Error('unavailable')))
-    expect(activity.textContent).toContain('usage_stats.credentials_activity_load_failed')
-    expect(activity.querySelector('[class*="activityState"]')).toBeNull()
+    expect([...activity.querySelectorAll('[data-credential-activity-metric] strong')].map(node => node.textContent)).toEqual(['—', '—', '—'])
+    expect(activity.querySelectorAll('[role="listitem"]')).toHaveLength(30)
+    expect(activity.querySelector('[role="listitem"]')?.getAttribute('aria-label')).toContain('usage_stats.no_data')
+    expect(activity.querySelector('[role="tooltip"]')?.textContent).toContain('usage_stats.no_data')
+    expect(activity.querySelector('[data-credential-health-variant="compact"] strong')?.textContent).toBe('—')
+    expect(activity.textContent).not.toContain('0.0%')
+    const emptyHealth = healthSnapshot(0, 0, 0, 0)
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, emptyHealth) } })
+    expect(activity.querySelector('[data-tone="quiet"]')?.textContent).toBe('usage_stats.credentials_health_summary_quiet')
+    expect([...activity.querySelectorAll('[data-credential-activity-metric] strong')].map(node => node.textContent)).toEqual(['0', '0', '—'])
+    expect(activity.querySelector('[data-credential-health-variant="compact"] strong')?.textContent).toBe('0.0%')
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
   it.each(['flat', 'group'] as const)('shows the project-timezone reset tooltip for %s quotas without closing the drawer on Escape', async (kind) => {
@@ -592,7 +609,7 @@ describe('CredentialDetailDrawer', () => {
     expect(panel.textContent).toContain('public')
     expect(panel.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
     expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
-    expect(fetchUsageIdentityActivity).toHaveBeenCalledTimes(1)
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBe(quota)
     await act(async () => pending.resolve({ identity_id: 'credential-1', range: 'today', models: [], summary: totals }))
     expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('true')
@@ -618,42 +635,38 @@ describe('CredentialDetailDrawer', () => {
     expect(quota.textContent).toContain('$2.80')
   })
 
-  it('shows exact streaks and retry without coupling the model section', async () => {
-    const latest = { timestamp: '2026-08-17T09:59:00Z', failed: false }
-    fetchUsageIdentityActivity.mockRejectedValueOnce(new Error('unavailable')).mockResolvedValueOnce({ identity_id: 'provider-1', latest, last_success: latest, last_failure: null, streak: 100, streak_at_least: false })
+  it('updates cached activity when the selected identity or its snapshot changes', async () => {
     await renderDrawer()
-    const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
-    expect(activity.textContent).toContain('usage_stats.credentials_activity_load_failed')
-    expect(activity.querySelector('[data-tone="healthy"]')?.textContent).toBe('usage_stats.credentials_health_summary_healthy')
-    expect(document.body.querySelector('[data-credential-model-usage]')?.textContent).toContain('usage_stats.credentials_models_empty')
-    await act(async () => activity.querySelector<HTMLButtonElement>('button')!.click())
-    expect(activity.textContent).toContain('usage_stats.credentials_activity_count:{"count":100}')
-    expect(activity.textContent).not.toContain('usage_stats.credentials_activity_at_least')
-    expect(fetchUsageIdentityModels).toHaveBeenCalledTimes(1)
+    const values = () => [...document.querySelectorAll('[data-credential-overview-section="activity"] [data-credential-activity-metric] strong')].map(node => node.textContent)
+    expect(values()).toEqual(['10', '1', '42.50%'])
+    const secondHealth = healthSnapshot(31, 4, 1_000, 661)
+    const second: CredentialDetailSelection = { kind: 'ai-provider', row: withHealth(secondSelection.row, secondHealth) }
+    await renderDrawer({ selection: second })
+    expect(values()).toEqual(['35', '4', '66.10%'])
+    const updatedHealth = healthSnapshot(50, 2, 400, 300)
+    const updated: CredentialDetailSelection = { kind: 'ai-provider', row: withHealth(second.row, updatedHealth) }
+    await renderDrawer({ selection: updated })
+    expect(values()).toEqual(['52', '2', '75.00%'])
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
-  it('aborts activity and models immediately on close and discards late activity from another identity', async () => {
+  it('aborts model requests on identity change and close and discards late authorization errors', async () => {
     const old = Promise.withResolvers<unknown>()
     const next = Promise.withResolvers<unknown>()
-    const models = Promise.withResolvers<unknown>()
-    fetchUsageIdentityActivity.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
-    fetchUsageIdentityModels.mockReturnValue(models.promise)
+    fetchUsageIdentityModels.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
     const onAuthRequired = vi.fn()
     await renderDrawer({ onAuthRequired })
-    const firstActivitySignal = fetchUsageIdentityActivity.mock.calls[0][1] as AbortSignal
     const firstModelsSignal = fetchUsageIdentityModels.mock.calls[0][2] as AbortSignal
     await renderDrawer({ selection: secondSelection, onAuthRequired })
-    expect(firstActivitySignal.aborted).toBe(true)
     expect(firstModelsSignal.aborted).toBe(true)
-    const secondActivitySignal = fetchUsageIdentityActivity.mock.calls[1][1] as AbortSignal
     const secondModelsSignal = fetchUsageIdentityModels.mock.calls[1][2] as AbortSignal
     await act(async () => old.reject(new ApiError('expired', 401)))
     expect(onAuthRequired).not.toHaveBeenCalled()
     await renderDrawer({ selection: secondSelection, open: false, onAuthRequired })
-    expect(secondActivitySignal.aborted).toBe(true)
     expect(secondModelsSignal.aborted).toBe(true)
     await act(async () => next.reject(new ApiError('expired', 401)))
     expect(onAuthRequired).not.toHaveBeenCalled()
+    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
   it('cancels a pending model range and cleans its tooltip when leaving the Overview tab', async () => {

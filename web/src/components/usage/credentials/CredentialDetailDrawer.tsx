@@ -573,8 +573,7 @@ export function CredentialDetailDrawer({
             <DetailMetric valueTone={cacheReadRateTone(row.cacheReadRate)} label={t('usage_stats.cache_rate')} value={formatCredentialPercent(row.cacheReadRate)} />
           </div>
           </section>
-          <DrawerRecentActivity key={identityId} identityId={identityId} displayName={row.displayName}
-            health={row.credentialHealth} onAuthRequired={onAuthRequired} />
+          <CredentialRecentActivity displayName={row.displayName} health={row.credentialHealth} windowCacheReadRate={row.windowCacheReadRate} />
           {selection.kind === 'credential' ? (
             <section className={styles.overviewSection} data-credential-overview-section="quota">
               <h3>{t('usage_stats.credentials_detail_quota')}</h3>
@@ -653,11 +652,6 @@ function DrawerQuotaPanel(props: Omit<Parameters<typeof CredentialQuotaPanel>[0]
   // 关闭动画保留详情快照时，context 仍会立即隐藏并清理配额提示。
   const enabled = useContext(CredentialDetailOpenContext)
   return <CredentialQuotaPanel {...props} tooltipEnabled={enabled} />
-}
-
-function DrawerRecentActivity(props: Omit<Parameters<typeof CredentialRecentActivity>[0], 'enabled'>) {
-  const enabled = useContext(CredentialDetailOpenContext)
-  return <CredentialRecentActivity {...props} enabled={enabled} />
 }
 
 function DrawerModelUsage(props: Omit<Parameters<typeof CredentialModelUsage>[0], 'enabled'>) {
