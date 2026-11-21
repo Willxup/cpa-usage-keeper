@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
 import type { UsageIdentityModel, UsageIdentityModelsRange, UsageIdentityModelTotals } from '@/lib/types'
-import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactTokenValue, formatUsd } from '@/utils/usage'
+import { calculateCacheReadRate, calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactTokenValue, formatUsd } from '@/utils/usage'
 import { USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig'
-import { formatCredentialNumber } from './CredentialSectionShell'
+import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
 import { useCredentialModelUsage } from './useCredentialModelUsage'
 import styles from './CredentialModelUsage.module.scss'
 
@@ -90,6 +90,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                   <th scope="col">{t(kind === 'ai-provider' ? 'usage_stats.credentials_models_mapping_column' : 'usage_stats.credentials_models_model')}</th>
                   <th scope="col">{t('usage_stats.credentials_metric_requests')}</th>
                   <th scope="col">{t('usage_stats.credentials_models_token_composition')}</th>
+                  <th scope="col">{t('usage_stats.cache_rate')}</th>
                   <th scope="col">{t('usage_stats.credentials_models_cost')}</th>
                 </tr></thead>
                 <tbody>{models.map(model => {
@@ -106,18 +107,25 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                         <span><span className={styles.visuallyHidden}>{t('usage_stats.analysis_top_models_share')}: {share}</span><span aria-hidden="true">{share}</span></span>
                       </div>
                     </td>
+                    <td className={styles.cacheCell}><span className={styles.mobileLabel}>{t('usage_stats.cache_rate')} </span><ModelCacheRate totals={model} /></td>
                     <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>
                   </tr>
                 })}</tbody>
                 <tfoot><tr><th scope="row">{t('usage_stats.credentials_models_total')}</th>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(data.summary.request_count)}</td>
                   <td><span className={styles.mobileLabel}>Token </span><span className={styles.footerTokenTotal}><span>{formatCompactTokenValue(data.summary.total_tokens)}</span></span></td>
+                  <td><span className={styles.mobileLabel}>{t('usage_stats.cache_rate')} </span><ModelCacheRate totals={data.summary} /></td>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} /></td>
                 </tr></tfoot>
               </table>
             </> : null}
     </section>
   )
+}
+
+function ModelCacheRate({ totals }: { totals: UsageIdentityModelTotals }) {
+  const rate = calculateCacheReadRate({ inputTokens: totals.input_tokens, cacheReadTokens: totals.cache_read_tokens })
+  return <span data-model-cache-rate className={credentialToneClassName('credentialMetricValue', cacheReadRateTone(rate))}>{formatCredentialPercent(rate)}</span>
 }
 
 function ModelCost({ totals }: { totals: UsageIdentityModelTotals }) {

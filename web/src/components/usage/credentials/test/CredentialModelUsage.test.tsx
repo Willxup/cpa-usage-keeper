@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import type { UsageIdentityModel, UsageIdentityModelsRange, UsageIdentityModelsResponse } from '@/lib/types'
 import { CredentialModelUsage } from '../CredentialModelUsage'
+import credentialStyles from '../CredentialSections.module.scss'
 
 const model = (overrides: Partial<UsageIdentityModel> = {}): UsageIdentityModel => ({
   model: 'upstream', model_alias: 'public', request_count: 2,
@@ -85,16 +86,42 @@ describe('CredentialModelUsage', () => {
   })
 
   it.each([
-    ['en', 'Token share'],
-    ['zh', 'Token 占比'],
-    ['zh-TW', 'Token 占比'],
-  ] as const)('shows only the percentage while preserving an accessible share label in %s', async (language, label) => {
+    ['en', 'Token share', 'Cache Rate'],
+    ['zh', 'Token 占比', '缓存率'],
+    ['zh-TW', 'Token 占比', '快取率'],
+  ] as const)('shows translated cache labels and accessible token shares in %s', async (language, label, cacheLabel) => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response()))
     await i18n.changeLanguage(language)
     await render()
     const shares = [...container.querySelectorAll('tbody tr')].map(row => row.querySelector('td:nth-child(3) > div > span:last-child')!)
     expect(shares.map(share => share.querySelector('[aria-hidden="true"]')?.textContent)).toEqual(['75.0%', '25.0%'])
     expect(shares[0].firstElementChild?.textContent).toBe(`${label}: 75.0%`)
+    expect(container.querySelector('thead th:nth-child(4)')?.textContent).toBe(cacheLabel)
+    expect(container.querySelector('tbody td:nth-child(4) > span:first-child')?.textContent?.trim()).toBe(cacheLabel)
+    expect(container.querySelector('tfoot td:nth-child(4) > span:first-child')?.textContent?.trim()).toBe(cacheLabel)
+  })
+
+  it('shows per-model cache rates and the input-weighted total with shared color thresholds', async () => {
+    const cacheModel = (name: string, input: number, cached: number, output = 0) => model({
+      model: name, model_alias: name, input_tokens: input, cache_read_tokens: cached,
+      cache_creation_tokens: 0, output_tokens: output, reasoning_tokens: 0, total_tokens: input + output,
+    })
+    const data = response({
+      models: [cacheModel('eighty', 100, 80), cacheModel('fifty', 900, 450), cacheModel('zero', 100, 0), cacheModel('no-input', 0, 0, 50)],
+      summary: { ...response().summary, request_count: 8, input_tokens: 1100, cache_read_tokens: 530, cache_creation_tokens: 0, output_tokens: 50, reasoning_tokens: 0, total_tokens: 1150, cost_usd: 1.6, unavailable_cost_count: 4 },
+    })
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(data))
+    await render()
+
+    const rateFor = (name: string) => [...container.querySelectorAll('tbody tr')].find(row => row.querySelector('th')?.textContent === name)?.querySelector('[data-model-cache-rate]')
+    expect([rateFor('eighty')?.textContent, rateFor('fifty')?.textContent, rateFor('zero')?.textContent, rateFor('no-input')?.textContent]).toEqual(['80.00%', '50.00%', '0.00%', '—'])
+    expect(rateFor('eighty')?.className).toBe(credentialStyles.credentialMetricValueSuccess)
+    expect(rateFor('fifty')?.className).toBe(credentialStyles.credentialMetricValueWarning)
+    expect(rateFor('zero')?.className).toBe(credentialStyles.credentialMetricValueDanger)
+    expect(rateFor('no-input')?.className).toBe(credentialStyles.credentialMetricValueNeutral)
+    const total = container.querySelector('tfoot [data-model-cache-rate]')
+    expect(total?.textContent).toBe('48.18%')
+    expect(total?.className).toBe(credentialStyles.credentialMetricValueDanger)
   })
 
   it('cleans old requests and data across range and identity changes, even if fetch ignores abort', async () => {
