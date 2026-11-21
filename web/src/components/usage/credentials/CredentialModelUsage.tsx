@@ -95,6 +95,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                 <tbody>{models.map(model => {
                   const alias = model.model_alias.trim()
                   const name = alias || model.model || '—'
+                  const share = data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'
                   return <tr key={JSON.stringify([model.model, model.model_alias])} className={styles.modelRow}>
                     <th scope="row"><strong>{name}</strong>{kind === 'ai-provider' && alias && model.model && alias !== model.model ? <span className={styles.upstream}>→ {model.model}</span> : null}</th>
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
@@ -102,7 +103,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                       <div className={styles.tokenComposition}>
                         <strong>{formatCompactTokenValue(model.total_tokens)}</strong>
                         <TokenBreakdown model={model} name={name} enabled={enabled && !loading} />
-                        <span>{data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'}</span>
+                        <span><span className={styles.visuallyHidden}>{t('usage_stats.analysis_top_models_share')}: {share}</span><span aria-hidden="true">{share}</span></span>
                       </div>
                     </td>
                     <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>

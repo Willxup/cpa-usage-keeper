@@ -84,6 +84,19 @@ describe('CredentialModelUsage', () => {
     expect(parts.map(part => parseFloat((part as HTMLElement).style.width)).reduce((a, b) => a + b, 0)).toBeCloseTo(100)
   })
 
+  it.each([
+    ['en', 'Token share'],
+    ['zh', 'Token 占比'],
+    ['zh-TW', 'Token 占比'],
+  ] as const)('shows only the percentage while preserving an accessible share label in %s', async (language, label) => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response()))
+    await i18n.changeLanguage(language)
+    await render()
+    const shares = [...container.querySelectorAll('tbody tr')].map(row => row.querySelector('td:nth-child(3) > div > span:last-child')!)
+    expect(shares.map(share => share.querySelector('[aria-hidden="true"]')?.textContent)).toEqual(['75.0%', '25.0%'])
+    expect(shares[0].firstElementChild?.textContent).toBe(`${label}: 75.0%`)
+  })
+
   it('cleans old requests and data across range and identity changes, even if fetch ignores abort', async () => {
     const oldRange = Promise.withResolvers<Response>()
     const oldIdentity = Promise.withResolvers<Response>()
