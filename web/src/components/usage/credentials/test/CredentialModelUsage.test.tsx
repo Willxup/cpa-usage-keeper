@@ -83,6 +83,64 @@ describe('CredentialModelUsage', () => {
       ['input', '500'], ['cacheRead', '200'], ['cacheCreation', '300'], ['output', '1500'], ['reasoning', '500'],
     ])
     expect(parts.map(part => parseFloat((part as HTMLElement).style.width)).reduce((a, b) => a + b, 0)).toBeCloseTo(100)
+    const summaryTarget = container.querySelector('tfoot [data-token-breakdown]')!
+    expect(summaryTarget.getAttribute('aria-label')).toContain('Range total; Total Tokens: 4.00K')
+    for (const line of ['Input: 2.00K', 'Cache Read: 200', 'Cache Write: 300', 'Output: 2.00K', 'Reasoning: 500']) {
+      expect(summaryTarget.getAttribute('aria-label')).toContain(line)
+    }
+    expect([...summaryTarget.querySelectorAll('[data-token-part]')].map(part => [part.getAttribute('data-token-part'), part.getAttribute('data-token-value')])).toEqual([
+      ['input', '1500'], ['cacheRead', '200'], ['cacheCreation', '300'], ['output', '1500'], ['reasoning', '500'],
+    ])
+    expect([...summaryTarget.querySelectorAll<HTMLElement>('[data-token-part]')].map(part => parseFloat(part.style.width)).reduce((a, b) => a + b, 0)).toBeCloseTo(100)
+    expect(container.querySelector('tfoot')?.textContent).not.toContain('100.0%')
+  })
+
+  it('places a single summary breakdown after the four totals on mobile', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+      matches: query === '(max-width: 768px)', media: query,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }) as unknown as MediaQueryList)
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response()))
+    await render()
+    const footerRows = container.querySelectorAll('tfoot tr')
+    expect(footerRows).toHaveLength(2)
+    expect(footerRows[0].querySelectorAll('td')).toHaveLength(4)
+    expect(footerRows[0].querySelector('[data-token-breakdown]')).toBeNull()
+    expect(footerRows[1].querySelector<HTMLTableCellElement>('td')?.colSpan).toBe(5)
+    expect(container.querySelectorAll('tfoot [data-token-breakdown]')).toHaveLength(1)
+    expect(footerRows[1].querySelector('[data-token-breakdown]')?.getAttribute('aria-label')).toContain('Range total; Total Tokens: 4.00K')
+  })
+
+  it('shows zero summary composition without a synthetic percentage', async () => {
+    const empty = { ...response().summary, input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 0 }
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response({ models: [model({ ...empty })], summary: empty })))
+    await render()
+    const footer = container.querySelector('tfoot')!
+    const summaryTarget = footer.querySelector('[data-token-breakdown]')!
+    expect(summaryTarget.getAttribute('aria-label')).toContain('Range total; Total Tokens: 0')
+    expect([...summaryTarget.querySelectorAll<HTMLElement>('[data-token-part]')].map(part => part.style.width)).toEqual(['0%', '0%', '0%', '0%', '0%'])
+    expect(footer.textContent).not.toContain('100.0%')
+  })
+
+  it('updates the open summary tooltip language and dismisses it on range changes and disable', async () => {
+    const pending = Promise.withResolvers<Response>()
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response())).mockReturnValueOnce(pending.promise)
+    await render()
+    const target = () => container.querySelector<HTMLElement>('tfoot [data-token-breakdown]')!
+    await act(async () => target().focus())
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Range total')
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Cache Read: 200')
+    await act(async () => i18n.changeLanguage('zh'))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('时段合计')
+    await selectRange('today')
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(target().tabIndex).toBe(-1)
+    await act(async () => pending.resolve(json(response({ range: 'today' }))))
+    await act(async () => { target().blur(); target().focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('时段合计')
+    await act(async () => root.render(<CredentialModelUsage identityId="1" kind="ai-provider" enabled={false} />))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(target().tabIndex).toBe(-1)
   })
 
   it.each([

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
-import type { UsageIdentityModel, UsageIdentityModelsRange, UsageIdentityModelTotals } from '@/lib/types'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import type { UsageIdentityModelsRange, UsageIdentityModelTotals } from '@/lib/types'
 import { calculateCacheReadRate, calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactTokenValue, formatUsd } from '@/utils/usage'
 import { USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig'
 import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
@@ -32,6 +33,7 @@ export function CredentialModelUsage(props: CredentialModelUsageProps) {
 
 function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: CredentialModelUsageProps) {
   const { t } = useTranslation()
+  const isMobile = useMediaQuery('(max-width: 768px)')
   const [selection, setSelection] = useState<{ range: UsageIdentityModelsRange; revision: number }>({ range: '7d', revision: 0 })
   const { range } = selection
   const [minimumHeight, setMinimumHeight] = useState(0)
@@ -61,6 +63,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
   }, [enabled, minimumHeight, requiredScrollHeight])
   const { data, loading, error, retry } = useCredentialModelUsage(identityId, range, onAuthRequired, enabled, preserveScrollPosition, selection.revision)
   const models = data ? [...data.models].sort((a, b) => b.total_tokens - a.total_tokens) : []
+  const totalName = t('usage_stats.credentials_models_total')
   return (
     <section ref={panelRef} className={styles.panel} data-credential-model-usage style={minimumHeight > 0 ? { minHeight: minimumHeight } : undefined}>
       <div className={styles.sectionHeading}>
@@ -111,12 +114,18 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                     <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>
                   </tr>
                 })}</tbody>
-                <tfoot><tr><th scope="row">{t('usage_stats.credentials_models_total')}</th>
+                <tfoot><tr><th scope="row">{totalName}</th>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(data.summary.request_count)}</td>
-                  <td><span className={styles.mobileLabel}>Token </span><span className={styles.footerTokenTotal}><span>{formatCompactTokenValue(data.summary.total_tokens)}</span></span></td>
+                  <td>{isMobile ? <><span className={styles.mobileLabel}>Token </span><span className={styles.footerTokenTotal}><span>{formatCompactTokenValue(data.summary.total_tokens)}</span></span></> :
+                    <div className={`${styles.tokenComposition} ${styles.footerComposition}`}>
+                      <span className={styles.footerTokenTotal}><span>{formatCompactTokenValue(data.summary.total_tokens)}</span></span>
+                      <TokenBreakdown model={data.summary} name={totalName} enabled={enabled && !loading} />
+                      <span aria-hidden="true" />
+                    </div>}
+                  </td>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.cache_rate')} </span><ModelCacheRate totals={data.summary} /></td>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} /></td>
-                </tr></tfoot>
+                </tr>{isMobile ? <tr className={styles.summaryBreakdownRow}><td colSpan={5}><TokenBreakdown model={data.summary} name={totalName} enabled={enabled && !loading} /></td></tr> : null}</tfoot>
               </table>
             </> : null}
     </section>
@@ -138,7 +147,7 @@ function TokenLegend() {
   return <span className={styles.tokenLegend}>{TOKEN_PARTS.map(part => <span key={part.key}><i style={{ background: part.color }} />{t(part.label)}</span>)}</span>
 }
 
-function TokenBreakdown({ model, name, enabled }: { model: UsageIdentityModel; name: string; enabled: boolean }) {
+function TokenBreakdown({ model, name, enabled }: { model: UsageIdentityModelTotals; name: string; enabled: boolean }) {
   const { t } = useTranslation()
   const id = `model-token-${useId()}`
   const anchor = useRef<HTMLDivElement>(null)
