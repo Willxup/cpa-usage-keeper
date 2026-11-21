@@ -111,7 +111,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                 })}</tbody>
                 <tfoot><tr><th scope="row">{t('usage_stats.credentials_models_total')}</th>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(data.summary.request_count)}</td>
-                  <td><span className={styles.mobileLabel}>Token </span>{formatCompactTokenValue(data.summary.total_tokens)}</td>
+                  <td><span className={styles.mobileLabel}>Token </span><span className={styles.footerTokenTotal}><span>{formatCompactTokenValue(data.summary.total_tokens)}</span></span></td>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} /></td>
                 </tr></tfoot>
               </table>
