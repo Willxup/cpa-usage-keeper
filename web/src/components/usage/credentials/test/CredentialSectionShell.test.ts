@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from '../CredentialSectionShell'
+import { cacheReadRateTone, CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from '../CredentialSectionShell'
 
 const renderPagination = (props: Partial<Parameters<typeof CredentialsPagination>[0]> = {}) => renderToStaticMarkup(
   createElement(CredentialsPagination, {
@@ -23,6 +23,18 @@ describe('CredentialSectionShell formatting', () => {
     expect(formatCredentialPercent(2 / 3 * 100)).toBe('66.67%')
     expect(formatCredentialPercent(75)).toBe('75.00%')
     expect(formatCredentialPercent(null)).toBe('—')
+  })
+
+  it.each([
+    [null, 'neutral'],
+    [0, 'danger'],
+    [49.99, 'danger'],
+    [50, 'warning'],
+    [79.99, 'warning'],
+    [80, 'success'],
+    [100, 'success'],
+  ] as const)('classifies cache rate %s as %s', (value, expected) => {
+    expect(cacheReadRateTone(value)).toBe(expected)
   })
 
   it('keeps pagination controls visible for non-empty single-page sections', () => {

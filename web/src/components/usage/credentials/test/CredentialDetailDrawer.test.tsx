@@ -444,7 +444,7 @@ describe('CredentialDetailDrawer', () => {
 
     expect(overviewMetrics).toHaveLength(4)
     expect(overviewMetrics.map((metric) => metric.querySelector('strong')?.textContent)).toEqual(['10', '90.00%', '135', '10.00%'])
-    expect(tones).toEqual(['warning', 'neutral'])
+    expect(tones).toEqual(['warning', 'danger'])
     expect(document.body.textContent).toContain('usage_stats.success 9')
     expect(document.body.textContent).toContain('usage_stats.failure 1')
     expect(document.body.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
@@ -702,9 +702,9 @@ describe('CredentialDetailDrawer', () => {
   })
 
   it.each([
-    { label: 'success boundaries', successRate: 95, cacheReadRate: 50, expectedTones: ['success', 'success'] },
-    { label: 'warning boundaries', successRate: 80, cacheReadRate: 20, expectedTones: ['warning', 'warning'] },
-    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 19.99, expectedTones: ['danger', 'neutral'] },
+    { label: 'success boundaries', successRate: 95, cacheReadRate: 80, expectedTones: ['success', 'success'] },
+    { label: 'warning boundaries', successRate: 80, cacheReadRate: 50, expectedTones: ['warning', 'warning'] },
+    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 49.99, expectedTones: ['danger', 'danger'] },
     { label: 'missing rates', successRate: null, cacheReadRate: null, expectedTones: ['neutral', 'neutral'] },
   ])('uses the shared list thresholds for $label', async ({ successRate, cacheReadRate, expectedTones }) => {
     await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, successRate, cacheReadRate } } })

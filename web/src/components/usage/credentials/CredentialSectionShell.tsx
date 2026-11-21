@@ -125,13 +125,13 @@ export function cacheReadRateTone(value: number | null): 'success' | 'warning' |
   if (value === null) {
     return 'neutral'
   }
-  if (value >= 50) {
+  if (value >= 80) {
     return 'success'
   }
-  if (value >= 20) {
+  if (value >= 50) {
     return 'warning'
   }
-  return 'neutral'
+  return 'danger'
 }
 
 const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => ({
