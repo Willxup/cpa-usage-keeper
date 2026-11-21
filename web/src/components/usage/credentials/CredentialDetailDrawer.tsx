@@ -578,7 +578,7 @@ export function CredentialDetailDrawer({
           {selection.kind === 'credential' ? (
             <section className={styles.overviewSection} data-credential-overview-section="quota">
               <h3>{t('usage_stats.credentials_detail_quota')}</h3>
-              <div className={styles.quotaRows}><CredentialQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} /></div>
+              <div className={styles.quotaRows}><CredentialQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} variant="detail" /></div>
             </section>
           ) : null}
           <DrawerModelUsage identityId={identityId} kind={selection.kind} onAuthRequired={onAuthRequired} />

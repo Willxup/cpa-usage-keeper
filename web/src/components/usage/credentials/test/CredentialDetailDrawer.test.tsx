@@ -510,6 +510,21 @@ describe('CredentialDetailDrawer', () => {
     expect(activity.querySelector('[class*="activityState"]')).toBeNull()
   })
 
+  it.each(['flat', 'group'] as const)('formats the detail reset date in the configured timezone for %s quotas', async (kind) => {
+    const quota = {
+      key: 'quota-5h', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const,
+      resetText: '2026-05-12T03:15:00-07:00',
+      ...(kind === 'group' ? { scope: 'quota_group', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' } : {}),
+    }
+    await renderDrawer({ timeZone: 'Asia/Shanghai', selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } } })
+    const quotaRow = document.querySelector('[data-credential-overview-section="quota"] [data-quota-key]')!
+    const inline = quotaRow.querySelector('[data-quota-reset-inline] time')!
+    expect(inline.textContent).toBe('05-12 18:15')
+    expect(inline.getAttribute('datetime')).toBe('2026-05-12T03:15:00-07:00')
+    expect(inline.getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
+    expect(quotaRow.querySelector('[data-quota-reset-time]')?.textContent).toBe('05-12 18:15')
+  })
+
   it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
     const pending = Promise.withResolvers<unknown>()
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }

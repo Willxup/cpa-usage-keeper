@@ -1662,9 +1662,10 @@ function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: 
   )
 }
 
-export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 'full' }: { row: CredentialRow; quotaUsageMode: QuotaUsageMode; timeZone?: string; variant?: 'full' | 'compact' }) {
+export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 'full' }: { row: CredentialRow; quotaUsageMode: QuotaUsageMode; timeZone?: string; variant?: 'full' | 'compact' | 'detail' }) {
   const { t } = useTranslation()
   const compact = variant === 'compact'
+  const detail = variant === 'detail'
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -1694,8 +1695,8 @@ export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 
       <div className={styles.credentialQuotaBars}>
         {/* 只有 canonical Antigravity 组提升为共享标题；其它 provider 继续沿用原始扁平 QuotaBar。 */}
         {items.map((item, index) => item.kind === 'group'
-          ? <AntigravityQuotaGroup key={item.renderKey} compact={compact} group={item} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
-          : <QuotaBar key={item.quota.key} compact={compact} fullWidth={compact && !item.tooltipAlignRight && items[index + 1]?.kind !== 'quota'} quota={item.quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} tooltipAlignRight={item.tooltipAlignRight} />)}
+          ? <AntigravityQuotaGroup key={item.renderKey} compact={compact} detail={detail} group={item} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
+          : <QuotaBar key={item.quota.key} compact={compact} detail={detail} fullWidth={compact && !item.tooltipAlignRight && items[index + 1]?.kind !== 'quota'} quota={item.quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} tooltipAlignRight={item.tooltipAlignRight} />)}
       </div>
     </div>
   )
@@ -1748,7 +1749,7 @@ function credentialQuotaPanelItems(quotas: DisplayQuota[]): CredentialQuotaPanel
   return items
 }
 
-function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = false }: { group: AntigravityQuotaGroupItem; quotaUsageMode: QuotaUsageMode; timeZone?: string; compact?: boolean }) {
+function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = false, detail = false }: { group: AntigravityQuotaGroupItem; quotaUsageMode: QuotaUsageMode; timeZone?: string; compact?: boolean; detail?: boolean }) {
   return (
     <div className={styles.credentialQuotaGroupBlock} data-quota-group={group.groupKey}>
       <div className={styles.credentialQuotaGroupHeader}>
@@ -1756,7 +1757,7 @@ function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = fals
       </div>
       <div className={styles.credentialQuotaGroupBars}>
         {group.quotas.map((quota, index) => (
-          <QuotaBar key={quota.key} compact={compact} fullWidth={compact && group.quotas.length % 2 === 1 && index === group.quotas.length - 1} quota={quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} showGroupMetadata={false} />
+          <QuotaBar key={quota.key} compact={compact} detail={detail} fullWidth={compact && group.quotas.length % 2 === 1 && index === group.quotas.length - 1} quota={quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} showGroupMetadata={false} />
         ))}
       </div>
     </div>
@@ -1954,7 +1955,7 @@ export function formatQuotaResetLabel(resetAt: string, timeZone?: string): strin
       hourCycle: 'h23',
     }).formatToParts(resetTime)
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-    return `${values.month}/${values.day} ${values.hour}:${values.minute}`
+    return `${values.month}-${values.day} ${values.hour}:${values.minute}`
   } catch {
     // Go 的 Local 或浏览器不认识的 IANA 名称无法可靠映射到 Keeper 墙上时间，隐藏标签而不是猜浏览器时区。
     return ''
@@ -1988,7 +1989,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, compact = false, fullWidth = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; compact?: boolean; fullWidth?: boolean }) {
+function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, compact = false, detail = false, fullWidth = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; compact?: boolean; detail?: boolean; fullWidth?: boolean }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -2005,6 +2006,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
         <span className={`${styles.credentialQuotaLabelGroup} ${quota.usageBreakdown?.length ? styles.credentialQuotaLabelWithInfo : ''}`.trim()}>
           <span>{quota.label}</span>
           {Boolean(quota.usageBreakdown?.length) && <QuotaUsageBreakdownInfo quota={quota} />}
+          {detail && resetLabel ? <span data-quota-reset-inline><span aria-hidden="true">·</span><time dateTime={quota.resetText} aria-label={t('usage_stats.credentials_quota_resets_at', { time: resetLabel })}>{resetLabel}</time></span> : null}
         </span>
         {(resetDuration || percentLabel) && (
           <span className={styles.credentialQuotaValueGroup}>
@@ -2053,7 +2055,7 @@ function QuotaResetCountdown({ duration, resetLabel }: { duration: string; reset
   const tooltipId = useId()
   const anchorRef = useRef<HTMLButtonElement>(null)
   const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip({ trackAnchor: true })
-  const label = t('usage_stats.credentials_quota_resets_at', { time: resetLabel.replace('/', '-') })
+  const label = t('usage_stats.credentials_quota_resets_at', { time: resetLabel })
   const lines = [label]
 
   useEffect(() => {

@@ -26,7 +26,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 import { UsagePage } from '../UsagePage';
 
 const RESET_AT = '2026-05-12T03:15:00-07:00';
-const PROJECT_RESET_LABEL = '05/12 18:15';
+const PROJECT_RESET_LABEL = '05-12 18:15';
 const COMPACT_RESET_LABEL = '05-12 18:15';
 
 const credential = {
