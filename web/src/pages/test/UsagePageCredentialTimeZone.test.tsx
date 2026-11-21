@@ -100,7 +100,7 @@ describe('UsagePage credential project timezone', () => {
     expect(unexpectedRequests).toEqual([]);
   });
 
-  it('uses the project timezone for the compact reset tooltip and the full detail reset label', async () => {
+  it('uses the project timezone for both the compact and detail reset tooltips', async () => {
     await act(async () => root.render(<UsagePage />));
 
     const countdown = container.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!;
@@ -121,10 +121,19 @@ describe('UsagePage credential project timezone', () => {
 
     const detailTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]');
     expect(detailTrigger).not.toBeNull();
-    await act(async () => detailTrigger!.click());
+    await act(async () => {
+      detailTrigger!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      detailTrigger!.click();
+    });
 
     const drawer = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(drawer).not.toBeNull();
-    expect(drawer!.textContent).toContain(PROJECT_RESET_LABEL);
+    const detailCountdown = drawer!.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!;
+    expect(detailCountdown.getAttribute('aria-label')).toBe(`Resets at ${PROJECT_RESET_LABEL}`);
+    expect(drawer!.textContent).not.toContain(PROJECT_RESET_LABEL);
+    await act(async () => detailCountdown.focus());
+    const detailTooltip = document.getElementById(detailCountdown.getAttribute('aria-describedby')!);
+    expect(detailTooltip?.textContent).toBe(`Resets at ${PROJECT_RESET_LABEL}`);
+    expect(detailTooltip?.textContent).not.toContain('05-12 10:15');
   });
 });

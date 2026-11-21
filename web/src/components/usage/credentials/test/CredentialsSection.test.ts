@@ -437,7 +437,7 @@ describe('CredentialsSection quota usage mode rendering', () => {
     expect(html.match(/credentialQuotaBarTooltipRight/g)).toHaveLength(1)
   })
 
-  it('keeps the reset time visible when Codex has no token or cost usage', () => {
+  it('keeps the reset countdown available when Codex has no token or cost usage', () => {
     const noUsageRow = {
       ...row,
       displayQuotas: [{
@@ -450,7 +450,8 @@ describe('CredentialsSection quota usage mode rendering', () => {
 
     const html = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: noUsageRow, quotaUsageMode: 'current', timeZone: 'Asia/Shanghai' }))
 
-    expect(html).toContain('05-09 20:00')
+    expect(html).toContain('data-quota-reset-countdown="true"')
+    expect(html).not.toContain('05-09 20:00')
   })
 
   it('renders xai billing spend without token usage metrics', () => {

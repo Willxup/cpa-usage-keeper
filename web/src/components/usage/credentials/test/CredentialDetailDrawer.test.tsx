@@ -510,19 +510,65 @@ describe('CredentialDetailDrawer', () => {
     expect(activity.querySelector('[class*="activityState"]')).toBeNull()
   })
 
-  it.each(['flat', 'group'] as const)('formats the detail reset date in the configured timezone for %s quotas', async (kind) => {
+  it.each(['flat', 'group'] as const)('shows the project-timezone reset tooltip for %s quotas without closing the drawer on Escape', async (kind) => {
     const quota = {
       key: 'quota-5h', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const,
       resetText: '2026-05-12T03:15:00-07:00',
       ...(kind === 'group' ? { scope: 'quota_group', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' } : {}),
     }
-    await renderDrawer({ timeZone: 'Asia/Shanghai', selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } } })
+    const onClose = vi.fn()
+    await renderDrawer({ timeZone: 'Asia/Shanghai', onClose, selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } } })
     const quotaRow = document.querySelector('[data-credential-overview-section="quota"] [data-quota-key]')!
-    const inline = quotaRow.querySelector('[data-quota-reset-inline] time')!
-    expect(inline.textContent).toBe('05-12 18:15')
-    expect(inline.getAttribute('datetime')).toBe('2026-05-12T03:15:00-07:00')
-    expect(inline.getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
-    expect(quotaRow.querySelector('[data-quota-reset-time]')?.textContent).toBe('05-12 18:15')
+    const countdown = quotaRow.querySelector<HTMLButtonElement>('[data-quota-reset-countdown]')!
+    expect(countdown.getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
+    expect(quotaRow.textContent).not.toContain('05-12 18:15')
+    const tooltip = () => document.getElementById(countdown.getAttribute('aria-describedby') ?? '')
+
+    await act(async () => countdown.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(tooltip()?.textContent).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
+    await act(async () => countdown.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+    expect(tooltip()).toBeNull()
+    await act(async () => countdown.click())
+    expect(tooltip()).not.toBeNull()
+    await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' })))
+    expect(tooltip()).toBeNull()
+    await act(async () => countdown.focus())
+    expect(tooltip()).not.toBeNull()
+    await act(async () => countdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(tooltip()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => countdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('cleans the reset tooltip on tab, identity and drawer changes', async () => {
+    const quota = { key: 'shared-window', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, resetText: '2026-05-12T03:15:00-07:00' }
+    const first: CredentialDetailSelection = { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } }
+    const second: CredentialDetailSelection = {
+      kind: 'credential',
+      row: { ...credentialRow, identity: { ...credentialRow.identity, id: 'other', identity: 'other-auth' }, displayQuotas: [{ ...quota, resetText: '2026-05-13T03:15:00-07:00' }] },
+    }
+    const countdown = () => document.querySelector<HTMLButtonElement>('[data-credential-overview-section="quota"] [data-quota-reset-countdown]')!
+    const focusTooltip = async () => {
+      const target = countdown()
+      await act(async () => target.focus())
+      const id = target.getAttribute('aria-describedby')!
+      expect(document.getElementById(id)).not.toBeNull()
+      return id
+    }
+
+    await renderDrawer({ selection: first, timeZone: 'Asia/Shanghai' })
+    const firstId = await focusTooltip()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(document.getElementById(firstId)).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    const secondId = await focusTooltip()
+    await renderDrawer({ selection: second, timeZone: 'Asia/Shanghai' })
+    expect(document.getElementById(secondId)).toBeNull()
+    expect(countdown().getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-13 18:15"}')
+    const thirdId = await focusTooltip()
+    await renderDrawer({ selection: second, timeZone: 'Asia/Shanghai', open: false })
+    expect(document.getElementById(thirdId)).toBeNull()
   })
 
   it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {

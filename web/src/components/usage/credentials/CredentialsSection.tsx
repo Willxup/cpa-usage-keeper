@@ -1662,10 +1662,9 @@ function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: 
   )
 }
 
-export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 'full' }: { row: CredentialRow; quotaUsageMode: QuotaUsageMode; timeZone?: string; variant?: 'full' | 'compact' | 'detail' }) {
+export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 'full', tooltipEnabled = true }: { row: CredentialRow; quotaUsageMode: QuotaUsageMode; timeZone?: string; variant?: 'full' | 'compact'; tooltipEnabled?: boolean }) {
   const { t } = useTranslation()
   const compact = variant === 'compact'
-  const detail = variant === 'detail'
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -1695,8 +1694,8 @@ export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone, variant = 
       <div className={styles.credentialQuotaBars}>
         {/* 只有 canonical Antigravity 组提升为共享标题；其它 provider 继续沿用原始扁平 QuotaBar。 */}
         {items.map((item, index) => item.kind === 'group'
-          ? <AntigravityQuotaGroup key={item.renderKey} compact={compact} detail={detail} group={item} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
-          : <QuotaBar key={item.quota.key} compact={compact} detail={detail} fullWidth={compact && !item.tooltipAlignRight && items[index + 1]?.kind !== 'quota'} quota={item.quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} tooltipAlignRight={item.tooltipAlignRight} />)}
+          ? <AntigravityQuotaGroup key={item.renderKey} compact={compact} tooltipEnabled={tooltipEnabled} group={item} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
+          : <QuotaBar key={item.quota.key} tooltipEnabled={tooltipEnabled} fullWidth={compact && !item.tooltipAlignRight && items[index + 1]?.kind !== 'quota'} quota={item.quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} tooltipAlignRight={item.tooltipAlignRight} />)}
       </div>
     </div>
   )
@@ -1749,7 +1748,7 @@ function credentialQuotaPanelItems(quotas: DisplayQuota[]): CredentialQuotaPanel
   return items
 }
 
-function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = false, detail = false }: { group: AntigravityQuotaGroupItem; quotaUsageMode: QuotaUsageMode; timeZone?: string; compact?: boolean; detail?: boolean }) {
+function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = false, tooltipEnabled = true }: { group: AntigravityQuotaGroupItem; quotaUsageMode: QuotaUsageMode; timeZone?: string; compact?: boolean; tooltipEnabled?: boolean }) {
   return (
     <div className={styles.credentialQuotaGroupBlock} data-quota-group={group.groupKey}>
       <div className={styles.credentialQuotaGroupHeader}>
@@ -1757,7 +1756,7 @@ function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = fals
       </div>
       <div className={styles.credentialQuotaGroupBars}>
         {group.quotas.map((quota, index) => (
-          <QuotaBar key={quota.key} compact={compact} detail={detail} fullWidth={compact && group.quotas.length % 2 === 1 && index === group.quotas.length - 1} quota={quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} showGroupMetadata={false} />
+          <QuotaBar key={quota.key} tooltipEnabled={tooltipEnabled} fullWidth={compact && group.quotas.length % 2 === 1 && index === group.quotas.length - 1} quota={quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} showGroupMetadata={false} />
         ))}
       </div>
     </div>
@@ -1989,7 +1988,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, compact = false, detail = false, fullWidth = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; compact?: boolean; detail?: boolean; fullWidth?: boolean }) {
+function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, tooltipEnabled = true, fullWidth = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; tooltipEnabled?: boolean; fullWidth?: boolean }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -2006,12 +2005,11 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
         <span className={`${styles.credentialQuotaLabelGroup} ${quota.usageBreakdown?.length ? styles.credentialQuotaLabelWithInfo : ''}`.trim()}>
           <span>{quota.label}</span>
           {Boolean(quota.usageBreakdown?.length) && <QuotaUsageBreakdownInfo quota={quota} />}
-          {detail && resetLabel ? <span data-quota-reset-inline><span aria-hidden="true">·</span><time dateTime={quota.resetText} aria-label={t('usage_stats.credentials_quota_resets_at', { time: resetLabel })}>{resetLabel}</time></span> : null}
         </span>
         {(resetDuration || percentLabel) && (
           <span className={styles.credentialQuotaValueGroup}>
-            {resetDuration && (compact && resetLabel
-              ? <QuotaResetCountdown duration={resetDuration} resetLabel={resetLabel} />
+            {resetDuration && (resetLabel
+              ? <QuotaResetCountdown duration={resetDuration} resetLabel={resetLabel} enabled={tooltipEnabled} />
               : <span className={styles.credentialQuotaResetDuration}>{resetDuration}</span>)}
             {percentLabel && <strong>{percentLabel}</strong>}
           </span>
@@ -2044,13 +2042,12 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
             </span>
           </strong>
         )}
-        {!compact && resetLabel && <span className={styles.credentialQuotaResetTime} data-quota-reset-time>{resetLabel}</span>}
       </div>
     </div>
   )
 }
 
-function QuotaResetCountdown({ duration, resetLabel }: { duration: string; resetLabel: string }) {
+function QuotaResetCountdown({ duration, resetLabel, enabled = true }: { duration: string; resetLabel: string; enabled?: boolean }) {
   const { t } = useTranslation()
   const tooltipId = useId()
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -2059,20 +2056,27 @@ function QuotaResetCountdown({ duration, resetLabel }: { duration: string; reset
   const lines = [label]
 
   useEffect(() => {
-    if (!tooltip) return
+    if (!enabled) dismiss()
+  }, [enabled, dismiss])
+
+  useEffect(() => {
+    if (!enabled || !tooltip) return
     const closeOutside = (event: PointerEvent) => {
       if (!anchorRef.current?.contains(event.target as Node)) dismiss()
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') dismiss()
+      if (event.key === 'Escape' && dismiss()) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
     }
     document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('keydown', closeOnEscape, true)
     return () => {
       document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('keydown', closeOnEscape, true)
     }
-  }, [tooltip, dismiss])
+  }, [enabled, tooltip, dismiss])
 
   return <>
     <button
@@ -2081,15 +2085,15 @@ function QuotaResetCountdown({ duration, resetLabel }: { duration: string; reset
       className={`${styles.credentialQuotaResetDuration} ${styles.credentialQuotaCountdown}`}
       data-quota-reset-countdown="true"
       aria-label={label}
-      aria-describedby={tooltip ? tooltipId : undefined}
-      onMouseEnter={(event) => showOnMouseEnter(lines, event.currentTarget)}
+      aria-describedby={enabled && tooltip ? tooltipId : undefined}
+      onMouseEnter={(event) => { if (enabled) showOnMouseEnter(lines, event.currentTarget) }}
       onMouseLeave={(event) => hideOnMouseLeave(event.currentTarget)}
-      onFocus={(event) => showOnFocus(lines, event.currentTarget)}
+      onFocus={(event) => { if (enabled) showOnFocus(lines, event.currentTarget) }}
       onBlur={(event) => hideOnBlur(event.currentTarget)}
-      onClick={(event) => showOnFocus(lines, event.currentTarget)}
+      onClick={(event) => { if (enabled) showOnFocus(lines, event.currentTarget) }}
     >{duration}</button>
     {/* 文本始终使用当前额度快照；悬停期间刷新不会留下旧重置时间。 */}
-    <PortalTooltip tooltip={tooltip ? { ...tooltip, lines } : null} id={tooltipId} />
+    <PortalTooltip tooltip={enabled && tooltip ? { ...tooltip, lines } : null} id={tooltipId} />
   </>
 }
 

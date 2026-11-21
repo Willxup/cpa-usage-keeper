@@ -578,7 +578,7 @@ export function CredentialDetailDrawer({
           {selection.kind === 'credential' ? (
             <section className={styles.overviewSection} data-credential-overview-section="quota">
               <h3>{t('usage_stats.credentials_detail_quota')}</h3>
-              <div className={styles.quotaRows}><CredentialQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} variant="detail" /></div>
+              <div className={styles.quotaRows}><DrawerQuotaPanel key={selectionKey} row={selection.row} quotaUsageMode="current" timeZone={timeZone} /></div>
             </section>
           ) : null}
           <DrawerModelUsage identityId={identityId} kind={selection.kind} onAuthRequired={onAuthRequired} />
@@ -647,6 +647,12 @@ export function CredentialDetailDrawer({
       ) : null}
     </>
   )
+}
+
+function DrawerQuotaPanel(props: Omit<Parameters<typeof CredentialQuotaPanel>[0], 'tooltipEnabled'>) {
+  // 关闭动画保留详情快照时，context 仍会立即隐藏并清理配额提示。
+  const enabled = useContext(CredentialDetailOpenContext)
+  return <CredentialQuotaPanel {...props} tooltipEnabled={enabled} />
 }
 
 function DrawerRecentActivity(props: Omit<Parameters<typeof CredentialRecentActivity>[0], 'enabled'>) {
