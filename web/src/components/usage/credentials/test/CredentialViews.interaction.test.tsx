@@ -84,4 +84,91 @@ describe('credential view switching', () => {
     await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Cards view"]')!.click())
     expect(container.querySelector('[data-credential-card]')).not.toBeNull()
   })
+
+  it.each([false, true])('uses Muse branding in the credential list view for Meta accounts with disabled=%s while keeping AI providers as Meta', async (disabled) => {
+    await i18n.changeLanguage('en')
+    const metaIdentity = createSectionIdentity({
+      id: 'meta-1',
+      identity: 'meta-auth',
+      type: 'meta',
+      provider: 'meta',
+      displayName: 'My Meta account',
+      disabled,
+    })
+    const deletedMetaIdentity = createSectionIdentity({
+      id: 'meta-deleted',
+      identity: 'meta-auth-deleted',
+      type: 'meta',
+      provider: 'meta',
+      displayName: 'Deleted Meta account',
+      is_deleted: true,
+    })
+    const onToggleStatus = vi.fn()
+    const rows = buildCredentialRows([metaIdentity, deletedMetaIdentity])
+    await act(async () => root.render(
+      <CredentialsSection {...createCredentialSectionProps({ rows, total: rows.length, viewMode: 'list', onToggleStatus })} />,
+    ))
+
+    const activeRow = container.querySelector<HTMLElement>('[data-credential-identity="meta-1"]')!
+    expect(activeRow.querySelector('[data-provider-brand-icon="muse"]')).not.toBeNull()
+    expect(activeRow.querySelector('[data-provider-brand-icon="meta"]')).toBeNull()
+    expect(activeRow.textContent).toContain('My Meta account')
+    const toggle = activeRow.querySelector<HTMLButtonElement>('[data-credential-status-toggle="true"]')!
+    expect(toggle.getAttribute('data-credential-status-disabled')).toBe(String(disabled))
+    await act(async () => toggle.click())
+    expect(onToggleStatus).toHaveBeenCalledWith('meta-1', 'meta-auth', !disabled)
+
+    const deletedRow = container.querySelector<HTMLElement>('[data-credential-identity="meta-deleted"]')!
+    expect(deletedRow.querySelector('[data-provider-brand-icon="muse"]')).not.toBeNull()
+    expect(deletedRow.querySelector('[data-provider-brand-icon="meta"]')).toBeNull()
+
+    const providerRows = buildAiProviderCredentialRows([{ ...metaIdentity, auth_type: 2 }])
+    await act(async () => root.render(
+      <AiProviderCredentialsSection {...createAiProviderSectionProps({ rows: providerRows, total: 1, viewMode: 'list' })} />,
+    ))
+    expect(container.querySelector('[data-provider-brand-icon="meta"]')).not.toBeNull()
+    expect(container.querySelector('[data-provider-brand-icon="muse"]')).toBeNull()
+  })
+
+  it('uses the shared project-timezone reset countdown tooltip in the credential list view', async () => {
+    await i18n.changeLanguage('en')
+    const identity = createSectionIdentity({ id: 'codex-1', identity: 'codex-auth' })
+    const row = buildCredentialRows([identity], new Map([[identity.identity, {
+      id: identity.identity,
+      quota: [{
+        key: 'rate_limit.primary_window',
+        label: '5h',
+        window: { seconds: 18_000 },
+        usedPercent: 25,
+        resetAt: '2026-05-12T03:15:00-07:00',
+      }],
+    }]]))[0]
+
+    await act(async () => root.render(
+      <CredentialsSection {...createCredentialSectionProps({ rows: [row], total: 1, viewMode: 'list', timeZone: 'Asia/Shanghai' })} />,
+    ))
+
+    const listRow = container.querySelector<HTMLElement>('[data-credential-list-row="true"]')!
+    expect(listRow.querySelector('[data-credential-quota-variant="full"]')).not.toBeNull()
+    expect(listRow.textContent).not.toContain('05-12 18:15')
+    const countdown = listRow.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!
+    expect(countdown.getAttribute('aria-label')).toBe('Resets at 05-12 18:15')
+
+    const tooltip = () => document.getElementById(countdown.getAttribute('aria-describedby') ?? '')
+    await act(async () => countdown.focus())
+    expect(tooltip()?.textContent).toBe('Resets at 05-12 18:15')
+
+    const bubbleEscape = vi.fn()
+    document.addEventListener('keydown', bubbleEscape)
+    await act(async () => countdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    document.removeEventListener('keydown', bubbleEscape)
+    expect(tooltip()).toBeNull()
+    expect(bubbleEscape).not.toHaveBeenCalled()
+
+    await act(async () => countdown.click())
+    const openedTooltipId = countdown.getAttribute('aria-describedby')!
+    expect(document.getElementById(openedTooltipId)?.textContent).toBe('Resets at 05-12 18:15')
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Health"]')!.click())
+    expect(document.getElementById(openedTooltipId)).toBeNull()
+  })
 })

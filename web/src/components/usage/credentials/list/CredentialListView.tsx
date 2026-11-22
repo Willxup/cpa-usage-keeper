@@ -5,6 +5,7 @@ import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBr
 import styles from '../CredentialSections.module.scss'
 import listStyles from './CredentialList.module.scss'
 import { formatCredentialTimestamp } from '../credentialViewModels'
+import { credentialBrandOverride } from '../credentialBrand'
 import type { CredentialViewProps } from '../credentialViewProps'
 import type { CredentialListContentMode } from '../credentialListPreferences'
 import { CredentialAliasEditor } from '../CredentialAliasEditor'
@@ -37,15 +38,16 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
         const rowRefreshing = isRowRefreshing(row)
         const { isClaude, resetCredits, canResetQuota } = credentialResetCapabilities(row)
         const rowKey = row.identity.id || row.identity.identity
+        const brandType = credentialBrandOverride(row.identity.type)?.iconType ?? row.identity.type
         return (
           <CredentialRowShell
             key={rowKey}
             icon={(
               // 凭证 type 直接来自 CPA，可能是不认识的类型；没有品牌图标的类型不给开关，
               // 否则左侧图标槽位会变成一个看不见却可点、可 Tab 的按钮。
-              providerBrandIconKey(row.identity.type) ? (
+              providerBrandIconKey(brandType) ? (
                 <CredentialStatusToggle
-                  providerType={row.identity.type}
+                  providerType={brandType}
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
@@ -53,7 +55,7 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
                   onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
                 />
               ) : (
-                <ProviderBrandIcon providerType={row.identity.type} size={30} ariaLabel={row.typeLabel} />
+                <ProviderBrandIcon providerType={brandType} size={30} ariaLabel={row.typeLabel} />
               )
             )}
             title={onEdit ? (
