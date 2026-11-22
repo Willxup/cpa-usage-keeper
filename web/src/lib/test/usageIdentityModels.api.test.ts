@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, fetchUsageIdentityActivity, fetchUsageIdentityModels } from '../api'
+import { ApiError, fetchUsageIdentityModels } from '../api'
 
 describe('fetchUsageIdentityModels', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -14,19 +14,6 @@ describe('fetchUsageIdentityModels', () => {
     const parsed = new URL(String(url), 'http://localhost')
     expect(parsed.pathname).toBe('/keeper/api/v1/usage/identities/123%2F456/models')
     expect([...parsed.searchParams.entries()]).toEqual([['range', range]])
-    expect(init).toMatchObject({ credentials: 'include', signal })
-  })
-
-  it('requests recent activity independently with an abort signal and no range or API key', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper' })
-    const payload = { identity_id: '1', latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false }
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json(payload))
-    const signal = new AbortController().signal
-    expect(await fetchUsageIdentityActivity('1/2', signal)).toEqual(payload)
-    const [url, init] = fetchMock.mock.calls[0]
-    const parsed = new URL(String(url), 'http://localhost')
-    expect(parsed.pathname).toBe('/keeper/api/v1/usage/identities/1%2F2/activity')
-    expect(parsed.search).toBe('')
     expect(init).toMatchObject({ credentials: 'include', signal })
   })
 

@@ -9,7 +9,6 @@ import type { UsageIdentity } from '@/lib/types';
 const api = vi.hoisted(() => ({
   fetchUsageIdentitiesPage: vi.fn(),
   fetchUsageIdentity: vi.fn(),
-  fetchUsageIdentityActivity: vi.fn(),
   fetchUsageIdentityModels: vi.fn(),
   fetchUsageQuotaCache: vi.fn(),
 }));
@@ -69,7 +68,6 @@ describe('UsagePage credential project timezone', () => {
       identities: [credential], total_count: 1, total_pages: 1,
     });
     api.fetchUsageIdentity.mockResolvedValue(credential);
-    api.fetchUsageIdentityActivity.mockResolvedValue({ latest: null, last_success: null, last_failure: null, streak: 0, streak_at_least: false });
     api.fetchUsageIdentityModels.mockResolvedValue({ models: [], summary: { total_tokens: 0 } });
     api.fetchUsageQuotaCache.mockResolvedValue({
       items: [{

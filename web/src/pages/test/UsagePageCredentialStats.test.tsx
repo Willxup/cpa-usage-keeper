@@ -10,7 +10,6 @@ import type { UsageCredentialHealth, UsageIdentity } from '@/lib/types';
 const api = vi.hoisted(() => ({
   fetchUsageIdentitiesPage: vi.fn(),
   fetchUsageIdentity: vi.fn(),
-  fetchUsageIdentityActivity: vi.fn(),
   fetchUsageIdentityModels: vi.fn(),
   resetUsageIdentityStats: vi.fn(),
   updateUsageIdentityAlias: vi.fn(),
@@ -200,7 +199,6 @@ describe('UsagePage credential detail statistics', () => {
     expectHealth('90.0%');
     expect(activityMetrics()).toEqual(['10', '1', '25.00%']);
     expect(api.fetchUsageIdentityModels).toHaveBeenCalledTimes(modelRequestsBeforeReset);
-    expect(api.fetchUsageIdentityActivity).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain('Fixture 1');
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 5), credential_health: health(4, 1, 200, 100, '2026-09-11T16:10:00+08:00') });
     await tick();

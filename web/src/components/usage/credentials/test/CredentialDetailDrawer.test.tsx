@@ -13,7 +13,6 @@ import { CredentialHealthPanel } from '../CredentialHealthPanel'
 const fetchUsageEvents = vi.fn()
 const fetchErrorEvents = vi.fn()
 const fetchCodexQuotaHistory = vi.fn()
-const fetchUsageIdentityActivity = vi.fn()
 const fetchUsageIdentityModels = vi.fn()
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -21,7 +20,6 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return {
     ...actual,
     fetchCodexQuotaHistory: (...args: unknown[]) => fetchCodexQuotaHistory(...args),
-    fetchUsageIdentityActivity: (...args: unknown[]) => fetchUsageIdentityActivity(...args),
     fetchUsageIdentityModels: (...args: unknown[]) => fetchUsageIdentityModels(...args),
     fetchErrorEvents: (...args: unknown[]) => fetchErrorEvents(...args),
     fetchUsageEvents: (...args: unknown[]) => fetchUsageEvents(...args),
@@ -253,7 +251,6 @@ describe('CredentialDetailDrawer', () => {
     fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
     fetchCodexQuotaHistory.mockReset()
     fetchCodexQuotaHistory.mockResolvedValue(quotaHistoryResponse)
-    fetchUsageIdentityActivity.mockReset()
     fetchUsageIdentityModels.mockReset().mockResolvedValue({ identity_id: 'provider-1', range: '7d', timezone: 'UTC', models: [], summary: { total_tokens: 0 } })
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -456,7 +453,6 @@ describe('CredentialDetailDrawer', () => {
     expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'models'])
     expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_identity')
     expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBeNull()
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(fetchUsageIdentityModels).toHaveBeenCalledWith('provider-1', '7d', expect.any(AbortSignal))
   })
 
@@ -482,7 +478,6 @@ describe('CredentialDetailDrawer', () => {
     expect(quota.textContent).not.toContain('Gemini Models')
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
     expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('credential-1', 'today', expect.any(AbortSignal))
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(quota.textContent).toContain('1.00M')
     expect(quota.textContent).toContain('$2.50')
   })
@@ -524,7 +519,6 @@ describe('CredentialDetailDrawer', () => {
     expect(activity.querySelector('[data-tone="quiet"]')?.textContent).toBe('usage_stats.credentials_health_summary_quiet')
     expect([...activity.querySelectorAll('[data-credential-activity-metric] strong')].map(node => node.textContent)).toEqual(['0', '0', '—'])
     expect(activity.querySelector('[data-credential-health-variant="compact"] strong')?.textContent).toBe('0.0%')
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
   it.each(['flat', 'group'] as const)('shows the project-timezone reset tooltip for %s quotas without closing the drawer on Escape', async (kind) => {
@@ -609,7 +603,6 @@ describe('CredentialDetailDrawer', () => {
     expect(panel.textContent).toContain('public')
     expect(panel.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
     expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
     expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBe(quota)
     await act(async () => pending.resolve({ identity_id: 'credential-1', range: 'today', models: [], summary: totals }))
     expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('true')
@@ -647,7 +640,6 @@ describe('CredentialDetailDrawer', () => {
     const updated: CredentialDetailSelection = { kind: 'ai-provider', row: withHealth(second.row, updatedHealth) }
     await renderDrawer({ selection: updated })
     expect(values()).toEqual(['52', '2', '75.00%'])
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
   it('aborts model requests on identity change and close and discards late authorization errors', async () => {
@@ -666,7 +658,6 @@ describe('CredentialDetailDrawer', () => {
     expect(secondModelsSignal.aborted).toBe(true)
     await act(async () => next.reject(new ApiError('expired', 401)))
     expect(onAuthRequired).not.toHaveBeenCalled()
-    expect(fetchUsageIdentityActivity).not.toHaveBeenCalled()
   })
 
   it('cancels a pending model range and cleans its tooltip when leaving the Overview tab', async () => {

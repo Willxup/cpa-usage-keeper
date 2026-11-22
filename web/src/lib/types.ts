@@ -391,24 +391,6 @@ export interface UsageEventSourceFilterOptionsResponse {
 
 export type UsageIdentityAuthType = 1 | 2
 
-export interface UsageIdentityActivityEvent {
-  timestamp: string
-  failed: boolean
-  status_code?: number
-}
-
-export interface UsageIdentityActivityResponse {
-  identity_id: string
-  timezone: string
-  window_start: string
-  window_end: string
-  latest: UsageIdentityActivityEvent | null
-  last_success: UsageIdentityActivityEvent | null
-  last_failure: UsageIdentityActivityEvent | null
-  streak: number
-  streak_at_least: boolean
-}
-
 export type UsageIdentityModelsRange = 'today' | '7d' | '30d'
 
 export interface UsageIdentityModelTotals {

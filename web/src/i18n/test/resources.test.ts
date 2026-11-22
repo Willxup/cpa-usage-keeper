@@ -43,16 +43,6 @@ describe('i18n resources', () => {
     }
   });
 
-  it.each([
-    ['en', '100 requests', 'At least 100 requests'],
-    ['zh', '100 次', '至少 100 次'],
-    ['zh-TW', '100 次', '至少 100 次'],
-  ])('formats exact and bounded activity streaks in %s', (language, exact, bounded) => {
-    const t = i18n.getFixedT(language);
-    expect(t('usage_stats.credentials_activity_count', { count: 100 })).toBe(exact);
-    expect(t('usage_stats.credentials_activity_at_least', { count: 100 })).toBe(bounded);
-  });
-
   it.each(criticalMessages)('preserves the safety meaning of $key', ({ key, ...expected }) => {
     expect(Object.fromEntries(SUPPORTED_LANGUAGES.map((language) => [
       language,
