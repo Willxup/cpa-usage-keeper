@@ -79,7 +79,6 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
     <>
       <CredentialSectionShell
         title={t('usage_stats.credentials_title')}
-        subtitle={t('usage_stats.credentials_subtitle')}
         viewMode={viewMode}
         contentClassName={viewMode === 'cards' ? cardStyles.cardContent : listStyles.listContent}
         titleExtra={(

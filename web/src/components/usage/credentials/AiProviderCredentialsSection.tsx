@@ -44,7 +44,6 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
   return (
     <CredentialSectionShell
       title={t('usage_stats.credentials_ai_providers_title')}
-      subtitle={t('usage_stats.credentials_ai_providers_subtitle')}
       viewMode={viewMode}
       contentClassName={viewMode === 'cards' ? cardStyles.cardContent : listStyles.listContent}
       titleHelp={(

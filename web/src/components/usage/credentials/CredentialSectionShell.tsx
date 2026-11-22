@@ -8,7 +8,6 @@ type CredentialSectionStyle = CSSProperties
 
 interface CredentialSectionShellProps {
   title: string
-  subtitle: string
   viewMode: CredentialViewMode
   contentClassName: string
   titleHelp?: ReactNode
@@ -18,7 +17,7 @@ interface CredentialSectionShellProps {
   children: ReactNode
 }
 
-export function CredentialSectionShell({ title, subtitle, viewMode, contentClassName, titleHelp, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ title, viewMode, contentClassName, titleHelp, titleExtra, actions, style, children }: CredentialSectionShellProps) {
   const heading = <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
   return (
     <section className={`${styles.credentialSectionCard} keeper-card-surface`} data-view-mode={viewMode} style={style}>
@@ -28,7 +27,6 @@ export function CredentialSectionShell({ title, subtitle, viewMode, contentClass
             {titleHelp ? <div className={styles.credentialSectionHeading}>{heading}{titleHelp}</div> : heading}
             {titleExtra}
           </div>
-          <p className={`${styles.credentialSectionSubtitle} keeper-card-subtitle`}>{subtitle}</p>
         </div>
         {actions && <div className={styles.credentialSectionActions}>{actions}</div>}
       </div>
