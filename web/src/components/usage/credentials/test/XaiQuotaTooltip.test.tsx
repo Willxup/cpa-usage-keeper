@@ -2,7 +2,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
-import { CredentialQuotaPanel } from '../CredentialsSection'
+import { CredentialQuotaPanel } from '../quota/CredentialQuotaPanel'
 import { buildCredentialRows } from '../credentialViewModels'
 
 vi.mock('react-i18next', () => ({
