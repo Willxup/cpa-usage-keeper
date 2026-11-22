@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { IconPencil } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
+import { CredentialCardActionTooltip } from './cards/CredentialCardActionTooltip'
 
 interface CredentialAliasEditorProps {
   identityId: string
@@ -40,11 +41,12 @@ export function CredentialAliasEditor({ identityId, displayName, disabled = fals
   )
 }
 
-export function CredentialEditButton({ identityId, disabled = false, onEdit }: Pick<CredentialAliasEditorProps, 'identityId' | 'disabled'> & { onEdit: () => void }) {
+export function CredentialEditButton({ identityId, disabled = false, onEdit, cardTooltip = false }: Pick<CredentialAliasEditorProps, 'identityId' | 'disabled'> & { onEdit: () => void; cardTooltip?: boolean }) {
   const { t } = useTranslation()
   if (disabled || !identityId.trim()) return null
 
-  return (
+  const label = t('usage_stats.credentials_edit_title')
+  const button = (tooltipId?: string) => (
     <button
       type="button"
       className={`${styles.credentialAliasEditButton} ${styles.credentialCardActionButton}`}
@@ -53,10 +55,12 @@ export function CredentialEditButton({ identityId, disabled = false, onEdit }: P
         event.currentTarget.focus()
         onEdit()
       }}
-      title={t('usage_stats.credentials_edit_title')}
-      aria-label={t('usage_stats.credentials_edit_title')}
+      title={tooltipId ? undefined : label}
+      aria-label={label}
+      aria-describedby={tooltipId}
     >
       <IconPencil size={15} />
     </button>
   )
+  return cardTooltip ? <CredentialCardActionTooltip label={label}>{button}</CredentialCardActionTooltip> : button()
 }

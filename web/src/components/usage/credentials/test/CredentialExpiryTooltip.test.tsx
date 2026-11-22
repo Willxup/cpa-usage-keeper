@@ -64,30 +64,33 @@ describe('CredentialsSection expiry tooltip', () => {
     const secondBadge = container.querySelector('[aria-label^="14d;"]') as HTMLSpanElement
     firstBadge.getBoundingClientRect = () => new DOMRect(290, 50, 20, 20)
 
+    // 过期提示通过 portal 直接挂在 body；卡片动作也可能有自己的 tooltip。
+    const expiryTooltips = () => Array.from(document.body.children).filter((element): element is HTMLDivElement =>
+      element instanceof HTMLDivElement && element.getAttribute('role') === 'tooltip' && element.getAttribute('aria-hidden') !== 'true')
     expect(firstBadge.getAttribute('title')).toBeNull()
     await act(async () => firstBadge.focus())
-    let tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])') as HTMLDivElement
+    let tooltip = expiryTooltips()[0]
     expect(tooltip.textContent).toBe('Expires at: 2026-08-01 00:00:00 UTC+08:00')
     expect(tooltip.style.left).toBe('162px')
 
     await act(async () => {
       secondBadge.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
-    expect(document.body.querySelectorAll('[role="tooltip"]:not([aria-hidden="true"])')).toHaveLength(1)
-    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')?.textContent).toContain('2026-08-02')
+    expect(expiryTooltips()).toHaveLength(1)
+    expect(expiryTooltips()[0]?.textContent).toContain('2026-08-02')
 
     await act(async () => {
       secondBadge.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
       await i18n.changeLanguage('zh')
     })
-    tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])') as HTMLDivElement
+    tooltip = expiryTooltips()[0]
     expect(tooltip.textContent).toBe('过期时间：2026-08-01 00:00:00 UTC+08:00')
 
     await renderRows([
       row('auth-a', '13d', '2026-09-01 00:00:00 UTC+08:00'),
       defaultRows[1],
     ])
-    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')?.textContent).toBe(
+    expect(expiryTooltips()[0]?.textContent).toBe(
       '过期时间：2026-09-01 00:00:00 UTC+08:00',
     )
   })

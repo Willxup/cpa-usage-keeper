@@ -8,6 +8,7 @@ import type { CredentialViewProps } from '../credentialViewProps'
 import { CredentialAliasEditor, CredentialEditButton } from '../CredentialAliasEditor'
 import { CredentialHealthPanel } from '../CredentialHealthPanel'
 import { CredentialCardGrid, CredentialCardShell, MetricPill } from './CredentialCardShell'
+import { CredentialCardActionTooltip } from './CredentialCardActionTooltip'
 import { RequestMetric, TonePercent, cacheReadRateTone, formatCredentialNumber, successRateTone } from '../credentialMetrics'
 import { CredentialStatusToggle } from '../CredentialStatusToggle'
 import { useCredentialExpiryTooltip } from '../CredentialBadges'
@@ -67,18 +68,20 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
             quota={<CredentialQuotaPanel variant="compact" row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />}
             actions={(
               <>
-                  {onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} />}
-                  <button
-                    type="button"
-                    className={`${styles.credentialRowRefreshButton} ${styles.credentialCardActionButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
-                    onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
-                    disabled={row.identity.is_deleted || rowRefreshing}
-                    aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
-                    title={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
-                    aria-busy={rowRefreshing}
-                  >
-                    {rowRefreshing ? <LoadingSpinner size={15} /> : <IconRefreshCw size={15} />}
-                  </button>
+                  {onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} cardTooltip />}
+                  <CredentialCardActionTooltip label={t('usage_stats.credentials_quota_refresh_action')}>
+                    {(tooltipId) => <button
+                      type="button"
+                      className={`${styles.credentialRowRefreshButton} ${styles.credentialCardActionButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
+                      onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
+                      disabled={row.identity.is_deleted || rowRefreshing}
+                      aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
+                      aria-describedby={tooltipId}
+                      aria-busy={rowRefreshing}
+                    >
+                      {rowRefreshing ? <LoadingSpinner size={15} /> : <IconRefreshCw size={15} />}
+                    </button>}
+                  </CredentialCardActionTooltip>
                   {resetCredits > 0 && (
                     <QuotaResetAction
                       authIndex={row.identity.identity}

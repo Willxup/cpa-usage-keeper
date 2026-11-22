@@ -64,7 +64,7 @@ export function AiProviderCardsView({ rows, onEdit, onOpenDetails, statusPending
             </>
           )}
           health={<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={row.credentialHealth} lastUsedAt={row.lastUsedText} windowCacheReadRate={row.windowCacheReadRate} />}
-          actions={onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} />}
+          actions={onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} cardTooltip />}
         />
       })}
       </CredentialCardGrid>
