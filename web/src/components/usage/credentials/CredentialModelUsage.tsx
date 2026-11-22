@@ -96,10 +96,9 @@ function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialMo
                   <th scope="col">{t('usage_stats.credentials_models_cost')}</th>
                 </tr></thead>
                 <tbody>{models.map(model => {
-                  const alias = model.model_alias.trim()
-                  const name = alias || model.model || '—'
+                  const name = model.model.trim() || '—'
                   const share = data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'
-                  return <tr key={JSON.stringify([model.model, model.model_alias])} className={styles.modelRow}>
+                  return <tr key={model.model} className={styles.modelRow}>
                     <th scope="row"><ModelName text={name} enabled={enabled && !loading} /></th>
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
                     <td className={styles.tokensCell}>

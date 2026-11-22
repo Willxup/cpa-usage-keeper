@@ -25,7 +25,6 @@ type identityModelsPayload struct {
 	RangeEnd   time.Time `json:"range_end"`
 	Models     []struct {
 		Model                string  `json:"model"`
-		ModelAlias           string  `json:"model_alias"`
 		RequestCount         int64   `json:"request_count"`
 		TotalTokens          int64   `json:"total_tokens"`
 		CostUSD              float64 `json:"cost_usd"`
@@ -74,7 +73,7 @@ func TestUsageIdentityModelsNaturalDayRanges(t *testing.T) {
 			for day := -31; day <= 1; day++ {
 				at := todayNoon.AddDate(0, 0, day)
 				_, bucket := overview.BucketKeysForEvent(entities.UsageEvent{Timestamp: at})
-				rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: bucket.BucketStart, AuthIndex: "auth-1", APIGroupKey: "key", Model: "upstream", ModelAlias: "alias", RequestCount: 1, TotalTokens: 10, CostUSD: &cost, UnavailableCostCount: &available})
+				rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: bucket.BucketStart, AuthIndex: "auth-1", APIGroupKey: "key", Model: "upstream", RequestCount: 1, TotalTokens: 10, CostUSD: &cost, UnavailableCostCount: &available})
 			}
 			if err := db.CreateInBatches(rows, 50).Error; err != nil {
 				t.Fatal(err)
@@ -106,7 +105,7 @@ func TestUsageIdentityModelsNaturalDayRanges(t *testing.T) {
 				if body.IdentityID != "1" || body.Range != wantRange || body.Timezone != tc.zone || body.RangeStart.In(location).Format(time.DateOnly) != wantDate || body.RangeEnd.In(location).Format(time.DateOnly) != wantEnd {
 					t.Fatalf("wrong natural-day boundaries: %+v, want %s to %s", body, wantDate, wantEnd)
 				}
-				if len(body.Models) != 1 || body.Models[0].Model != "upstream" || body.Models[0].ModelAlias != "alias" || body.Models[0].RequestCount != int64(test.days) || body.Models[0].TotalTokens != int64(test.days*10) || body.Summary.RequestCount != int64(test.days) || !body.Summary.CostAvailable || math.Abs(body.Summary.CostUSD-float64(test.days)*0.25) > 1e-12 {
+				if len(body.Models) != 1 || body.Models[0].Model != "upstream" || body.Models[0].RequestCount != int64(test.days) || body.Models[0].TotalTokens != int64(test.days*10) || body.Summary.RequestCount != int64(test.days) || !body.Summary.CostAvailable || math.Abs(body.Summary.CostUSD-float64(test.days)*0.25) > 1e-12 {
 					t.Fatalf("wrong %s snapshot: %+v", test.rangeValue, body)
 				}
 			}
@@ -128,9 +127,9 @@ func TestUsageIdentityModelsPermissionsCostsAndReset(t *testing.T) {
 	day := time.Date(now.In(time.Local).Year(), now.In(time.Local).Month(), now.In(time.Local).Day(), 0, 0, 0, 0, time.Local)
 	price, zero, available, unavailable := 1.75, 0.0, int64(0), int64(1)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-a", Model: "upstream", ModelAlias: "public", RequestCount: 1, TotalTokens: 100, CostUSD: &price, UnavailableCostCount: &available},
-		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-deleted", Model: "upstream", ModelAlias: "public", RequestCount: 1, TotalTokens: 200, CostUSD: &zero, UnavailableCostCount: &unavailable},
-		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-a", Model: "unpriced", ModelAlias: "", RequestCount: 1, TotalTokens: 10, CostUSD: &zero, UnavailableCostCount: &unavailable},
+		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-a", Model: "upstream", RequestCount: 1, TotalTokens: 100, CostUSD: &price, UnavailableCostCount: &available},
+		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-deleted", Model: "upstream", RequestCount: 1, TotalTokens: 200, CostUSD: &zero, UnavailableCostCount: &unavailable},
+		{BucketStart: day, AuthIndex: "provider-one", APIGroupKey: "key-a", Model: "unpriced", RequestCount: 1, TotalTokens: 10, CostUSD: &zero, UnavailableCostCount: &unavailable},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
@@ -193,12 +192,13 @@ func TestUsageIdentityModelsPermissionsCostsAndReset(t *testing.T) {
 		if model.CostAvailable || model.UnavailableCostCount != 1 {
 			t.Fatalf("missing pricing availability: %+v", model)
 		}
-		if model.Model == "upstream" && (model.ModelAlias != "public" || model.RequestCount != 2 || model.TotalTokens != 300 || math.Abs(model.CostUSD-1.75) > 1e-12) {
-			t.Fatalf("partial model fee or alias: %+v", model)
-		}
-		if model.Model == "unpriced" && model.CostUSD != 0 {
-			t.Fatalf("all-unpriced amount: %+v", model)
-		}
+	}
+	unpriced, upstream := before.Models[0], before.Models[1]
+	if upstream.Model != "upstream" || upstream.RequestCount != 2 || upstream.TotalTokens != 300 || math.Abs(upstream.CostUSD-1.75) > 1e-12 {
+		t.Fatalf("cross-key model aggregation: %+v", upstream)
+	}
+	if unpriced.Model != "unpriced" || math.Abs(unpriced.CostUSD) > 1e-12 {
+		t.Fatalf("all-unpriced model: %+v", unpriced)
 	}
 	reset := httptest.NewRequest(http.MethodPost, "/api/v1/usage/identities/1/stats/reset", nil)
 	reset.AddCookie(admin)

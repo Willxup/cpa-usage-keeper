@@ -8,7 +8,7 @@ import type { UsageIdentityModel, UsageIdentityModelsRange, UsageIdentityModelsR
 import { CredentialModelUsage } from '../CredentialModelUsage'
 
 const model = (index: number): UsageIdentityModel => ({
-  model: `upstream-${index}`, model_alias: `alias-${index}`, request_count: 1,
+  model: `upstream-${index}`, request_count: 1,
   input_tokens: 1000, output_tokens: 500, reasoning_tokens: 100,
   cache_read_tokens: 200, cache_creation_tokens: 100, total_tokens: 1500,
   cost_usd: 1, unavailable_cost_count: 0, cost_available: true,
@@ -193,7 +193,7 @@ describe('CredentialModelUsage range transitions', () => {
     await selectRange('30d')
     expect(container.textContent).toContain('Cost statistics are being updated')
     expect(container.querySelector('tbody')).toBeNull()
-    expect(container.textContent).not.toContain('alias-0')
+    expect(container.textContent).not.toContain('upstream-0')
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Retry')!.click())
     expect(onAuthRequired).toHaveBeenCalledTimes(1)
     expect(container.querySelector('tbody')).toBeNull()
@@ -207,7 +207,7 @@ describe('CredentialModelUsage range transitions', () => {
     await selectRange('today')
     expect(onAuthRequired).toHaveBeenCalledTimes(status === 401 ? 1 : 0)
     expect(container.querySelector('tbody')).toBeNull()
-    expect(container.textContent).not.toContain('alias-0')
+    expect(container.textContent).not.toContain('upstream-0')
   })
 
   it('does not retain old data during a startup migration gate', async () => {
@@ -215,7 +215,7 @@ describe('CredentialModelUsage range transitions', () => {
     await render()
     await selectRange('today')
     expect(container.querySelector('tbody')).toBeNull()
-    expect(container.textContent).not.toContain('alias-0')
+    expect(container.textContent).not.toContain('upstream-0')
   })
 
   it('isolates identities and discards delayed results after close', async () => {
@@ -230,7 +230,7 @@ describe('CredentialModelUsage range transitions', () => {
     await render('2', true, onAuthRequired)
     expect(fetchMock.mock.calls[1][1]?.signal?.aborted).toBe(true)
     expect(container.querySelector('tbody')).toBeNull()
-    expect(container.textContent).not.toContain('alias-0')
+    expect(container.textContent).not.toContain('upstream-0')
     await act(async () => next.resolve(json(modelsResponse('7d', 1, '2'))))
     await act(async () => old.resolve(json({ error: 'expired' }, 401)))
     expect(onAuthRequired).not.toHaveBeenCalled()

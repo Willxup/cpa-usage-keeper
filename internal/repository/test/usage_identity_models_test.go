@@ -32,10 +32,10 @@ func TestLoadUsageIdentityModelsUsesOnlyIdentityDailyStats(t *testing.T) {
 	priced, zero := 2.5, 0.0
 	available, missing := int64(0), int64(1)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "active-key", Model: "upstream", ModelAlias: "alias-a", RequestCount: 2, InputTokens: 100, OutputTokens: 50, CacheReadTokens: 20, CacheCreationTokens: 10, ReasoningTokens: 5, TotalTokens: 150, CostUSD: &priced, UnavailableCostCount: &available},
-		{BucketStart: end.AddDate(0, 0, -1), AuthIndex: "auth-one", APIGroupKey: "deleted-key", Model: "upstream", ModelAlias: "alias-a", RequestCount: 1, InputTokens: 40, OutputTokens: 10, CacheReadTokens: 4, CacheCreationTokens: 3, ReasoningTokens: 2, TotalTokens: 50, CostUSD: &zero, UnavailableCostCount: &missing},
-		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "missing-key", Model: "upstream", ModelAlias: "alias-b", RequestCount: 3, TotalTokens: 30, CostUSD: &zero, UnavailableCostCount: &missing},
-		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "active-key", Model: "different", ModelAlias: "alias-a", RequestCount: 4, TotalTokens: 40, CostUSD: &priced, UnavailableCostCount: &available},
+		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "active-key", Model: "upstream", RequestCount: 2, InputTokens: 100, OutputTokens: 50, CacheReadTokens: 20, CacheCreationTokens: 10, ReasoningTokens: 5, TotalTokens: 150, CostUSD: &priced, UnavailableCostCount: &available},
+		{BucketStart: end.AddDate(0, 0, -1), AuthIndex: "auth-one", APIGroupKey: "deleted-key", Model: "upstream", RequestCount: 1, InputTokens: 40, OutputTokens: 10, CacheReadTokens: 4, CacheCreationTokens: 3, ReasoningTokens: 2, TotalTokens: 50, CostUSD: &zero, UnavailableCostCount: &missing},
+		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "missing-key", Model: "upstream", RequestCount: 3, TotalTokens: 30, CostUSD: &zero, UnavailableCostCount: &missing},
+		{BucketStart: start, AuthIndex: "auth-one", APIGroupKey: "active-key", Model: "different", RequestCount: 4, TotalTokens: 40, CostUSD: &priced, UnavailableCostCount: &available},
 		{BucketStart: end, AuthIndex: "auth-one", APIGroupKey: "active-key", Model: "outside", RequestCount: 99, CostUSD: &priced, UnavailableCostCount: &available},
 		{BucketStart: start, AuthIndex: "auth-two", APIGroupKey: "active-key", Model: "other-identity", RequestCount: 9, CostUSD: &priced, UnavailableCostCount: &available},
 		{BucketStart: start, AuthIndex: "", APIGroupKey: "active-key", Model: "unidentified", RequestCount: 9, CostUSD: &priced, UnavailableCostCount: &available},
@@ -51,24 +51,17 @@ func TestLoadUsageIdentityModelsUsesOnlyIdentityDailyStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
+	if len(got) != 2 {
 		t.Fatalf("models = %+v", got)
 	}
-	byPair := make(map[[2]string]repository.UsageIdentityModelUsage)
-	for _, row := range got {
-		byPair[[2]string{row.Model, row.ModelAlias}] = row
+	other, combined := got[0], got[1]
+	if other.Model != "different" || other.RequestCount != 4 {
+		t.Fatalf("different model = %+v", other)
 	}
-	combined := byPair[[2]string{"upstream", "alias-a"}]
-	if combined.RequestCount != 3 || combined.InputTokens != 140 || combined.OutputTokens != 60 || combined.CacheReadTokens != 24 || combined.CacheCreationTokens != 13 || combined.ReasoningTokens != 7 || combined.TotalTokens != 200 || combined.UnavailableCostCount != 1 {
-		t.Fatalf("cross-key aggregation = %+v", combined)
+	if combined.Model != "upstream" || combined.RequestCount != 6 || combined.InputTokens != 140 || combined.OutputTokens != 60 || combined.CacheReadTokens != 24 || combined.CacheCreationTokens != 13 || combined.ReasoningTokens != 7 || combined.TotalTokens != 230 || combined.UnavailableCostCount != 2 {
+		t.Fatalf("cross-key model aggregation = %+v", combined)
 	}
 	assertFloatClose(t, combined.CostUSD, 2.5)
-	if other := byPair[[2]string{"upstream", "alias-b"}]; other.RequestCount != 3 || other.CostUSD != 0 || other.UnavailableCostCount != 1 {
-		t.Fatalf("unpriced alias = %+v", other)
-	}
-	if other := byPair[[2]string{"different", "alias-a"}]; other.RequestCount != 4 {
-		t.Fatalf("model/alias tuple merged: %+v", other)
-	}
 	second, err := repository.LoadUsageIdentityModels(ctx, db, 2, start, end)
 	if err != nil || len(second) != 1 || second[0].Model != "other-identity" {
 		t.Fatalf("same-name identity leaked: %+v, %v", second, err)
@@ -144,8 +137,8 @@ func TestLoadUsageIdentityModelsUsesAuthDateIndexAndBoundedDailyRows(t *testing.
 			key = "target"
 		}
 		for day := 0; day < 35; day++ {
-			for alias := 0; alias < 2; alias++ {
-				rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: start.AddDate(0, 0, day), AuthIndex: key, APIGroupKey: "key", Model: "model", ModelAlias: fmt.Sprint(alias), RequestCount: 1, CostUSD: &cost, UnavailableCostCount: &available})
+			for _, tier := range []string{"default", "priority"} {
+				rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: start.AddDate(0, 0, day), AuthIndex: key, APIGroupKey: "key", Model: "model", ServiceTier: tier, RequestCount: 1, CostUSD: &cost, UnavailableCostCount: &available})
 			}
 		}
 	}
@@ -155,7 +148,7 @@ func TestLoadUsageIdentityModelsUsesAuthDateIndexAndBoundedDailyRows(t *testing.
 	var queries []string
 	capturedDB := db.Session(&gorm.Session{Logger: identityModelsQueryLogger{Interface: db.Logger, queries: &queries}})
 	models, err := repository.LoadUsageIdentityModels(context.Background(), capturedDB, 1, start.AddDate(0, 0, 3), start.AddDate(0, 0, 10))
-	if err != nil || len(models) != 2 || models[0].RequestCount != 7 || models[1].RequestCount != 7 {
+	if err != nil || len(models) != 1 || models[0].RequestCount != 14 {
 		t.Fatalf("bounded models = %+v, error %v", models, err)
 	}
 	var query string
@@ -168,8 +161,9 @@ func TestLoadUsageIdentityModelsUsesAuthDateIndexAndBoundedDailyRows(t *testing.
 			query = statement
 		}
 	}
-	if query == "" || !strings.Contains(strings.ToLower(query), "group by model, model_alias") {
-		t.Fatalf("missing grouped daily SQL: %v", queries)
+	groupedSQL := strings.ToLower(query)
+	if !strings.Contains(groupedSQL, "group by `model` order by model asc") || strings.Contains(groupedSQL, "model_alias") {
+		t.Fatalf("expected daily SQL grouped only by model: %v", queries)
 	}
 	var plan []struct{ Detail string }
 	if err := db.Raw("EXPLAIN QUERY PLAN "+query, "target", start.AddDate(0, 0, 3).Format(time.RFC3339Nano), start.AddDate(0, 0, 10).Format(time.RFC3339Nano)).Scan(&plan).Error; err != nil {

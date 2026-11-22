@@ -12,10 +12,9 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-// UsageIdentityModelUsage 是身份在自然日范围内一个模型与请求别名的已提交汇总。
+// UsageIdentityModelUsage 是身份在自然日范围内一个模型的已提交汇总。
 type UsageIdentityModelUsage struct {
 	Model                string
-	ModelAlias           string
 	RequestCount         int64
 	InputTokens          int64
 	OutputTokens         int64
@@ -29,7 +28,6 @@ type UsageIdentityModelUsage struct {
 
 type usageIdentityModelProjection struct {
 	Model                string
-	ModelAlias           string
 	RequestCount         int64
 	InputTokens          int64
 	OutputTokens         int64
@@ -42,7 +40,7 @@ type usageIdentityModelProjection struct {
 	MissingCostCount     int64
 }
 
-const usageIdentityModelColumns = `model, model_alias,
+const usageIdentityModelColumns = `model,
 	SUM(request_count) AS request_count,
 	SUM(input_tokens) AS input_tokens,
 	SUM(output_tokens) AS output_tokens,
@@ -54,7 +52,7 @@ const usageIdentityModelColumns = `model, model_alias,
 	SUM(unavailable_cost_count) AS unavailable_cost_count,
 	SUM(CASE WHEN cost_usd IS NULL OR unavailable_cost_count IS NULL THEN 1 ELSE 0 END) AS missing_cost_count`
 
-// LoadUsageIdentityModels 在同一只读快照中解析身份并按模型/别名汇总日桶。
+// LoadUsageIdentityModels 在同一只读快照中解析身份并按模型汇总日桶。
 func LoadUsageIdentityModels(ctx context.Context, db *gorm.DB, id int64, start, end time.Time) ([]UsageIdentityModelUsage, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -73,7 +71,7 @@ func LoadUsageIdentityModels(ctx context.Context, db *gorm.DB, id int64, start, 
 		// 仅在日桶中按稳定 auth_index 和自然日过滤；不读取明细或筛选下游 Key。
 		query := tx.Model(&entities.UsageOverviewDailyStat{}).Where("auth_index = ?", authIndex)
 		query = overviewBucketRead(start, end, "daily").query(query).
-			Select(usageIdentityModelColumns).Group("model, model_alias").Order("model ASC, model_alias ASC")
+			Select(usageIdentityModelColumns).Group("model").Order("model ASC")
 		var rows []usageIdentityModelProjection
 		if err := query.Scan(&rows).Error; err != nil {
 			return fmt.Errorf("load usage identity model daily stats: %w", err)
@@ -86,7 +84,7 @@ func LoadUsageIdentityModels(ctx context.Context, db *gorm.DB, id int64, start, 
 				return fmt.Errorf("usage identity model %q has non-finite cost", row.Model)
 			}
 			models = append(models, UsageIdentityModelUsage{
-				Model: row.Model, ModelAlias: row.ModelAlias, RequestCount: row.RequestCount,
+				Model: row.Model, RequestCount: row.RequestCount,
 				InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, ReasoningTokens: row.ReasoningTokens,
 				CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens,
 				TotalTokens: row.TotalTokens, CostUSD: *row.CostUSD, UnavailableCostCount: *row.UnavailableCostCount,

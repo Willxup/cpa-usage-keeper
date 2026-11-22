@@ -585,7 +585,7 @@ describe('CredentialDetailDrawer', () => {
   it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
     const pending = Promise.withResolvers<unknown>()
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
-    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce({ identity_id: 'credential-1', range: '7d', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals }).mockReturnValueOnce(pending.promise)
+    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce({ identity_id: 'credential-1', range: '7d', models: [{ ...totals, model: 'upstream' }], summary: totals }).mockReturnValueOnce(pending.promise)
     await renderDrawer({ selection: credentialSelection })
     const panel = document.body.querySelector<HTMLElement>('[data-credential-model-usage]')!
     const scroller = panel.closest<HTMLElement>('.modal-body')!
@@ -600,7 +600,7 @@ describe('CredentialDetailDrawer', () => {
     await act(async () => panel.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
     expect(scroller.scrollTop).toBe(900)
     expect(panel.querySelector('table')).toBe(table)
-    expect(panel.textContent).toContain('public')
+    expect(panel.querySelector('tbody th')?.textContent).toBe('upstream')
     expect(panel.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
     expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
     expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBe(quota)
@@ -663,7 +663,7 @@ describe('CredentialDetailDrawer', () => {
   it('cancels a pending model range and cleans its tooltip when leaving the Overview tab', async () => {
     const pending = Promise.withResolvers<unknown>()
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
-    const initial = { identity_id: 'provider-1', range: '7d', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals }
+    const initial = { identity_id: 'provider-1', range: '7d', models: [{ ...totals, model: 'upstream' }], summary: totals }
     fetchUsageIdentityModels.mockReset().mockResolvedValueOnce(initial).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(initial)
     await renderDrawer()
     const target = document.body.querySelector<HTMLElement>('[data-token-breakdown]')!
@@ -678,12 +678,12 @@ describe('CredentialDetailDrawer', () => {
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
     expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('provider-1', '7d', expect.any(AbortSignal))
     expect(document.body.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
-    expect(document.body.querySelector('[data-credential-model-usage]')?.textContent).toContain('public')
+    expect(document.body.querySelector('[data-credential-model-usage] tbody th')?.textContent).toBe('upstream')
   })
 
   it('cleans an open model tooltip on close while preserving the drawer animation snapshot', async () => {
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
-    fetchUsageIdentityModels.mockResolvedValue({ identity_id: 'provider-1', models: [{ ...totals, model: 'upstream', model_alias: 'public' }], summary: totals })
+    fetchUsageIdentityModels.mockResolvedValue({ identity_id: 'provider-1', models: [{ ...totals, model: 'upstream' }], summary: totals })
     await renderDrawer()
     await act(async () => document.body.querySelector<HTMLElement>('[data-token-breakdown]')!.focus())
     expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).not.toBeNull()

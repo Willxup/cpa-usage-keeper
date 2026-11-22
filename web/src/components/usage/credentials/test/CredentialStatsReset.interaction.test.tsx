@@ -137,9 +137,9 @@ describe('credential stats reset confirmation', () => {
   ] as const)('shows the same model names in %s for %s details', async (language, kind, heading, column) => {
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 10, cost_usd: 0, unavailable_cost_count: 0, cost_available: true }
     const models = [
-      { ...totals, model_alias: ' public-alias ', model: 'hidden-upstream' },
-      { ...totals, model_alias: '  ', model: 'fallback-upstream', input_tokens: 5, total_tokens: 5 },
-      { ...totals, model_alias: '', model: '', input_tokens: 1, total_tokens: 1 },
+      { ...totals, model: ' upstream-one ' },
+      { ...totals, model: 'upstream-two', input_tokens: 5, total_tokens: 5 },
+      { ...totals, model: '', input_tokens: 1, total_tokens: 1 },
     ]
     vi.mocked(globalThis.fetch).mockImplementation(async input => {
       const url = new URL(String(input), 'http://localhost')
@@ -159,9 +159,8 @@ describe('credential stats reset confirmation', () => {
     expect(panel.querySelector('h3')?.textContent).toBe(heading)
     expect(panel.querySelector('thead th:first-child')?.textContent).toBe(column)
     const names = [...panel.querySelectorAll('tbody th')]
-    expect(names.map(name => name.textContent)).toEqual(['public-alias', 'fallback-upstream', '—'])
+    expect(names.map(name => name.textContent)).toEqual(['upstream-one', 'upstream-two', '—'])
     expect(names.map(name => name.querySelectorAll('[data-model-name]').length)).toEqual([1, 1, 1])
-    expect(panel.textContent).not.toContain('hidden-upstream')
     expect(panel.textContent).not.toContain('→')
   })
 })

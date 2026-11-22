@@ -26,8 +26,7 @@ type usageIdentityModelTotalsResponse struct {
 }
 
 type usageIdentityModelResponse struct {
-	Model      string `json:"model"`
-	ModelAlias string `json:"model_alias"`
+	Model string `json:"model"`
 	usageIdentityModelTotalsResponse
 }
 
@@ -68,7 +67,7 @@ func registerUsageIdentityModelsRoute(router gin.IRoutes, provider service.Usage
 		models := make([]usageIdentityModelResponse, 0, len(result.Models))
 		for _, model := range result.Models {
 			models = append(models, usageIdentityModelResponse{
-				Model: model.Model, ModelAlias: model.ModelAlias,
+				Model: model.Model,
 				usageIdentityModelTotalsResponse: mapUsageIdentityModelTotals(service.UsageIdentityModelTotals{
 					RequestCount: model.RequestCount, InputTokens: model.InputTokens, OutputTokens: model.OutputTokens,
 					ReasoningTokens: model.ReasoningTokens, CacheReadTokens: model.CacheReadTokens,

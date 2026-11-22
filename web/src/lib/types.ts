@@ -408,7 +408,6 @@ export interface UsageIdentityModelTotals {
 
 export interface UsageIdentityModel extends UsageIdentityModelTotals {
   model: string
-  model_alias: string
 }
 
 export interface UsageIdentityModelsResponse {
