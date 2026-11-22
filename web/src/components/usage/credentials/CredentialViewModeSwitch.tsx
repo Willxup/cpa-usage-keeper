@@ -5,7 +5,7 @@ import type { CredentialViewMode } from './credentialListPreferences'
 import type { QuotaUsageMode } from './quota/CredentialQuotaPanel'
 import styles from './CredentialViewControls.module.scss'
 
-function IconChoice({ label, selected, onClick, children }: { label: string; selected: boolean; onClick: () => void; children: ReactNode }) {
+export function IconChoice({ label, selected, onClick, children }: { label: string; selected: boolean; onClick: () => void; children: ReactNode }) {
   const id = useId()
   const pointerFocus = useRef(false)
   const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip()

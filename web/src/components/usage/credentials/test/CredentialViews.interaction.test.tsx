@@ -74,7 +74,7 @@ describe('credential view switching', () => {
     if (kind === 'credentials') {
       expect(container.querySelector('[data-credential-health-variant="full"]')).toBeNull()
       expect(container.querySelector('[data-credential-quota-variant="full"]')).not.toBeNull()
-      const health = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Health'))!
+      const health = container.querySelector<HTMLButtonElement>('button[aria-label="Health"]')!
       await act(async () => health.click())
       expect(container.querySelector('[data-credential-health-variant="full"]')).not.toBeNull()
       expect(localStorage.getItem('cpa.credentials.displayMode')).toBe('health')

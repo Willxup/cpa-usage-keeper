@@ -84,6 +84,27 @@ for (const engine of ['chromium', 'webkit']) {
           const target = touch ? 44 : 24
           assert.ok(geometry.hitAreas.every((rect) => rect.width >= target && rect.height >= target), `${label}: undersized button`)
           if (mode === 'list') {
+            const visual = await page.evaluate(({ layoutName, contentName }) => {
+              const group = (name) => document.querySelector(`[role="group"][aria-label="${name}"]`)
+              const layout = group(layoutName)
+              const content = group(contentName)
+              const style = (element, properties) => properties.map((property) => getComputedStyle(element)[property])
+              const selected = (element) => element.querySelector('[aria-pressed="true"]')
+              return {
+                text: content.textContent,
+                children: [...content.children].map((child) => child.tagName),
+                icons: content.querySelectorAll('button > svg').length,
+                groupStyle: style(content, ['height', 'borderRadius', 'backgroundColor']),
+                layoutStyle: style(layout, ['height', 'borderRadius', 'backgroundColor']),
+                selectedStyle: style(selected(content), ['color', 'backgroundColor', 'borderRadius']),
+                selectedLayoutStyle: style(selected(layout), ['color', 'backgroundColor', 'borderRadius']),
+              }
+            }, { layoutName: language === 'en' ? 'View layout' : '视图布局', contentName: language === 'en' ? 'List side panel' : '列表右侧内容' })
+            assert.equal(visual.text, '', `${label}: list content control must not display option text`)
+            assert.deepEqual(visual.children, ['BUTTON', 'BUTTON'], `${label}: list content control must not contain a thumb`)
+            assert.equal(visual.icons, 2, `${label}: both content options need icons`)
+            assert.deepEqual(visual.groupStyle, visual.layoutStyle, `${label}: list content group should match layout control`)
+            assert.deepEqual(visual.selectedStyle, visual.selectedLayoutStyle, `${label}: selected content should match layout control`)
             const next = page.getByRole('button', { name: language === 'en' ? 'Next' : '下一页', exact: true })
             await next.focus()
             await page.waitForFunction((button) => {
