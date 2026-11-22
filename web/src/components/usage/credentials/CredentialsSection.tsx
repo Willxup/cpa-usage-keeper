@@ -14,6 +14,7 @@ import { CredentialCardsView } from './cards/CredentialCardsView'
 import { CredentialListView } from './list/CredentialListView'
 import { CredentialListContentModeSwitch } from './list/CredentialListContentModeSwitch'
 import { CredentialViewModeSwitch, QuotaUsageModeSwitch } from './CredentialViewModeSwitch'
+import { CredentialViewHelp } from './CredentialViewHelp'
 import { persistCredentialListContentMode, readCredentialListContentMode, type CredentialListContentMode, type CredentialViewMode } from './credentialListPreferences'
 import type { QuotaUsageMode } from './quota/CredentialQuotaPanel'
 import { isRowRefreshing } from './quota/credentialQuotaCapabilities'
@@ -81,6 +82,13 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         title={t('usage_stats.credentials_title')}
         viewMode={viewMode}
         contentClassName={viewMode === 'cards' ? cardStyles.cardContent : listStyles.listContent}
+        titleHelp={(
+          <CredentialViewHelp
+            mode={viewMode}
+            label={t('usage_stats.credentials_view_help_label')}
+            cardDescription={t('usage_stats.credentials_subtitle')}
+          />
+        )}
         titleExtra={(
           <div className={styles.credentialsTitleControls}>
             <div className={styles.credentialFilterGroup}><label className={styles.credentialActiveOnlySwitch}>
