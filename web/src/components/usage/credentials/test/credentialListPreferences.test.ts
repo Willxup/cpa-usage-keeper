@@ -5,6 +5,8 @@ import {
   loadCredentialListPreferences,
   normalizeCredentialListPreferences,
   persistCredentialListPreferences,
+  readCredentialListContentMode,
+  persistCredentialListContentMode,
 } from '../credentialListPreferences'
 
 const createStorage = (value: string | null = null) => ({
@@ -19,11 +21,13 @@ const storedValue = (storage: ReturnType<typeof createStorage>) => (
 describe('credential list preferences', () => {
   it('keeps each section on its own default sort', () => {
     expect(defaultCredentialListPreferences('credentials')).toEqual({
+      viewMode: 'cards',
       sort: 'priority',
       pageSize: 10,
       providerFilter: 'all',
     })
     expect(defaultCredentialListPreferences('ai-provider')).toEqual({
+      viewMode: 'cards',
       sort: 'total_requests',
       pageSize: 10,
       providerFilter: 'all',
@@ -39,6 +43,7 @@ describe('credential list preferences', () => {
     }))
 
     expect(loadCredentialListPreferences('ai-provider', storage)).toEqual({
+      viewMode: 'cards',
       sort: 'last_used_at',
       pageSize: 50,
       providerFilter: 'codex',
@@ -53,6 +58,7 @@ describe('credential list preferences', () => {
       pageSize: 1000,
       providerFilter: 'not-a-provider',
     })).toEqual({
+      viewMode: 'cards',
       sort: 'priority',
       pageSize: 10,
       providerFilter: 'all',
@@ -109,6 +115,7 @@ describe('credential list preferences', () => {
     )
     expect(storedValue(storage)).toEqual({
       version: 1,
+      viewMode: 'cards',
       sort: 'total_tokens',
       pageSize: 20,
       providerFilter: 'claude',
@@ -125,10 +132,28 @@ describe('credential list preferences', () => {
 
     expect(storedValue(storage)).toEqual({
       version: 1,
+      viewMode: 'cards',
       sort: 'total_requests',
       pageSize: 10,
       providerFilter: 'all',
     })
+  })
+
+  it('preserves v1 selections for missing and invalid layout fields', () => {
+    const existing = { version: 1, sort: 'last_used_at', pageSize: 50, providerFilter: 'claude' }
+    const expected = { sort: 'last_used_at', pageSize: 50, providerFilter: 'claude', viewMode: 'cards' }
+    expect(normalizeCredentialListPreferences('credentials', existing)).toEqual(expected)
+    expect(normalizeCredentialListPreferences('credentials', { ...existing, viewMode: 'invalid' })).toEqual(expected)
+    expect(normalizeCredentialListPreferences('credentials', { ...existing, viewMode: 'list' })).toEqual({ ...expected, viewMode: 'list' })
+  })
+
+  it('keeps historical list content mode separate from layout mode', () => {
+    const storage = createStorage('health')
+    expect(readCredentialListContentMode(storage)).toBe('health')
+    persistCredentialListContentMode('quota', storage)
+    expect(storage.setItem).toHaveBeenCalledWith('cpa.credentials.displayMode', 'quota')
+    expect(readCredentialListContentMode(createStorage('list'))).toBe('quota')
+    expect(readCredentialListContentMode({ getItem: () => { throw Error('blocked') }, setItem: vi.fn() })).toBe('quota')
   })
 
   it('reports a failed write without throwing', () => {

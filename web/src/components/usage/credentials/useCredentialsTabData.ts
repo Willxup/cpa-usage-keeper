@@ -16,6 +16,7 @@ import { type CredentialStatusKind, type UsageIdentityPageSort } from '@/lib/api
 import type { UsageIdentity, UsageIdentityTypeCount, UsageQuotaInspectionStatusResponse, UsageQuotaResetResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
 import type { CredentialProviderFilterKey } from './credentialProviderFilters'
+import type { CredentialViewMode } from './credentialListPreferences'
 
 type CredentialQuotaState = Pick<CredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>
 
@@ -46,6 +47,10 @@ export interface CredentialsTabData {
   aiProviderProviderFilter: CredentialProviderFilterKey
   credentialSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
+  credentialViewMode: CredentialViewMode
+  aiProviderViewMode: CredentialViewMode
+  setCredentialViewMode: (mode: CredentialViewMode) => void
+  setAiProviderViewMode: (mode: CredentialViewMode) => void
   setCredentialPage: (page: number) => void
   setAiProviderPage: (page: number) => void
   setCredentialPageSize: (pageSize: number) => void
@@ -161,6 +166,10 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
     aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
     credentialSort: credentialPages.credentialSort,
     aiProviderSort: credentialPages.aiProviderSort,
+    credentialViewMode: credentialPages.credentialViewMode,
+    aiProviderViewMode: credentialPages.aiProviderViewMode,
+    setCredentialViewMode: credentialPages.setCredentialViewMode,
+    setAiProviderViewMode: credentialPages.setAiProviderViewMode,
     setCredentialPage: credentialPages.setCredentialPage,
     setAiProviderPage: credentialPages.setAiProviderPage,
     setCredentialPageSize: credentialPages.setCredentialPageSize,

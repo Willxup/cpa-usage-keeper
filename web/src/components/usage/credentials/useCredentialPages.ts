@@ -3,7 +3,7 @@ import { ApiError, fetchUsageIdentitiesPage, resetUsageIdentityStats, type Usage
 import type { UsageIdentity, UsageIdentityTypeCount } from '@/lib/types'
 import { stripAppBasePath } from '@/lib/usageNavigation'
 import { credentialProviderFilterTypes, resolveCredentialProviderFilterFromSearch, type CredentialProviderFilterKey } from './credentialProviderFilters'
-import { loadCredentialListPreferences, persistCredentialListPreferences } from './credentialListPreferences'
+import { loadCredentialListPreferences, persistCredentialListPreferences, type CredentialViewMode } from './credentialListPreferences'
 
 interface UseCredentialPagesOptions {
   enabledCredentials: boolean
@@ -68,6 +68,10 @@ export interface CredentialPagesState {
   aiProviderProviderFilter: CredentialProviderFilterKey
   credentialSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
+  credentialViewMode: CredentialViewMode
+  aiProviderViewMode: CredentialViewMode
+  setCredentialViewMode: (mode: CredentialViewMode) => void
+  setAiProviderViewMode: (mode: CredentialViewMode) => void
   setCredentialPage: (page: number) => void
   setAiProviderPage: (page: number) => void
   setCredentialPageSize: (pageSize: number) => void
@@ -108,10 +112,21 @@ export function useCredentialPages({ enabledCredentials, enabledAiProviders, onA
   const [aiProviderProviderFilter, setAiProviderProviderFilterState] = useState<CredentialProviderFilterKey>(initialListPreferences.aiProvider.providerFilter)
   const [credentialSort, setCredentialSortState] = useState<UsageIdentityPageSort>(initialListPreferences.credential.sort)
   const [aiProviderSort, setAiProviderSortState] = useState<UsageIdentityPageSort>(initialListPreferences.aiProvider.sort)
+  const [credentialViewMode, setCredentialViewModeState] = useState(initialListPreferences.credential.viewMode)
+  const [aiProviderViewMode, setAiProviderViewModeState] = useState(initialListPreferences.aiProvider.viewMode)
   const [credentialsLoading, setCredentialsLoading] = useState(false)
   const [aiProvidersLoading, setAiProvidersLoading] = useState(false)
   const credentialsRequestControllerRef = useRef<AbortController | null>(null)
   const aiProvidersRequestControllerRef = useRef<AbortController | null>(null)
+
+  const setCredentialViewMode = useCallback((viewMode: CredentialViewMode) => {
+    setCredentialViewModeState(viewMode)
+    persistCredentialListPreferences('credentials', { viewMode })
+  }, [])
+  const setAiProviderViewMode = useCallback((viewMode: CredentialViewMode) => {
+    setAiProviderViewModeState(viewMode)
+    persistCredentialListPreferences('ai-provider', { viewMode })
+  }, [])
 
   const setCredentialPageSize = useCallback((pageSize: number) => {
     setCredentialPage(1)
@@ -336,6 +351,10 @@ export function useCredentialPages({ enabledCredentials, enabledAiProviders, onA
     aiProviderProviderFilter,
     credentialSort,
     aiProviderSort,
+    credentialViewMode,
+    aiProviderViewMode,
+    setCredentialViewMode,
+    setAiProviderViewMode,
     setCredentialPage,
     setAiProviderPage,
     setCredentialPageSize,
