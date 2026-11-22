@@ -2004,7 +2004,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
       <div className={styles.credentialQuotaBarHeader}>
         <span className={`${styles.credentialQuotaLabelGroup} ${quota.usageBreakdown?.length ? styles.credentialQuotaLabelWithInfo : ''}`.trim()}>
           <span>{quota.label}</span>
-          {Boolean(quota.usageBreakdown?.length) && <QuotaUsageBreakdownInfo quota={quota} />}
+          {Boolean(quota.usageBreakdown?.length) && <QuotaUsageBreakdownInfo quota={quota} enabled={tooltipEnabled} />}
         </span>
         {(resetDuration || percentLabel) && (
           <span className={styles.credentialQuotaValueGroup}>
@@ -2097,7 +2097,7 @@ function QuotaResetCountdown({ duration, resetLabel, enabled = true }: { duratio
   </>
 }
 
-function QuotaUsageBreakdownInfo({ quota }: { quota: DisplayQuota }) {
+function QuotaUsageBreakdownInfo({ quota, enabled = true }: { quota: DisplayQuota; enabled?: boolean }) {
   const { t } = useTranslation()
   const tooltipId = useId()
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -2113,20 +2113,27 @@ function QuotaUsageBreakdownInfo({ quota }: { quota: DisplayQuota }) {
   ]
 
   useEffect(() => {
-    if (!tooltip) return
+    if (!enabled) dismiss()
+  }, [enabled, dismiss])
+
+  useEffect(() => {
+    if (!enabled || !tooltip) return
     const closeOutside = (event: PointerEvent) => {
       if (!anchorRef.current?.contains(event.target as Node)) dismiss()
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') dismiss()
+      if (event.key === 'Escape' && dismiss()) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
     }
     document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('keydown', closeOnEscape, true)
     return () => {
       document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('keydown', closeOnEscape, true)
     }
-  }, [tooltip, dismiss])
+  }, [enabled, tooltip, dismiss])
 
   return <>
     <button
@@ -2134,17 +2141,17 @@ function QuotaUsageBreakdownInfo({ quota }: { quota: DisplayQuota }) {
       type="button"
       className={styles.credentialQuotaInfoButton}
       aria-label={t('usage_stats.credentials_quota_shared_usage')}
-      aria-describedby={tooltip ? tooltipId : undefined}
-      onMouseEnter={(event) => showOnMouseEnter(lines, event.currentTarget)}
+      aria-describedby={enabled && tooltip ? tooltipId : undefined}
+      onMouseEnter={(event) => { if (enabled) showOnMouseEnter(lines, event.currentTarget) }}
       onMouseLeave={(event) => hideOnMouseLeave(event.currentTarget)}
-      onFocus={(event) => showOnFocus(lines, event.currentTarget)}
+      onFocus={(event) => { if (enabled) showOnFocus(lines, event.currentTarget) }}
       onBlur={(event) => hideOnBlur(event.currentTarget)}
-      onClick={(event) => showOnFocus(lines, event.currentTarget)}
+      onClick={(event) => { if (enabled) showOnFocus(lines, event.currentTarget) }}
     >
       <IconInfo width="1em" height="1em" />
     </button>
     {/* 保留浮层位置，文本始终来自当前缓存快照，避免后台刷新后仍显示旧用量。 */}
-    <PortalTooltip tooltip={tooltip ? { ...tooltip, lines } : null} id={tooltipId} />
+    <PortalTooltip tooltip={enabled && tooltip ? { ...tooltip, lines } : null} id={tooltipId} />
   </>
 }
 

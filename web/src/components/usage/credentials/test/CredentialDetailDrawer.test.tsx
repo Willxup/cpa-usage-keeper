@@ -582,6 +582,33 @@ describe('CredentialDetailDrawer', () => {
     expect(document.getElementById(thirdId)).toBeNull()
   })
 
+  it('closes the shared quota breakdown tooltip on Escape without closing the drawer and clears it on close', async () => {
+    const quota = {
+      key: 'billing.weekly', label: 'Weekly', scope: 'billing', percent: 16, barPercent: 84, percentKind: 'used' as const, status: 'ok' as const,
+      usageBreakdown: [{ product: 'GrokBuild', usedPercent: 14 }, { product: 'GrokChat', usedPercent: 2 }],
+    }
+    const onClose = vi.fn()
+    const selection: CredentialDetailSelection = { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } }
+    await renderDrawer({ onClose, selection })
+    const infoButton = document.querySelector<HTMLButtonElement>('[data-credential-overview-section="quota"] [data-quota-key] button')!
+    const tooltip = () => document.getElementById(infoButton.getAttribute('aria-describedby') ?? '')
+
+    await act(async () => infoButton.focus())
+    expect(tooltip()?.textContent).toContain('GrokBuild: 14%')
+    await act(async () => infoButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(tooltip()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => infoButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(onClose).toHaveBeenCalledOnce()
+
+    await act(async () => infoButton.click())
+    const openedId = infoButton.getAttribute('aria-describedby')!
+    expect(document.getElementById(openedId)).not.toBeNull()
+    await renderDrawer({ onClose, selection, open: false })
+    expect(document.getElementById(openedId)).toBeNull()
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).not.toBeNull()
+  })
+
   it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
     const pending = Promise.withResolvers<unknown>()
     const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
