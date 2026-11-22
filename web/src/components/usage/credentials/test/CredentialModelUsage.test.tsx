@@ -25,6 +25,13 @@ function pointer(target: Element, type: string, pointerType: string) {
   target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType }))
 }
 
+function setNameWidths(target: Element, scrollWidth: number, clientWidth: number) {
+  Object.defineProperties(target, {
+    scrollWidth: { configurable: true, value: scrollWidth },
+    clientWidth: { configurable: true, value: clientWidth },
+  })
+}
+
 describe('CredentialModelUsage', () => {
   let container: HTMLDivElement
   let root: Root
@@ -45,6 +52,7 @@ describe('CredentialModelUsage', () => {
     await act(async () => root.unmount())
     container.remove()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     await i18n.changeLanguage('en')
     expect(unexpectedRequests).toEqual([])
   })
@@ -311,6 +319,97 @@ describe('CredentialModelUsage', () => {
     await act(async () => root.unmount())
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     root = createRoot(container)
+  })
+
+  it('only exposes overflowing names and supports mouse, keyboard, touch and resize dismissal', async () => {
+    const observers = new Map<Element, () => void>()
+    class TestResizeObserver {
+      private target: Element | null = null
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.target = target
+        observers.set(target, () => this.callback([], this as unknown as ResizeObserver))
+      }
+      disconnect() { if (this.target) observers.delete(this.target) }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    const alias = 'a-very-long-public-model-alias'
+    const upstream = 'an-even-longer-upstream-model-identifier'
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response({ models: [model({ model_alias: alias, model: upstream }), model({ model_alias: 'short', model: 'short' })] })))
+    await render()
+    const rows = [...container.querySelectorAll('tbody tr')]
+    const primary = rows[0].querySelector<HTMLElement>('[data-model-name="model"]')!
+    const upstreamName = rows[0].querySelector<HTMLElement>('[data-model-name="upstream"]')!
+    const short = rows[1].querySelector<HTMLElement>('[data-model-name="model"]')!
+    expect(short.getAttribute('tabindex')).toBeNull()
+    await act(async () => pointer(short, 'pointerover', 'mouse'))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    setNameWidths(primary, 300, 100)
+    setNameWidths(upstreamName, 400, 100)
+    await act(async () => { observers.get(primary)?.(); observers.get(upstreamName)?.() })
+    expect(primary.getAttribute('tabindex')).toBe('0')
+    expect(upstreamName.getAttribute('tabindex')).toBe('0')
+    await act(async () => pointer(primary, 'pointerover', 'mouse'))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(alias)
+    await act(async () => { pointer(primary, 'pointerdown', 'mouse'); primary.focus(); primary.click(); pointer(primary, 'pointerout', 'mouse') })
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    await act(async () => { primary.blur(); primary.focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(alias)
+    const bubble = vi.fn()
+    document.addEventListener('keydown', bubble)
+    await act(async () => primary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    document.removeEventListener('keydown', bubble)
+    expect(bubble).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    await act(async () => { primary.blur(); pointer(primary, 'pointerdown', 'touch'); primary.focus(); primary.click() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(alias)
+    await act(async () => { pointer(primary, 'pointerdown', 'touch'); primary.click() })
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    await act(async () => { pointer(primary, 'pointerdown', 'touch'); primary.click() })
+    await act(async () => pointer(document.body, 'pointerdown', 'touch'))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    await act(async () => { primary.blur(); upstreamName.focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(upstream)
+    setNameWidths(upstreamName, 80, 100)
+    await act(async () => observers.get(upstreamName)?.())
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(upstreamName.getAttribute('tabindex')).toBeNull()
+    setNameWidths(primary, 80, 100)
+    await act(async () => window.dispatchEvent(new Event('resize')))
+    expect(primary.getAttribute('tabindex')).toBeNull()
+  })
+
+  it('cleans name tooltips while ranges load, on disable and across identities', async () => {
+    const pending = Promise.withResolvers<Response>()
+    const data = response({ models: [model({ model_alias: 'long-alias', model: 'long-upstream' })] })
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(data)).mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(json({ ...data, range: 'today' })).mockResolvedValueOnce(json({ ...data, identity_id: '2' }))
+    await render()
+    const name = () => container.querySelector<HTMLElement>('[data-model-name="model"]')!
+    setNameWidths(name(), 300, 100)
+    await act(async () => window.dispatchEvent(new Event('resize')))
+    await act(async () => name().focus())
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('long-alias')
+    await selectRange('today')
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(name().getAttribute('tabindex')).toBeNull()
+    await act(async () => pending.resolve(json({ ...data, range: 'today' })))
+    await act(async () => { window.dispatchEvent(new Event('resize')); name().blur(); name().focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('long-alias')
+    await act(async () => root.render(<CredentialModelUsage identityId="1" kind="ai-provider" enabled={false} />))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(name().getAttribute('tabindex')).toBeNull()
+    await render()
+    await act(async () => { window.dispatchEvent(new Event('resize')); name().blur(); name().focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('long-alias')
+    const old = name()
+    await render('2')
+    expect(old.isConnected).toBe(false)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
   })
 
   it.each(['zh', 'zh-TW'] as const)('renders translated empty and range controls in %s', async language => {

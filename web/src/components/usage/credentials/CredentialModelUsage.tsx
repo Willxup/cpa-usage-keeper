@@ -101,7 +101,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                   const name = alias || model.model || '—'
                   const share = data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'
                   return <tr key={JSON.stringify([model.model, model.model_alias])} className={styles.modelRow}>
-                    <th scope="row"><strong>{name}</strong>{kind === 'ai-provider' && alias && model.model && alias !== model.model ? <span className={styles.upstream}>→ {model.model}</span> : null}</th>
+                    <th scope="row"><ModelName text={name} kind="model" enabled={enabled && !loading} />{kind === 'ai-provider' && alias && model.model && alias !== model.model ? <ModelName text={model.model} kind="upstream" enabled={enabled && !loading} /> : null}</th>
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
                     <td className={styles.tokensCell}>
                       <div className={styles.tokenComposition}>
@@ -130,6 +130,66 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
             </> : null}
     </section>
   )
+}
+
+function ModelName({ text, kind, enabled }: { text: string; kind: 'model' | 'upstream'; enabled: boolean }) {
+  const anchor = useRef<HTMLElement>(null)
+  const pointerType = useRef<string | null>(null)
+  const [overflowing, setOverflowing] = useState(false)
+  const id = `model-name-${useId()}`
+  const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip({ trackAnchor: true })
+  const interactive = enabled && overflowing
+  const measureOverflow = useCallback(() => {
+    const node = anchor.current
+    if (!node) return
+    const next = enabled && node.scrollWidth > node.clientWidth
+    if (!next) dismiss()
+    setOverflowing(current => current === next ? current : next)
+  }, [dismiss, enabled])
+
+  useLayoutEffect(() => {
+    const node = anchor.current
+    if (!node) return
+    const frame = window.requestAnimationFrame(measureOverflow)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureOverflow)
+    observer?.observe(node)
+    window.addEventListener('resize', measureOverflow)
+    document.fonts?.addEventListener('loadingdone', measureOverflow)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', measureOverflow)
+      document.fonts?.removeEventListener('loadingdone', measureOverflow)
+    }
+  }, [measureOverflow, text])
+  useEffect(() => {
+    if (!enabled) dismiss()
+  }, [enabled, dismiss])
+  useEffect(() => {
+    if (!interactive || !tooltip) return
+    const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node)) dismiss() }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && dismiss()) { event.preventDefault(); event.stopPropagation() }
+    }
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('keydown', escape, true)
+    return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true) }
+  }, [interactive, tooltip, dismiss])
+
+  const Tag = kind === 'model' ? 'strong' : 'span'
+  return <>
+    <Tag ref={anchor} className={kind === 'model' ? styles.modelName : styles.upstream} data-model-name={kind}
+      tabIndex={interactive ? 0 : undefined} aria-describedby={interactive && tooltip ? id : undefined}
+      onPointerDown={event => { pointerType.current = event.pointerType }}
+      onPointerEnter={event => { if (interactive && event.pointerType !== 'touch') showOnMouseEnter([text], event.currentTarget) }}
+      onPointerLeave={event => { if (event.pointerType !== 'touch') hideOnMouseLeave(event.currentTarget) }}
+      onFocus={event => { if (interactive && !pointerType.current) showOnFocus([text], event.currentTarget) }}
+      onBlur={event => { pointerType.current = null; hideOnBlur(event.currentTarget) }}
+      onClick={event => { if (interactive && (pointerType.current === 'touch' || pointerType.current === 'pen')) { if (tooltip) dismiss(); else showOnFocus([text], event.currentTarget) } }}>
+      {kind === 'upstream' ? '→ ' : null}{text}
+    </Tag>
+    <PortalTooltip id={id} tooltip={interactive ? tooltip : null} />
+  </>
 }
 
 function ModelCacheRate({ totals }: { totals: UsageIdentityModelTotals }) {
