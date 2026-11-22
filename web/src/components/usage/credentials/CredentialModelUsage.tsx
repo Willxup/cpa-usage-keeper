@@ -12,11 +12,11 @@ import styles from './CredentialModelUsage.module.scss'
 
 const RANGES: UsageIdentityModelsRange[] = ['today', '7d', '30d']
 const TOKEN_PARTS = [
-  { key: 'input', label: 'usage_stats.credentials_models_input', color: USAGE_CHART_TOKEN_COLORS.input.base },
-  { key: 'cacheRead', label: 'usage_stats.credentials_models_cache_read', color: USAGE_CHART_TOKEN_COLORS.cacheRead.base },
-  { key: 'cacheCreation', label: 'usage_stats.credentials_models_cache_write', color: USAGE_CHART_TOKEN_COLORS.cacheWrite.base },
-  { key: 'output', label: 'usage_stats.credentials_models_output', color: USAGE_CHART_TOKEN_COLORS.output.base },
-  { key: 'reasoning', label: 'usage_stats.credentials_models_reasoning', color: USAGE_CHART_TOKEN_COLORS.reasoning.base },
+  { key: 'input', label: 'usage_stats.credentials_models_input', tooltipLabel: 'usage_stats.input_tokens', rawField: 'input_tokens', color: USAGE_CHART_TOKEN_COLORS.input.base },
+  { key: 'cacheRead', label: 'usage_stats.credentials_models_cache_read', tooltipLabel: 'usage_stats.cache_read_tokens', rawField: 'cache_read_tokens', color: USAGE_CHART_TOKEN_COLORS.cacheRead.base },
+  { key: 'cacheCreation', label: 'usage_stats.credentials_models_cache_write', tooltipLabel: 'usage_stats.cache_creation_tokens', rawField: 'cache_creation_tokens', color: USAGE_CHART_TOKEN_COLORS.cacheWrite.base },
+  { key: 'output', label: 'usage_stats.credentials_models_output', tooltipLabel: 'usage_stats.output_tokens', rawField: 'output_tokens', color: USAGE_CHART_TOKEN_COLORS.output.base },
+  { key: 'reasoning', label: 'usage_stats.credentials_models_reasoning', tooltipLabel: 'usage_stats.reasoning_tokens', rawField: 'reasoning_tokens', color: USAGE_CHART_TOKEN_COLORS.reasoning.base },
 ] as const
 
 interface CredentialModelUsageProps {
@@ -214,14 +214,10 @@ function TokenBreakdown({ model, name, enabled }: { model: UsageIdentityModelTot
   const pointerType = useRef<string | null>(null)
   const { tooltip, showOnMouseEnter, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip({ trackAnchor: true })
   const isOpen = tooltip !== null
-  const lines = [name,
-    `${t('usage_stats.total_tokens')}: ${formatCompactTokenValue(model.total_tokens)}`,
-    `${t('usage_stats.input_tokens')}: ${formatCompactTokenValue(model.input_tokens)}`,
-    `${t('usage_stats.cache_read_tokens')}: ${formatCompactTokenValue(model.cache_read_tokens)}`,
-    `${t('usage_stats.cache_creation_tokens')}: ${formatCompactTokenValue(model.cache_creation_tokens)}`,
-    `${t('usage_stats.output_tokens')}: ${formatCompactTokenValue(model.output_tokens)}`,
-    `${t('usage_stats.reasoning_tokens')}: ${formatCompactTokenValue(model.reasoning_tokens)}`,
-  ]
+  const totalLabel = t('usage_stats.total_tokens')
+  const totalValue = formatCompactTokenValue(model.total_tokens)
+  const parts = TOKEN_PARTS.map(part => ({ ...part, tooltipText: t(part.tooltipLabel), rawValue: formatCompactTokenValue(model[part.rawField]) }))
+  const lines = [name, `${totalLabel}: ${totalValue}`, ...parts.map(part => `${part.tooltipText}: ${part.rawValue}`)]
   const values = {
     input: calculateDisplayInputTokens({ inputTokens: model.input_tokens, cacheReadTokens: model.cache_read_tokens, cacheCreationTokens: model.cache_creation_tokens }),
     cacheRead: model.cache_read_tokens,
@@ -256,6 +252,15 @@ function TokenBreakdown({ model, name, enabled }: { model: UsageIdentityModelTot
         {TOKEN_PARTS.map(part => <span key={part.key} data-token-part={part.key} data-token-value={values[part.key]} style={{ width: `${model.total_tokens > 0 ? values[part.key] / model.total_tokens * 100 : 0}%`, background: part.color }} />)}
       </div>
     </div>
-    <PortalTooltip id={id} tooltip={enabled && tooltip ? { ...tooltip, lines } : null} />
+    <PortalTooltip id={id} tooltip={enabled && tooltip ? { ...tooltip, lines } : null}>
+      <div className={styles.tokenTooltip}>
+        <strong className={styles.tokenTooltipTitle}>{name}</strong>
+        <div className={styles.tokenTooltipRow}><span aria-hidden="true" /><span>{totalLabel}: </span><span>{totalValue}</span></div>
+        {parts.map(part => <div key={part.key} className={styles.tokenTooltipRow}>
+          <i className={styles.tokenTooltipDot} data-token-tooltip-part={part.key} aria-hidden="true" style={{ background: part.color }} />
+          <span>{part.tooltipText}: </span><span>{part.rawValue}</span>
+        </div>)}
+      </div>
+    </PortalTooltip>
   </>
 }

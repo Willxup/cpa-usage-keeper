@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import type { UsageIdentityModel, UsageIdentityModelsRange, UsageIdentityModelsResponse } from '@/lib/types'
+import { USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig'
 import { CredentialModelUsage } from '../CredentialModelUsage'
 import credentialStyles from '../CredentialSections.module.scss'
 
@@ -29,6 +30,25 @@ function setNameWidths(target: Element, scrollWidth: number, clientWidth: number
   Object.defineProperties(target, {
     scrollWidth: { configurable: true, value: scrollWidth },
     clientWidth: { configurable: true, value: clientWidth },
+  })
+}
+
+function expectTokenTooltipColors(tooltip: Element) {
+  const parts = [
+    ['input', USAGE_CHART_TOKEN_COLORS.input.base],
+    ['cacheRead', USAGE_CHART_TOKEN_COLORS.cacheRead.base],
+    ['cacheCreation', USAGE_CHART_TOKEN_COLORS.cacheWrite.base],
+    ['output', USAGE_CHART_TOKEN_COLORS.output.base],
+    ['reasoning', USAGE_CHART_TOKEN_COLORS.reasoning.base],
+  ] as const
+  const dots = [...tooltip.querySelectorAll<HTMLElement>('[data-token-tooltip-part]')]
+  expect(dots).toHaveLength(parts.length)
+  parts.forEach(([key, color], index) => {
+    const reference = document.createElement('i')
+    reference.style.background = color
+    expect(dots[index].dataset.tokenTooltipPart).toBe(key)
+    expect(dots[index].style.background).toBe(reference.style.background)
+    expect(dots[index].getAttribute('aria-hidden')).toBe('true')
   })
 }
 
@@ -138,8 +158,13 @@ describe('CredentialModelUsage', () => {
     await act(async () => target().focus())
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Range total')
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Cache Read: 200')
+    expect(document.body.querySelector('[role="tooltip"] strong')?.textContent).toBe('Range total')
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Input: 2.00K')
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Output: 2.00K')
+    expectTokenTooltipColors(document.body.querySelector('[role="tooltip"]')!)
     await act(async () => i18n.changeLanguage('zh'))
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('时段合计')
+    expect(document.body.querySelector('[role="tooltip"] strong')?.textContent).toBe('时段合计')
+    expectTokenTooltipColors(document.body.querySelector('[role="tooltip"]')!)
     await selectRange('today')
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     expect(target().tabIndex).toBe(-1)
@@ -275,6 +300,8 @@ describe('CredentialModelUsage', () => {
     await act(async () => pointer(target, 'pointerover', 'mouse'))
     expect(document.body.querySelector('[role="tooltip"]')?.parentElement).toBe(document.body)
     const tooltip = document.body.querySelector('[role="tooltip"]')!
+    expect(tooltip.querySelector('strong')?.textContent).toBe('public')
+    expectTokenTooltipColors(tooltip)
     expect(tooltip.textContent).toContain('Total Tokens: 3.00K')
     expect(tooltip.textContent).toContain('Input: 1.00K')
     expect(tooltip.textContent).toContain('Cache Read: 200')
