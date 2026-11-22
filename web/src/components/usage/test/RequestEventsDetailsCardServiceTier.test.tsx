@@ -2,7 +2,6 @@
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { RequestEventsTestCard } from './requestEventsFixtures';
 import i18n from '@/i18n';
@@ -25,7 +24,6 @@ const baseEvent: UsageEvent = {
 const renderCardElement = (events: UsageEvent[]) => (
   <RequestEventsTestCard events={events} visibleColumnIds={['service_tier']} />
 );
-const renderCard = (events: UsageEvent[]) => renderToStaticMarkup(renderCardElement(events));
 
 const mountCard = async (events: UsageEvent[]) => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,12 +39,6 @@ const mountCard = async (events: UsageEvent[]) => {
       container.remove();
     },
   };
-};
-
-const cellText = (html: string) => {
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  return Array.from(container.querySelectorAll('tbody td'), (cell) => cell.textContent);
 };
 
 describe('RequestEventsDetailsCard service tier column', () => {
@@ -70,11 +62,11 @@ describe('RequestEventsDetailsCard service tier column', () => {
         await act(async () => {
           cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: 120, clientY: 80 }));
         });
-        const tooltipText = document.body.querySelector('[role="tooltip"]')!.textContent!;
+        const tooltipText = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')!.textContent!;
         expect(tooltipText.replace(/\s+/g, '')).toBe(lines.join('').replace(/\s+/g, ''));
         expect(cell.getAttribute('aria-label')).toBe(lines.join('; '));
         await act(async () => cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
-        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+        expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull();
       }
     } finally {
       await mounted.unmount();
@@ -82,15 +74,20 @@ describe('RequestEventsDetailsCard service tier column', () => {
     }
   });
 
-  it('handles missing tiers without losing available effective, request, or response values', () => {
-    const html = renderCard([
+  it('handles missing tiers without losing available effective, request, or response values', async () => {
+    const mounted = await mountCard([
       { ...baseEvent, effective_service_tier: undefined, response_service_tier: '' },
       { ...baseEvent, id: '102', service_tier: '', effective_service_tier: '', response_service_tier: 'default' },
       { ...baseEvent, id: '103', service_tier: '', effective_service_tier: 'ultrafast', response_service_tier: '' },
       { ...baseEvent, id: '104', service_tier: undefined, effective_service_tier: ' ', response_service_tier: undefined },
       { ...baseEvent, id: '105', service_tier: 'fast', effective_service_tier: ' ', response_service_tier: 'default' },
     ]);
-    expect(cellText(html)).toEqual(['Auto / -', '- / Standard', 'Ultrafast', '- / -', 'Fast / Standard']);
+    try {
+      expect(Array.from(mounted.container.querySelectorAll('tbody td'), (cell) => cell.textContent))
+        .toEqual(['Auto / -', '- / Standard', 'Ultrafast', '- / -', 'Fast / Standard']);
+    } finally {
+      await mounted.unmount();
+    }
   });
 
   it('keeps the tooltip open while focus remains after the mouse leaves', async () => {
@@ -99,19 +96,19 @@ describe('RequestEventsDetailsCard service tier column', () => {
     try {
       const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
       await act(async () => cell.focus());
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+      expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).not.toBeNull();
       await act(async () => {
         cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
       });
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+      expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).not.toBeNull();
       await act(async () => {
         cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         cell.blur();
       });
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+      expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).not.toBeNull();
       await act(async () => cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
-      expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+      expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull();
     } finally {
       await mounted.unmount();
     }
@@ -125,7 +122,7 @@ describe('RequestEventsDetailsCard service tier column', () => {
     const getRect = vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
     try {
       await act(async () => cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-      const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement;
+      const tooltip = document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])') as HTMLDivElement;
       const initialLeft = Number.parseFloat(tooltip.style.left);
       const initialTop = Number.parseFloat(tooltip.style.top);
       currentRect = new DOMRect(400, 200, 40, 20);

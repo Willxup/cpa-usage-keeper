@@ -429,7 +429,7 @@ func TestAttachWindowUsageStatsCachesFailedAntigravityGroupWindowQuery(t *testin
 	resetAt := now.Add(2 * time.Hour)
 	windowSeconds := int64(5 * time.Hour / time.Second)
 	provider := &failOnceGroupedUsageStatsProvider{}
-	response := CheckResponse{ID: "antigravity-auth", Quota: []QuotaRow{
+	response := CheckResponse{ID: "antigravity-auth", Subscription: &SubscriptionInfo{Provider: "antigravity", Plan: "ultra-lite"}, Quota: []QuotaRow{
 		{
 			Key: "bucket.antigravity-gemini-models.gemini-5h", Scope: "quota_group", GroupKey: "antigravity-gemini-models",
 			Window: &QuotaWindow{Seconds: &windowSeconds}, ResetAt: timeutil.FormatStorageTime(resetAt),

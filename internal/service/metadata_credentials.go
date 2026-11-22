@@ -103,8 +103,14 @@ func baseCredentialUsageIdentity(file credentials.Credential) entities.UsageIden
 	}
 }
 
-// extendCodexCredentialUsageIdentity 只为 type=codex 写入 ChatGPT id_token 派生字段。
+// extendCodexCredentialUsageIdentity 只为 type=codex 写入订阅与 SIWC 快照。
 func extendCodexCredentialUsageIdentity(file credentials.Credential, identity *entities.UsageIdentity) {
+	// SIWC 是列表响应的本地快照，缺失字段保持 nil 以清除旧值。
+	identity.SIWCBindSupported = file.SIWCBindSupported
+	identity.SIWCBound = file.SIWCBound
+	identity.UseSIWC = file.UseSIWC
+	identity.SIWCStatus = file.SIWCStatus
+	identity.SIWCExpiresAt = file.SIWCExpiresAt
 	// AccountID 继续使用既有 exact-key 解析 helper。
 	identity.AccountID = resolveCodexAccountID(file)
 	// ActiveStart 继续规范化 id_token 的开始时间。

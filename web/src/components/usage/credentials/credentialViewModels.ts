@@ -1,6 +1,7 @@
 import type { ClaudeResetGrantStatus, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
+import { credentialBrandOverride } from './credentialBrand'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 export const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const
@@ -128,6 +129,25 @@ export function splitCredentialIdentities(identities: UsageIdentity[]): Credenti
   }, { credentials: [], aiProviders: [] })
 }
 
+export type CredentialSIWCState = 'not_linked' | 'not_enabled' | 'enabled' | 'invalid'
+
+export function credentialSIWCState(identity: UsageIdentity): CredentialSIWCState | null {
+  if (identity.auth_type !== 1 || identity.type.trim().toLowerCase() !== 'codex') {
+    return null
+  }
+
+  const { siwc_bound: bound, use_siwc: use, siwc_status: status } = identity
+  // 只分类明确一致的快照；invalid 可由缺失令牌引起，因此优先于 bound。
+  if (use === true && status === 'invalid') return 'invalid'
+  if (status != null && status !== 'off' && status !== 'valid' && status !== 'invalid') return null
+  if (use !== true && (status == null || status === 'off')) {
+    if (bound === false) return 'not_linked'
+    if (bound === true && use === false) return 'not_enabled'
+  }
+  if (bound === true && use === true && status === 'valid') return 'enabled'
+  return null
+}
+
 export function selectQuotaEligibleAuthIndexes(identities: UsageIdentity[]): string[] {
   return identities
     .filter((identity) => identity.auth_type === 1 && !identity.is_deleted)
@@ -161,13 +181,15 @@ export function buildCredentialRows(
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota).filter(isDisplayableQuota)
     const subscriptionBadge = resolveCredentialSubscriptionBadge(quotaResponse?.subscription ?? identity.subscription)
+    const brand = credentialBrandOverride(identity.type)
+    const providerLabel = credentialProviderLabel(identity)
 
     return {
       identity,
       displayName: credentialDisplayName(identity),
       maskedIdentity: identity.identity,
-      providerLabel: credentialProviderLabel(identity),
-      typeLabel: credentialTypeLabel(identity),
+      providerLabel: brand && providerLabel.toLowerCase() === identity.type.trim().toLowerCase() ? brand.name : providerLabel,
+      typeLabel: brand?.name ?? credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
       priorityLabel: credentialPriorityLabel(identity.priority),
       subscriptionBadge,

@@ -9,6 +9,7 @@ import type { UsageQuotaInspectionResult, UsageQuotaInspectionStatusResponse } f
 import styles from './QuotaInspection.module.scss'
 import shared from '../CredentialSections.module.scss'
 import { capitalize } from '../credentialMetrics'
+import { credentialBrandOverride } from '../credentialBrand'
 import { QuotaAutoRefreshSettingsModal } from './QuotaAutoRefreshSettingsModal'
 import { InvalidInspectionAccountsModal, type InvalidInspectionAccountSession } from './InvalidInspectionAccountsModal'
 import { INSPECTION_RESULT_PAGE_SIZE_OPTIONS, DEFAULT_INSPECTION_RESULT_PAGE_SIZE, inspectionProgressTotal, formatInspectionProgressPercent, isInspectionStartDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, isQuotaInspectionCloseDisabled, formatInspectionCompletedAt, type InspectionResultStatusFilter, type InspectionResultStatusFilterState, type InspectionStatTone } from './quotaInspectionModel'
@@ -244,7 +245,7 @@ function InspectionResultRow({ result }: { result: UsageQuotaInspectionResult })
   return (
     <div className={styles.credentialInspectionResultRow}>
       <span className={styles.credentialInspectionTypeIcon}>
-        <ProviderBrandIcon providerType={result.type} size={20} />
+        <ProviderBrandIcon providerType={credentialBrandOverride(result.type)?.iconType ?? result.type} size={20} />
       </span>
       <span className={styles.credentialInspectionIdentity}>
         <strong>{result.name || result.file_name || '-'}</strong>

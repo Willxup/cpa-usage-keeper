@@ -10,6 +10,7 @@ import type { UsageCredentialHealth, UsageIdentity } from '@/lib/types';
 const api = vi.hoisted(() => ({
   fetchUsageIdentitiesPage: vi.fn(),
   fetchUsageIdentity: vi.fn(),
+  fetchUsageIdentityModels: vi.fn(),
   resetUsageIdentityStats: vi.fn(),
   updateUsageIdentityAlias: vi.fn(),
   setCredentialPriority: vi.fn(),
@@ -52,13 +53,20 @@ function identity(authType: 1 | 2, count: number, id = '1'): UsageIdentity {
 describe('UsagePage credential detail statistics', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let unexpectedRequests: string[];
 
   beforeEach(async () => {
+    unexpectedRequests = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      unexpectedRequests.push(String(input));
+      throw new Error('Unexpected fetch');
+    });
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
     await i18n.changeLanguage('en');
     localStorage.clear();
     Object.values(api).forEach((mock) => mock.mockReset());
+    api.fetchUsageIdentityModels.mockResolvedValue({ models: [], summary: { total_tokens: 0 } });
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -69,6 +77,7 @@ describe('UsagePage credential detail statistics', () => {
     container.remove();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    expect(unexpectedRequests).toEqual([]);
   });
 
   const button = (label: string) => {
@@ -77,11 +86,10 @@ describe('UsagePage credential detail statistics', () => {
     return found;
   };
   const metric = () => document.querySelector('[role="tabpanel"] strong')?.textContent;
-  const healthPanel = () => Array.from(document.querySelectorAll('h3')).find((node) => node.textContent === 'Recent health')!.parentElement!;
-  const expectHealth = (score: string, cacheRate: string) => {
+  const healthPanel = () => document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] [data-credential-health-variant="compact"]')!;
+  const activityMetrics = () => [...document.querySelectorAll('[data-credential-overview-section="activity"] [data-credential-activity-metric] strong')].map(node => node.textContent);
+  const expectHealth = (score: string) => {
     expect(healthPanel().querySelector('strong')?.textContent).toBe(score);
-    const cacheLabel = Array.from(healthPanel().querySelectorAll('span')).find((node) => node.textContent === 'Cache rate 5h')!;
-    expect(cacheLabel.nextElementSibling?.textContent).toBe(cacheRate);
   };
   const tick = async () => { await act(async () => vi.advanceTimersByTimeAsync(60_000)); };
   const open = async (label = 'Fixture 1') => {
@@ -162,7 +170,7 @@ describe('UsagePage credential detail statistics', () => {
 
     const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
     expect(drawer.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Overview');
-    expectHealth('100.0%', '20.00%');
+    expectHealth('100.0%');
     expect(api.fetchUsageIdentity).toHaveBeenLastCalledWith('1', expect.any(AbortSignal));
 
     await act(async () => button('Close').click());
@@ -177,8 +185,10 @@ describe('UsagePage credential detail statistics', () => {
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 10), credential_health: health(9, 1, 200, 50) });
     await open();
     expect(metric()).toBe('10');
-    expectHealth('90.0%', '25.00%');
+    expectHealth('90.0%');
+    expect(activityMetrics()).toEqual(['10', '1', '25.00%']);
     const initialBuckets = healthPanel().querySelector('[role="list"]')?.textContent;
+    const modelRequestsBeforeReset = api.fetchUsageIdentityModels.mock.calls.length;
     const reset = { ...identity(authType, 0), credential_health: undefined, stats_reset_at: '2026-09-10T10:00:00Z' };
     api.resetUsageIdentityStats.mockResolvedValue(reset);
     api.fetchUsageIdentity.mockResolvedValue(reset);
@@ -186,28 +196,33 @@ describe('UsagePage credential detail statistics', () => {
     await act(async () => button('Reset statistics').click());
     await act(async () => button('Reset').click());
     expect(metric()).toBe('0');
-    expectHealth('90.0%', '25.00%');
+    expectHealth('90.0%');
+    expect(activityMetrics()).toEqual(['10', '1', '25.00%']);
+    expect(api.fetchUsageIdentityModels).toHaveBeenCalledTimes(modelRequestsBeforeReset);
     expect(container.textContent).not.toContain('Fixture 1');
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 5), credential_health: health(4, 1, 200, 100, '2026-09-11T16:10:00+08:00') });
     await tick();
     expect(metric()).toBe('5');
-    expectHealth('80.0%', '50.00%');
+    expectHealth('80.0%');
+    expect(activityMetrics()).toEqual(['5', '1', '50.00%']);
     expect(healthPanel().querySelector('[role="list"]')?.textContent).not.toBe(initialBuckets);
     expect(api.fetchUsageIdentity).toHaveBeenLastCalledWith('1', expect.any(AbortSignal));
     api.fetchUsageIdentity.mockRejectedValue(new Error('offline'));
     api.fetchUsageIdentitiesPage.mockRejectedValue(new Error('offline'));
     await tick();
     expect(metric()).toBe('5');
-    expectHealth('80.0%', '50.00%');
+    expectHealth('80.0%');
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 7), credential_health: health(5, 2, 400, 300) });
     await act(async () => triggerHeaderRefresh());
     expect(metric()).toBe('7');
-    expectHealth('71.4%', '75.00%');
+    expectHealth('71.4%');
+    expect(activityMetrics()).toEqual(['7', '2', '75.00%']);
     // 没有新增用量也要推进健康窗口，过期数据不能一直留在图上。
     api.fetchUsageIdentity.mockResolvedValue({ ...identity(authType, 7), credential_health: health(0, 0, 0, 0, '2026-09-11T22:00:00+08:00') });
     await tick();
     expect(metric()).toBe('7');
-    expectHealth('0.0%', '—');
+    expectHealth('0.0%');
+    expect(activityMetrics()).toEqual(['0', '0', '—']);
     await act(async () => button('Close').click());
     await act(async () => vi.advanceTimersByTimeAsync(350));
     expect(document.querySelector('[role="dialog"]')).toBeNull();

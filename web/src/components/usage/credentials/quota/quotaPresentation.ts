@@ -246,7 +246,7 @@ export function formatQuotaResetLabel(resetAt: string, timeZone?: string): strin
       hourCycle: 'h23',
     }).formatToParts(resetTime)
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-    return `${values.month}/${values.day} ${values.hour}:${values.minute}`
+    return `${values.month}-${values.day} ${values.hour}:${values.minute}`
   } catch {
     // Go 的 Local 或浏览器不认识的 IANA 名称无法可靠映射到 Keeper 墙上时间，隐藏标签而不是猜浏览器时区。
     return ''

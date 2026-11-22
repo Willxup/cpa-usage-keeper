@@ -1,5 +1,5 @@
 import type { CredentialRow } from '../credentialViewModels'
-const QUOTA_PROVIDER_TYPES = new Set(['antigravity', 'codex', 'gemini-cli', 'claude', 'kimi', 'xai'])
+const QUOTA_PROVIDER_TYPES = new Set(['antigravity', 'codex', 'gemini-cli', 'claude', 'kimi', 'meta', 'xai'])
 export function isRowRefreshing(row: CredentialRow): boolean {
   return row.refreshStatus === 'queued' || row.refreshStatus === 'running'
 }

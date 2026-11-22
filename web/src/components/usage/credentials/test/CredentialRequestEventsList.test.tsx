@@ -262,7 +262,7 @@ describe('CredentialRequestEventsList', () => {
       'usage_stats.request_events_cost',
     ])
     expect(container.textContent).not.toContain('usage_stats.request_events_title')
-    expect(container.textContent).not.toContain('usage_stats.request_events_subtitle')
+    expect(container.querySelector('[data-question-mark-help]')).toBeNull()
     expect(container.textContent).not.toContain('usage_stats.request_events_columns')
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_model')
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_source')

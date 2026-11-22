@@ -9,7 +9,7 @@ import { SessionSettingsCard } from '../SessionSettingsCard'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const translations: Record<string, string> = {
-  'usage_stats.session_settings_title': 'Session Management',
+  'usage_stats.session_settings_title': 'Session',
   'usage_stats.session_settings_admin_label': 'Admin Session',
   'usage_stats.session_settings_type_admin': 'Admin',
   'usage_stats.session_settings_type_api_key': 'API Key',

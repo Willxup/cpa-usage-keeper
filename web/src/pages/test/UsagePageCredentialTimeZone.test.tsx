@@ -9,6 +9,7 @@ import type { UsageIdentity } from '@/lib/types';
 const api = vi.hoisted(() => ({
   fetchUsageIdentitiesPage: vi.fn(),
   fetchUsageIdentity: vi.fn(),
+  fetchUsageIdentityModels: vi.fn(),
   fetchUsageQuotaCache: vi.fn(),
 }));
 
@@ -24,7 +25,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 import { UsagePage } from '../UsagePage';
 
 const RESET_AT = '2026-05-12T03:15:00-07:00';
-const PROJECT_RESET_LABEL = '05/12 18:15';
+const PROJECT_RESET_LABEL = '05-12 18:15';
 const COMPACT_RESET_LABEL = '05-12 18:15';
 
 const credential = {
@@ -48,8 +49,14 @@ const credential = {
 describe('UsagePage credential project timezone', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let unexpectedRequests: string[];
 
   beforeEach(async () => {
+    unexpectedRequests = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      unexpectedRequests.push(String(input));
+      throw new Error('Unexpected fetch');
+    });
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     await i18n.changeLanguage('en');
@@ -61,6 +68,7 @@ describe('UsagePage credential project timezone', () => {
       identities: [credential], total_count: 1, total_pages: 1,
     });
     api.fetchUsageIdentity.mockResolvedValue(credential);
+    api.fetchUsageIdentityModels.mockResolvedValue({ models: [], summary: { total_tokens: 0 } });
     api.fetchUsageQuotaCache.mockResolvedValue({
       items: [{
         auth_index: credential.identity,
@@ -87,9 +95,10 @@ describe('UsagePage credential project timezone', () => {
     container.remove();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    expect(unexpectedRequests).toEqual([]);
   });
 
-  it('uses the project timezone for the compact reset tooltip and the full detail reset label', async () => {
+  it('uses the project timezone for both the compact and detail reset tooltips', async () => {
     await act(async () => root.render(<UsagePage />));
 
     const countdown = container.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!;
@@ -110,10 +119,19 @@ describe('UsagePage credential project timezone', () => {
 
     const detailTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]');
     expect(detailTrigger).not.toBeNull();
-    await act(async () => detailTrigger!.click());
+    await act(async () => {
+      detailTrigger!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      detailTrigger!.click();
+    });
 
     const drawer = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(drawer).not.toBeNull();
-    expect(drawer!.textContent).toContain(PROJECT_RESET_LABEL);
+    const detailCountdown = drawer!.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!;
+    expect(detailCountdown.getAttribute('aria-label')).toBe(`Resets at ${PROJECT_RESET_LABEL}`);
+    expect(drawer!.textContent).not.toContain(PROJECT_RESET_LABEL);
+    await act(async () => detailCountdown.focus());
+    const detailTooltip = document.getElementById(detailCountdown.getAttribute('aria-describedby')!);
+    expect(detailTooltip?.textContent).toBe(`Resets at ${PROJECT_RESET_LABEL}`);
+    expect(detailTooltip?.textContent).not.toContain('05-12 10:15');
   });
 });

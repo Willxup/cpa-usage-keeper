@@ -19,14 +19,13 @@ import (
 )
 
 const (
-	liveBatchSize          = 100
-	liveReplayLimit        = 10000
-	liveWriteTimeout       = 5 * time.Second
-	liveHeartbeatInterval  = 15 * time.Second
-	liveRetryInterval      = 2 * time.Second
-	liveReplayTimeout      = 30 * time.Second
-	liveGlobalConnections  = 64
-	liveSessionConnections = 3
+	liveBatchSize         = 100
+	liveReplayLimit       = 10000
+	liveWriteTimeout      = 5 * time.Second
+	liveHeartbeatInterval = 15 * time.Second
+	liveRetryInterval     = 2 * time.Second
+	liveReplayTimeout     = 30 * time.Second
+	liveGlobalConnections = 64
 )
 
 var errLiveBusy = errors.New("costs busy")
@@ -43,27 +42,21 @@ type usageEventsLiveBounds struct {
 }
 
 type usageEventsLiveSlots struct {
-	mu        sync.Mutex
-	total     int
-	bySession map[string]int
+	mu    sync.Mutex
+	total int
 }
 
-func (s *usageEventsLiveSlots) acquire(key string) (func(), bool) {
+func (s *usageEventsLiveSlots) acquire() (func(), bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.total >= liveGlobalConnections || s.bySession[key] >= liveSessionConnections {
+	if s.total >= liveGlobalConnections {
 		return nil, false
 	}
 	s.total++
-	s.bySession[key]++
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.total--
-		s.bySession[key]--
-		if s.bySession[key] == 0 {
-			delete(s.bySession, key)
-		}
 	}, true
 }
 
@@ -102,7 +95,7 @@ func liveSessionValid(c *gin.Context, handler *authHandler) bool {
 }
 
 func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvider, identities service.UsageIdentityProvider, keys service.CPAAPIKeyProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler, lifecycleCtx context.Context) {
-	slots := &usageEventsLiveSlots{bySession: make(map[string]int)}
+	slots := &usageEventsLiveSlots{}
 	router.GET("/usage/events/live", func(c *gin.Context) {
 		if lifecycleCtx != nil {
 			// 仅长连接跟随应用取消；客户端断开仍通过原请求 context 传播。
@@ -126,11 +119,7 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 			c.JSON(http.StatusBadRequest, gin.H{"error": "usage range is required"})
 			return
 		}
-		sessionKey := c.GetString(authTokenContextKey)
-		if sessionKey == "" {
-			sessionKey = "anonymous:" + c.ClientIP()
-		}
-		releaseSlot, ok := slots.acquire(sessionKey)
+		releaseSlot, ok := slots.acquire()
 		if !ok {
 			c.Header("Retry-After", "5")
 			c.JSON(http.StatusTooManyRequests, gin.H{"code": "live_capacity"})

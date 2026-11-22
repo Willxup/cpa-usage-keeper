@@ -105,7 +105,7 @@ const (
 	UsageIdentityPageSortLastUsedAt    = "last_used_at"
 )
 
-const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at, stats_reset_at, reset_total_requests, reset_success_count, reset_failure_count, reset_input_tokens, reset_cache_read_tokens, reset_total_tokens"
+const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, siwc_bind_supported, siwc_bound, use_siwc, siwc_status, siwc_expires_at, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at, stats_reset_at, reset_total_requests, reset_success_count, reset_failure_count, reset_input_tokens, reset_cache_read_tokens, reset_total_tokens"
 
 const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
 
@@ -659,6 +659,7 @@ func normalizeUsageIdentities(identities []entities.UsageIdentity, authType enti
 		identity.IsDeleted = false
 		identity.ActiveStart = normalizeStorageTimePtr(identity.ActiveStart)
 		identity.ActiveUntil = normalizeStorageTimePtr(identity.ActiveUntil)
+		identity.SIWCExpiresAt = normalizeStorageTimePtr(identity.SIWCExpiresAt)
 		identity.DeletedAt = nil
 		normalized = append(normalized, identity)
 	}
@@ -726,7 +727,7 @@ func normalizeUsageIdentityTypes(identityTypes []string) []string {
 	return types
 }
 
-const usageIdentitySyncColumns = "id, name, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, is_deleted, deleted_at"
+const usageIdentitySyncColumns = "id, name, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, siwc_bind_supported, siwc_bound, use_siwc, siwc_status, siwc_expires_at, active_start, active_until, plan_type, is_deleted, deleted_at"
 
 type usageIdentityUpdate struct {
 	id          int64
@@ -891,6 +892,21 @@ func usageIdentityMetadataDiff(existing, incoming entities.UsageIdentity) map[st
 	}
 	if !optionalEqual(existing.XAIUserID, incoming.XAIUserID) {
 		fields["xai_user_id"] = incoming.XAIUserID
+	}
+	if !optionalEqual(existing.SIWCBindSupported, incoming.SIWCBindSupported) {
+		fields["siwc_bind_supported"] = incoming.SIWCBindSupported
+	}
+	if !optionalEqual(existing.SIWCBound, incoming.SIWCBound) {
+		fields["siwc_bound"] = incoming.SIWCBound
+	}
+	if !optionalEqual(existing.UseSIWC, incoming.UseSIWC) {
+		fields["use_siwc"] = incoming.UseSIWC
+	}
+	if !optionalEqual(existing.SIWCStatus, incoming.SIWCStatus) {
+		fields["siwc_status"] = incoming.SIWCStatus
+	}
+	if !optionalTimeEqual(existing.SIWCExpiresAt, incoming.SIWCExpiresAt) {
+		fields["siwc_expires_at"] = formatStorageTimePtr(incoming.SIWCExpiresAt)
 	}
 	if !optionalTimeEqual(existing.ActiveStart, incoming.ActiveStart) {
 		fields["active_start"] = incoming.ActiveStart

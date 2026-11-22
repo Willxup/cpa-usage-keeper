@@ -24,7 +24,7 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v8/management/credentials":
-			fmt.Fprint(w, `{"files":[]}`)
+			fmt.Fprint(w, `{"files":[{"auth_index":"meta-auth","name":"meta.json","path":"/auth/meta.json","type":"meta","provider":"meta"}]}`)
 		case "/v8/management/config/access/api-keys":
 			switch phase.Load() {
 			case 0:
@@ -66,6 +66,10 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 	first := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "shared")]
 	second := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "second")]
 	meta := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "meta-auth")]
+	metaFile := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "meta-auth")]
+	if metaFile.Type != "meta" || metaFile.Provider != "meta" || metaFile.FileName == nil || *metaFile.FileName != "meta.json" || metaFile.FilePath == nil || *metaFile.FilePath != "/auth/meta.json" || metaFile.ActiveUntil != nil {
+		t.Fatalf("meta auth-file metadata = %+v", metaFile)
+	}
 	if first.LookupKey != "first" || *first.Priority != 7 || !*first.Disabled || first.Name != "codex" {
 		t.Fatalf("first metadata = %+v", first)
 	}
@@ -74,6 +78,25 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 	}
 	if meta.BaseURL != "https://api.meta.ai/v1" || *meta.Priority != 0 {
 		t.Fatalf("meta metadata = %+v", meta)
+	}
+	// 相同 auth_index 的 Meta 文件和 API key 必须按 auth_type 分别累计，不混合统计。
+	now := time.Now()
+	events := []entities.UsageEvent{
+		{EventKey: "meta-file-1", AuthType: "oauth", AuthIndex: "meta-auth", Timestamp: now, TotalTokens: 100},
+		{EventKey: "meta-file-2", AuthType: "oauth", AuthIndex: "meta-auth", Timestamp: now, TotalTokens: 50, Failed: true},
+		{EventKey: "meta-key-1", AuthType: "apikey", AuthIndex: "meta-auth", Timestamp: now, TotalTokens: 20},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageIdentityStats(context.Background(), db, now); err != nil {
+		t.Fatal(err)
+	}
+	identities = loadMetadataIdentityMap(t, db)
+	metaFile = identities[metadataIdentityKey(entities.UsageIdentityAuthTypeCredential, "meta-auth")]
+	meta = identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "meta-auth")]
+	if metaFile.TotalRequests != 2 || metaFile.TotalTokens != 150 || metaFile.FailureCount != 1 || meta.TotalRequests != 1 || meta.TotalTokens != 20 {
+		t.Fatalf("Meta identity statistics not separated: auth-file=%+v, api-key=%+v", metaFile, meta)
 	}
 	phase.Store(1)
 	if err := syncer.SyncMetadata(context.Background()); err == nil {

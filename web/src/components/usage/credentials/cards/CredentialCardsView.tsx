@@ -3,7 +3,9 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import styles from '../CredentialSections.module.scss'
-import { formatCredentialTimestamp } from '../credentialViewModels'
+import cardStyles from './CredentialCards.module.scss'
+import { credentialSIWCState, formatCredentialTimestamp } from '../credentialViewModels'
+import { credentialBrandOverride } from '../credentialBrand'
 import type { CredentialViewProps } from '../credentialViewProps'
 import { CredentialAliasEditor, CredentialEditButton } from '../CredentialAliasEditor'
 import { CredentialHealthPanel } from '../CredentialHealthPanel'
@@ -25,18 +27,20 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
         const rowRefreshing = isRowRefreshing(row)
         const { isClaude, resetCredits, canResetQuota } = credentialResetCapabilities(row)
         const rowKey = row.identity.id || row.identity.identity
+        const siwcState = credentialSIWCState(row.identity)
+        const brandType = credentialBrandOverride(row.identity.type)?.iconType ?? row.identity.type
         const openDetails = onOpenDetails ? () => onOpenDetails(row) : undefined
         return (
           <CredentialCardShell
             key={rowKey}
             identityId={rowKey}
-            icon={<ProviderBrandIcon providerType={row.identity.type} size={30} />}
+            icon={<ProviderBrandIcon providerType={brandType} size={30} />}
             status={(
               // 认证文件沿用品牌类型的现有支持范围，不套用 AI Provider 的能力白名单。
-              providerBrandIconKey(row.identity.type) && (
+              providerBrandIconKey(brandType) && (
                 <CredentialStatusToggle
                   variant="switch"
-                  providerType={row.identity.type}
+                  providerType={brandType}
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
@@ -66,6 +70,12 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
             )}
             health={<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={row.credentialHealth} lastUsedAt={row.identity.last_used_at} windowCacheReadRate={row.windowCacheReadRate} />}
             quota={<CredentialQuotaPanel variant="compact" row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />}
+            footerLeft={siwcState && (
+              <span className={cardStyles.credentialSIWCStatus} data-siwc-state={siwcState}>
+                <span className={cardStyles.credentialSIWCDot} aria-hidden="true" />
+                <span>SIWC {t(`usage_stats.credentials_siwc_${siwcState}`)}</span>
+              </span>
+            )}
             actions={(
               <>
                   {onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} cardTooltip />}
