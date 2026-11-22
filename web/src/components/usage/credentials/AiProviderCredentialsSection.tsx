@@ -47,6 +47,21 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
       subtitle={t('usage_stats.credentials_ai_providers_subtitle')}
       viewMode={viewMode}
       contentClassName={viewMode === 'cards' ? cardStyles.cardContent : listStyles.listContent}
+      titleHelp={(
+        <QuestionMarkHelp
+          label={t('usage_stats.credentials_ai_providers_active_only_help_label')}
+          description={helpText}
+          positioning={{
+            align: 'center',
+            estimatedHeight: 96,
+            maxWidth: 280,
+            offset: 10,
+            viewportPadding: 8,
+          }}
+        >
+          <span>{helpText}</span>
+        </QuestionMarkHelp>
+      )}
       titleExtra={(
         <div className={styles.credentialsTitleControls}>
           <div className={styles.credentialFilterGroup}><label className={styles.credentialActiveOnlySwitch}>
@@ -55,20 +70,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
             <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
               <span className={styles.credentialActiveOnlyThumb} />
             </span>
-          </label>
-          <QuestionMarkHelp
-            label={t('usage_stats.credentials_ai_providers_active_only_help_label')}
-            description={helpText}
-            positioning={{
-              align: 'center',
-              estimatedHeight: 96,
-              maxWidth: 280,
-              offset: 10,
-              viewportPadding: 8,
-            }}
-          >
-            <span>{helpText}</span>
-          </QuestionMarkHelp></div>
+          </label></div>
           <span className={styles.credentialFilterDivider} aria-hidden="true" />
           <CredentialViewModeSwitch mode={viewMode} onChange={onViewModeChange} />
         </div>

@@ -11,19 +11,21 @@ interface CredentialSectionShellProps {
   subtitle: string
   viewMode: CredentialViewMode
   contentClassName: string
+  titleHelp?: ReactNode
   titleExtra?: ReactNode
   actions?: ReactNode
   style?: CredentialSectionStyle
   children: ReactNode
 }
 
-export function CredentialSectionShell({ title, subtitle, viewMode, contentClassName, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ title, subtitle, viewMode, contentClassName, titleHelp, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+  const heading = <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
   return (
     <section className={`${styles.credentialSectionCard} keeper-card-surface`} data-view-mode={viewMode} style={style}>
       <div className={styles.credentialSectionHeader}>
         <div className={styles.credentialSectionTitleBlock}>
           <div className={`${styles.credentialSectionTitleRow} keeper-card-title-track`}>
-            <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
+            {titleHelp ? <div className={styles.credentialSectionHeading}>{heading}{titleHelp}</div> : heading}
             {titleExtra}
           </div>
           <p className={`${styles.credentialSectionSubtitle} keeper-card-subtitle`}>{subtitle}</p>

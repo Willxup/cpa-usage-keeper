@@ -23,10 +23,14 @@ const bundle = await build({
       import '@/styles/global.scss'
       import i18n from '@/i18n'
       import { CredentialsSection } from '@/components/usage/credentials/CredentialsSection'
-      import { createCredentialSectionProps } from '@/components/usage/credentials/test/credentialSectionFixtures'
-      const { mode, language } = window.fixture
+      import { AiProviderCredentialsSection } from '@/components/usage/credentials/AiProviderCredentialsSection'
+      import { createCredentialSectionProps, createAiProviderSectionProps } from '@/components/usage/credentials/test/credentialSectionFixtures'
+      const { mode, language, section } = window.fixture
+      const provider = section === 'providers'
+      const component = provider ? AiProviderCredentialsSection : CredentialsSection
+      const props = provider ? createAiProviderSectionProps : createCredentialSectionProps
       i18n.changeLanguage(language).then(() => createRoot(document.getElementById('root')).render(
-        createElement(CredentialsSection, createCredentialSectionProps({ viewMode: mode, total: 25, totalPages: 3 }))
+        createElement(component, props({ viewMode: mode, total: 25, totalPages: 3 }))
       ))
     ` : null,
   }],
@@ -38,6 +42,7 @@ const { launchBrowser } = await import(process.env.BROWSER_TEST_RUNTIME)
 const scenarios = [240, 268, 320, 340, 380, 499, 501, 550, 600, 800].flatMap((width) =>
   (width >= 268 ? [1, 2] : [1]).map((scale) => ({ width, scale })))
 let checks = 0
+let providerChecks = 0
 for (const engine of ['chromium', 'webkit']) {
   const browser = await launchBrowser(engine)
   try {
@@ -124,6 +129,49 @@ for (const engine of ['chromium', 'webkit']) {
           checks += 1
         }
       }
+      for (const width of [240, 320, 380, 600, 800]) {
+        for (const language of ['en', 'zh']) {
+          await page.setContent(`<div id="root" style="width:${width}px"></div>`)
+          await page.evaluate((value) => { window.fixture = value }, { mode: 'cards', language, section: 'providers' })
+          await page.addScriptTag({ content: script })
+          const helpName = language === 'en' ? 'About AI provider enabled-only filtering' : 'AI 供应商仅启用筛选说明'
+          const help = page.getByRole('button', { name: helpName })
+          await help.waitFor()
+          const order = await page.evaluate((helpLabel) => {
+            const title = document.querySelector('h3')
+            const button = document.querySelector(`button[aria-label="${helpLabel}"]`)
+            const controls = document.querySelector('[class*="credentialsTitleControls"]')
+            const filter = controls.querySelector('label')
+            const view = controls.querySelector('[role="group"]')
+            const rect = (element) => {
+              const { left, right, top, bottom, height } = element.getBoundingClientRect()
+              return { left, right, top, bottom, height }
+            }
+            return {
+              sharedHeading: title.parentElement === button.parentElement.parentElement,
+              titleBeforeHelp: !!(title.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING),
+              helpBeforeFilter: !!(button.compareDocumentPosition(filter) & Node.DOCUMENT_POSITION_FOLLOWING),
+              filterBeforeView: !!(filter.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING),
+              controlChildren: [...controls.children].map((child) => child.className),
+              title: rect(title), help: rect(button), filter: rect(filter), view: rect(view),
+              rootWidth: document.documentElement.clientWidth, rootScrollWidth: document.documentElement.scrollWidth,
+            }
+          }, helpName)
+          const label = `${engine} ${touch ? 'touch' : 'pointer'} providers width=${width} ${language}`
+          assert.ok(order.sharedHeading && order.titleBeforeHelp && order.helpBeforeFilter && order.filterBeforeView, `${label}: incorrect DOM order`)
+          assert.ok(Math.abs((order.title.top + order.title.bottom) / 2 - (order.help.top + order.help.bottom) / 2) <= 1, `${label}: help is not alongside the title`)
+          assert.ok(order.title.right <= order.help.left, `${label}: title and help overlap`)
+          const helpCenter = (order.help.top + order.help.bottom) / 2
+          const filterCenter = (order.filter.top + order.filter.bottom) / 2
+          assert.ok(helpCenter <= filterCenter + 1, `${label}: filter appears above title help`)
+          if (Math.abs(helpCenter - filterCenter) < 2) assert.ok(order.help.right <= order.filter.left, `${label}: filter appears before title help`)
+          assert.equal(order.controlChildren.length, 3, `${label}: unexpected title control or divider`)
+          assert.ok(order.controlChildren[1].includes('Divider'), `${label}: expected divider between filter and view`)
+          assert.ok(Math.abs(order.filter.height - (touch ? 52 : 34)) <= 1 && Math.abs(order.view.height - (touch ? 52 : 34)) <= 1, `${label}: filter and view heights differ`)
+          assert.ok(order.rootScrollWidth <= order.rootWidth + 1, `${label}: page overflows`)
+          providerChecks += 1
+        }
+      }
       assert.deepEqual(errors, [], `${engine}: page errors`)
       await context.close()
     }
@@ -131,4 +179,4 @@ for (const engine of ['chromium', 'webkit']) {
     await browser.close()
   }
 }
-console.log(`PASS ${checks} control layouts across Chromium/WebKit, pointer/touch, cards/list, narrow containers and 200% control text`)
+console.log(`PASS ${checks} credential control layouts and ${providerChecks} AI title-help layouts across Chromium/WebKit and pointer/touch`)
