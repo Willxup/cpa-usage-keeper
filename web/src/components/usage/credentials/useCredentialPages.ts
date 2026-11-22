@@ -305,7 +305,8 @@ export function useCredentialPages({ enabledCredentials, enabledAiProviders, onA
     }
     void refreshCredentials()
     const intervalID = window.setInterval(() => {
-      void refreshCredentials()
+      // 不让定时读取抢占操作会话正在等待的列表请求；空闲时仍按原周期刷新。
+      if (!credentialsRequestControllerRef.current) void refreshCredentials()
     }, CREDENTIAL_PAGES_REFRESH_INTERVAL_MS)
     return () => {
       window.clearInterval(intervalID)
