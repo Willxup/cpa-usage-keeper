@@ -391,6 +391,35 @@ export interface UsageEventSourceFilterOptionsResponse {
 
 export type UsageIdentityAuthType = 1 | 2
 
+export type UsageIdentityModelsRange = 'today' | '7d' | '30d'
+
+export interface UsageIdentityModelTotals {
+  request_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  total_tokens: number
+  cost_usd: number
+  unavailable_cost_count: number
+  cost_available: boolean
+}
+
+export interface UsageIdentityModel extends UsageIdentityModelTotals {
+  model: string
+}
+
+export interface UsageIdentityModelsResponse {
+  identity_id: string
+  range: UsageIdentityModelsRange
+  timezone: string
+  range_start: string
+  range_end: string
+  models: UsageIdentityModel[]
+  summary: UsageIdentityModelTotals
+}
+
 export interface UsageCredentialHealthBucket {
   start_time: string
   end_time: string

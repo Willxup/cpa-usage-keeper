@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './PortalTooltip.module.scss'
 
@@ -173,7 +173,7 @@ export function usePortalTooltip({ trackAnchor = false }: { trackAnchor?: boolea
   }
 }
 
-export function PortalTooltip({ tooltip, id }: { tooltip: PortalTooltipState | null; id?: string }) {
+export function PortalTooltip({ tooltip, id, children }: { tooltip: PortalTooltipState | null; id?: string; children?: ReactNode }) {
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const [measuredPosition, setMeasuredPosition] = useState<{
     tooltip: PortalTooltipState
@@ -189,25 +189,27 @@ export function PortalTooltip({ tooltip, id }: { tooltip: PortalTooltipState | n
 
     const renderedTooltip = tooltipRef.current
     if (!renderedTooltip) return
-    const measuredHeight = renderedTooltip.getBoundingClientRect().height
-    if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) return
+    const { anchorTop, anchorBottom } = tooltip
+    const measure = () => {
+      const measuredHeight = renderedTooltip.getBoundingClientRect().height
+      if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) return
 
-    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight
-    const nextPosition = resolveTooltipPlacement({
-      anchorTop: tooltip.anchorTop,
-      anchorBottom: tooltip.anchorBottom,
-      viewportHeight,
-      tooltipHeight: measuredHeight,
-    })
-    setMeasuredPosition((current) => (
-      current?.tooltip === tooltip
-      && current.x === tooltip.x
-      && current.placement === nextPosition.placement
-      && current.y === nextPosition.y
-        ? current
-        : { tooltip, x: tooltip.x, ...nextPosition }
-    ))
-  }, [tooltip])
+      const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight
+      const nextPosition = resolveTooltipPlacement({ anchorTop, anchorBottom, viewportHeight, tooltipHeight: measuredHeight })
+      setMeasuredPosition((current) => (
+        current?.tooltip === tooltip
+        && current.x === tooltip.x
+        && current.placement === nextPosition.placement
+        && current.y === nextPosition.y
+          ? current
+          : { tooltip, x: tooltip.x, ...nextPosition }
+      ))
+    }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(renderedTooltip)
+    return () => observer?.disconnect()
+  }, [tooltip, children])
 
   if (!tooltip || typeof document === 'undefined') return null
 
@@ -227,7 +229,7 @@ export function PortalTooltip({ tooltip, id }: { tooltip: PortalTooltipState | n
           : 'translateX(-50%)',
       }}
     >
-      {tooltip.lines.map((line, index) => <span key={`${index}-${line}`}>{line}</span>)}
+      {children ?? tooltip.lines.map((line, index) => <span key={`${index}-${line}`}>{line}</span>)}
     </div>,
     document.body,
   )

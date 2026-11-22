@@ -41,8 +41,8 @@ describe('CredentialsSection quota reset formatting', () => {
   })
 
   it.each([
-    ['2026-05-12T03:15:00-07:00', '05/12 18:15', '2d0h15m'],
-    ['2026-05-10T07:15:00-07:00', '05/10 22:15', '4h15m'],
+    ['2026-05-12T03:15:00-07:00', '05-12 18:15', '2d0h15m'],
+    ['2026-05-10T07:15:00-07:00', '05-10 22:15', '4h15m'],
   ])('formats reset %s in the Keeper timezone', (resetAt, label, duration) => {
     vi.setSystemTime(new Date('2026-05-10T10:00:00Z'))
     try {
@@ -437,7 +437,7 @@ describe('CredentialsSection quota usage mode rendering', () => {
     expect(html.match(/credentialQuotaBarTooltipRight/g)).toHaveLength(1)
   })
 
-  it('keeps the reset time visible when Codex has no token or cost usage', () => {
+  it('keeps the reset countdown available when Codex has no token or cost usage', () => {
     const noUsageRow = {
       ...row,
       displayQuotas: [{
@@ -450,7 +450,8 @@ describe('CredentialsSection quota usage mode rendering', () => {
 
     const html = renderToStaticMarkup(createElement(CredentialQuotaPanel, { row: noUsageRow, quotaUsageMode: 'current', timeZone: 'Asia/Shanghai' }))
 
-    expect(html).toContain('05/09 20:00')
+    expect(html).toContain('data-quota-reset-countdown="true"')
+    expect(html).not.toContain('05-09 20:00')
   })
 
   it('renders xai billing spend without token usage metrics', () => {

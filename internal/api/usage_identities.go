@@ -116,6 +116,7 @@ type usageCredentialHealthBucket struct {
 }
 
 func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider service.UsageIdentityProvider) {
+	registerUsageIdentityModelsRoute(router, usageIdentityProvider)
 	router.GET("/usage/identities/:id", func(c *gin.Context) {
 		reader, ok := usageIdentityProvider.(service.UsageIdentityReader)
 		if !ok {
