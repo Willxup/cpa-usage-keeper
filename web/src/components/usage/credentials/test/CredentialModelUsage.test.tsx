@@ -76,8 +76,8 @@ describe('CredentialModelUsage', () => {
     await i18n.changeLanguage('en')
     expect(unexpectedRequests).toEqual([])
   })
-  const render = async (id = '1', kind: 'credential' | 'ai-provider' = 'ai-provider', onAuthRequired?: () => void) => {
-    await act(async () => root.render(<CredentialModelUsage identityId={id} kind={kind} onAuthRequired={onAuthRequired} />))
+  const render = async (id = '1', onAuthRequired?: () => void) => {
+    await act(async () => root.render(<CredentialModelUsage identityId={id} onAuthRequired={onAuthRequired} />))
   }
   const selectRange = async (range: UsageIdentityModelsRange) => {
     await act(async () => (container.querySelector(`[data-model-range="${range}"]`) as HTMLButtonElement).click())
@@ -90,14 +90,14 @@ describe('CredentialModelUsage', () => {
     unexpectedRequests.length = 0
   })
 
-  it('renders real alias tuples, exclusive token parts, share, totals and incomplete calculated costs', async () => {
+  it('renders model names, exclusive token parts, share, totals and incomplete calculated costs', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response()))
     await render()
     expect((container.querySelector('[data-model-range="7d"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
     const rows = [...container.querySelectorAll('tbody tr')]
     expect(rows).toHaveLength(2)
     expect(rows[0].textContent).toContain('public')
-    expect(rows[0].textContent).toContain('→ upstream')
+    expect(rows[0].querySelector('th')?.textContent).toBe('public')
     expect(rows[1].textContent).toContain('another')
     expect(rows[0].textContent).toContain('75.0%')
     expect(rows[0].textContent).toContain('$0.4000')
@@ -171,7 +171,7 @@ describe('CredentialModelUsage', () => {
     await act(async () => pending.resolve(json(response({ range: 'today' }))))
     await act(async () => { target().blur(); target().focus() })
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('时段合计')
-    await act(async () => root.render(<CredentialModelUsage identityId="1" kind="ai-provider" enabled={false} />))
+    await act(async () => root.render(<CredentialModelUsage identityId="1" enabled={false} />))
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     expect(target().tabIndex).toBe(-1)
   })
@@ -222,13 +222,13 @@ describe('CredentialModelUsage', () => {
     const lastRange = Promise.withResolvers<Response>()
     const fetchMock = vi.mocked(globalThis.fetch).mockReturnValueOnce(oldRange.promise).mockReturnValueOnce(oldIdentity.promise).mockReturnValueOnce(current.promise).mockReturnValueOnce(lastRange.promise)
     const onAuthRequired = vi.fn()
-    await render('1', 'credential', onAuthRequired)
+    await render('1', onAuthRequired)
     expect(container.textContent).toContain('Loading...')
     expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('range')).toBe('7d')
     await selectRange('today')
     expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true)
     expect(container.textContent).toContain('Loading...')
-    await render('2', 'ai-provider', onAuthRequired)
+    await render('2', onAuthRequired)
     expect(fetchMock.mock.calls[1][1]?.signal?.aborted).toBe(true)
     const newURL = new URL(String(fetchMock.mock.calls[2][0]), 'http://localhost')
     expect(newURL.pathname).toBe('/api/v1/usage/identities/2/models')
@@ -283,7 +283,7 @@ describe('CredentialModelUsage', () => {
     const pending = Promise.withResolvers<Response>()
     const fetchMock = vi.mocked(globalThis.fetch).mockResolvedValueOnce(json({ error: 'expired' }, 401)).mockReturnValueOnce(pending.promise)
     const onAuthRequired = vi.fn()
-    await render('1', 'credential', onAuthRequired)
+    await render('1', onAuthRequired)
     expect(onAuthRequired).toHaveBeenCalledTimes(1)
     await selectRange('today')
     await act(async () => root.unmount())
@@ -366,17 +366,14 @@ describe('CredentialModelUsage', () => {
     await render()
     const rows = [...container.querySelectorAll('tbody tr')]
     const primary = rows[0].querySelector<HTMLElement>('[data-model-name="model"]')!
-    const upstreamName = rows[0].querySelector<HTMLElement>('[data-model-name="upstream"]')!
     const short = rows[1].querySelector<HTMLElement>('[data-model-name="model"]')!
     expect(short.getAttribute('tabindex')).toBeNull()
     await act(async () => pointer(short, 'pointerover', 'mouse'))
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
 
     setNameWidths(primary, 300, 100)
-    setNameWidths(upstreamName, 400, 100)
-    await act(async () => { observers.get(primary)?.(); observers.get(upstreamName)?.() })
+    await act(async () => observers.get(primary)?.())
     expect(primary.getAttribute('tabindex')).toBe('0')
-    expect(upstreamName.getAttribute('tabindex')).toBe('0')
     await act(async () => pointer(primary, 'pointerover', 'mouse'))
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(alias)
     await act(async () => { pointer(primary, 'pointerdown', 'mouse'); primary.focus(); primary.click(); pointer(primary, 'pointerout', 'mouse') })
@@ -399,12 +396,15 @@ describe('CredentialModelUsage', () => {
     await act(async () => pointer(document.body, 'pointerdown', 'touch'))
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
 
-    await act(async () => { primary.blur(); upstreamName.focus() })
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(upstream)
-    setNameWidths(upstreamName, 80, 100)
-    await act(async () => observers.get(upstreamName)?.())
+    await act(async () => { primary.blur(); primary.focus() })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(alias)
+    setNameWidths(primary, 80, 100)
+    await act(async () => observers.get(primary)?.())
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
-    expect(upstreamName.getAttribute('tabindex')).toBeNull()
+    expect(primary.getAttribute('tabindex')).toBeNull()
+    setNameWidths(primary, 300, 100)
+    await act(async () => window.dispatchEvent(new Event('resize')))
+    expect(primary.getAttribute('tabindex')).toBe('0')
     setNameWidths(primary, 80, 100)
     await act(async () => window.dispatchEvent(new Event('resize')))
     expect(primary.getAttribute('tabindex')).toBeNull()
@@ -427,7 +427,7 @@ describe('CredentialModelUsage', () => {
     await act(async () => pending.resolve(json({ ...data, range: 'today' })))
     await act(async () => { window.dispatchEvent(new Event('resize')); name().blur(); name().focus() })
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('long-alias')
-    await act(async () => root.render(<CredentialModelUsage identityId="1" kind="ai-provider" enabled={false} />))
+    await act(async () => root.render(<CredentialModelUsage identityId="1" enabled={false} />))
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     expect(name().getAttribute('tabindex')).toBeNull()
     await render()
@@ -442,7 +442,7 @@ describe('CredentialModelUsage', () => {
   it.each(['zh', 'zh-TW'] as const)('renders translated empty and range controls in %s', async language => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(response({ models: [] })))
     await i18n.changeLanguage(language)
-    await act(async () => root.render(<CredentialModelUsage identityId="1" kind="credential" />))
+    await act(async () => root.render(<CredentialModelUsage identityId="1" />))
     expect(container.textContent).toContain(language === 'zh' ? '暂无已汇总用量' : '暫無已彙總用量')
     expect(container.textContent).toContain('7')
   })

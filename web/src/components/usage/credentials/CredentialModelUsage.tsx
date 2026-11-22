@@ -21,7 +21,6 @@ const TOKEN_PARTS = [
 
 interface CredentialModelUsageProps {
   identityId: string
-  kind: 'credential' | 'ai-provider'
   onAuthRequired?: () => void
   enabled?: boolean
 }
@@ -31,7 +30,7 @@ export function CredentialModelUsage(props: CredentialModelUsageProps) {
   return <ModelUsage key={props.identityId} {...props} />
 }
 
-function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: CredentialModelUsageProps) {
+function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialModelUsageProps) {
   const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 768px)')
   const [selection, setSelection] = useState<{ range: UsageIdentityModelsRange; revision: number }>({ range: '7d', revision: 0 })
@@ -67,7 +66,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
   return (
     <section ref={panelRef} className={styles.panel} data-credential-model-usage style={minimumHeight > 0 ? { minHeight: minimumHeight } : undefined}>
       <div className={styles.sectionHeading}>
-        <h3>{t(kind === 'ai-provider' ? 'usage_stats.credentials_models_mapping_title' : 'usage_stats.credentials_models_title')}</h3>
+        <h3>{t('usage_stats.credentials_models_title')}</h3>
         {data && models.length > 0 ? <span className={styles.modelCount}>{t('usage_stats.analysis_models_count', { count: models.length })}</span> : null}
         <div className={styles.rangeGroup} role="group" aria-label={t('usage_stats.credentials_models_range')}>
           {RANGES.map(option => (
@@ -90,7 +89,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
             : <>
               <table className={styles.modelsTable}>
                 <thead><tr>
-                  <th scope="col">{t(kind === 'ai-provider' ? 'usage_stats.credentials_models_mapping_column' : 'usage_stats.credentials_models_model')}</th>
+                  <th scope="col">{t('usage_stats.credentials_models_model')}</th>
                   <th scope="col">{t('usage_stats.credentials_metric_requests')}</th>
                   <th scope="col">{t('usage_stats.credentials_models_token_composition')}</th>
                   <th scope="col">{t('usage_stats.cache_rate')}</th>
@@ -101,7 +100,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
                   const name = alias || model.model || '—'
                   const share = data.summary.total_tokens > 0 ? t('usage_stats.credentials_models_share', { percent: (model.total_tokens / data.summary.total_tokens * 100).toFixed(1) }) : '—'
                   return <tr key={JSON.stringify([model.model, model.model_alias])} className={styles.modelRow}>
-                    <th scope="row"><ModelName text={name} kind="model" enabled={enabled && !loading} />{kind === 'ai-provider' && alias && model.model && alias !== model.model ? <ModelName text={model.model} kind="upstream" enabled={enabled && !loading} /> : null}</th>
+                    <th scope="row"><ModelName text={name} enabled={enabled && !loading} /></th>
                     <td className={styles.requestsCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_metric_requests')} </span>{formatCredentialNumber(model.request_count)}</td>
                     <td className={styles.tokensCell}>
                       <div className={styles.tokenComposition}>
@@ -132,7 +131,7 @@ function ModelUsage({ identityId, kind, onAuthRequired, enabled = true }: Creden
   )
 }
 
-function ModelName({ text, kind, enabled }: { text: string; kind: 'model' | 'upstream'; enabled: boolean }) {
+function ModelName({ text, enabled }: { text: string; enabled: boolean }) {
   const anchor = useRef<HTMLElement>(null)
   const pointerType = useRef<string | null>(null)
   const [overflowing, setOverflowing] = useState(false)
@@ -176,9 +175,8 @@ function ModelName({ text, kind, enabled }: { text: string; kind: 'model' | 'ups
     return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true) }
   }, [interactive, tooltip, dismiss])
 
-  const Tag = kind === 'model' ? 'strong' : 'span'
   return <>
-    <Tag ref={anchor} className={kind === 'model' ? styles.modelName : styles.upstream} data-model-name={kind}
+    <strong ref={anchor} className={styles.modelName} data-model-name="model"
       tabIndex={interactive ? 0 : undefined} aria-describedby={interactive && tooltip ? id : undefined}
       onPointerDown={event => { pointerType.current = event.pointerType }}
       onPointerEnter={event => { if (interactive && event.pointerType !== 'touch') showOnMouseEnter([text], event.currentTarget) }}
@@ -186,8 +184,8 @@ function ModelName({ text, kind, enabled }: { text: string; kind: 'model' | 'ups
       onFocus={event => { if (interactive && !pointerType.current) showOnFocus([text], event.currentTarget) }}
       onBlur={event => { pointerType.current = null; hideOnBlur(event.currentTarget) }}
       onClick={event => { if (interactive && (pointerType.current === 'touch' || pointerType.current === 'pen')) { if (tooltip) dismiss(); else showOnFocus([text], event.currentTarget) } }}>
-      {kind === 'upstream' ? '→ ' : null}{text}
-    </Tag>
+      {text}
+    </strong>
     <PortalTooltip id={id} tooltip={interactive ? tooltip : null} />
   </>
 }

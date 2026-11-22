@@ -44,7 +44,7 @@ describe('CredentialModelUsage range transitions', () => {
     expect(unexpectedRequests).toEqual([])
   })
   const render = async (identityId = '1', enabled = true, onAuthRequired?: () => void) => {
-    await act(async () => root.render(<div className="modal-body"><CredentialModelUsage identityId={identityId} kind="ai-provider" enabled={enabled} onAuthRequired={onAuthRequired} /></div>))
+    await act(async () => root.render(<div className="modal-body"><CredentialModelUsage identityId={identityId} enabled={enabled} onAuthRequired={onAuthRequired} /></div>))
   }
   const selectRange = async (range: UsageIdentityModelsRange) => {
     await act(async () => container.querySelector<HTMLButtonElement>(`[data-model-range="${range}"]`)!.click())

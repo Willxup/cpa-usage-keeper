@@ -580,7 +580,7 @@ export function CredentialDetailDrawer({
               <div className={styles.quotaRows}><DrawerQuotaPanel key={selectionKey} row={selection.row} quotaUsageMode="current" timeZone={timeZone} /></div>
             </section>
           ) : null}
-          <DrawerModelUsage identityId={identityId} kind={selection.kind} onAuthRequired={onAuthRequired} />
+          <DrawerModelUsage identityId={identityId} onAuthRequired={onAuthRequired} />
           </section>
         ) : activeTab === 'quota-history' && hasQuotaHistory ? (
           <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
