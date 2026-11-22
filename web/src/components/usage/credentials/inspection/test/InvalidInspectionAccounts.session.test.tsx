@@ -2,12 +2,14 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setCredentialsDisabled } from '@/lib/api'
+import { fetchUsageQuotaInspectionStatus, setCredentialsDisabled } from '@/lib/api'
 import type { UsageQuotaInspectionStatusResponse } from '@/lib/types'
+import { useQuotaInspection } from '../../useQuotaInspection'
 import { QuotaInspectionModal } from '../QuotaInspectionModal'
 
 vi.mock('@/lib/api', async (original) => ({
   ...await original<typeof import('@/lib/api')>(),
+  fetchUsageQuotaInspectionStatus: vi.fn(),
   setCredentialsDisabled: vi.fn(),
 }))
 vi.mock('react-i18next', async (original) => ({
@@ -63,6 +65,69 @@ describe('invalid inspection account session', () => {
     await act(async () => after.resolve())
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it.each(['success', 'failure'] as const)('keeps the real session locked during a slow status refresh ending in %s', async (outcome) => {
+    vi.useFakeTimers()
+    try {
+      const running = { ...status(['a.json', 'b.json', 'c.json']), total: 4, running: true, completed: false }
+      const completed = { ...running, running: false, completed: true }
+      let finishRefresh!: (value: UsageQuotaInspectionStatusResponse) => void
+      let failRefresh!: (error: Error) => void
+      const after = deferred()
+      const onCompleted = vi.fn()
+      vi.mocked(fetchUsageQuotaInspectionStatus).mockReset()
+        .mockResolvedValueOnce(running)
+        .mockImplementationOnce((signal) => new Promise((resolve, reject) => {
+          finishRefresh = resolve
+          failRefresh = reject
+          signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        }))
+        .mockResolvedValueOnce(running)
+        .mockResolvedValueOnce(completed)
+      vi.mocked(setCredentialsDisabled).mockResolvedValue({} as Awaited<ReturnType<typeof setCredentialsDisabled>>)
+      function ConnectedInspection() {
+        const inspection = useQuotaInspection({ enabled: true, onInspectionCompleted: onCompleted })
+        return <QuotaInspectionModal open status={inspection.quotaInspectionStatus} loading={inspection.quotaInspectionLoading}
+          starting={inspection.quotaInspectionStarting} error={inspection.quotaInspectionError} onClose={() => undefined}
+          onStart={inspection.startQuotaInspection} onRefreshStatus={inspection.refreshQuotaInspectionStatus}
+          onAfterInvalidAccountAction={() => after.promise} />
+      }
+      await act(async () => root.render(<ConnectedInspection />))
+      await act(async () => button('usage_stats.credentials_inspection_disable_invalid').click())
+      const boxes = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      await act(async () => boxes[0].click())
+      await act(async () => button('usage_stats.credentials_inspection_invalid_accounts_confirm').click())
+      expect(setCredentialsDisabled).toHaveBeenCalledWith(['b.json', 'c.json'], true)
+      const signal = vi.mocked(fetchUsageQuotaInspectionStatus).mock.calls[1][0]!
+      await act(async () => after.resolve())
+      await act(async () => vi.advanceTimersByTimeAsync(3_000))
+      expect(signal.aborted).toBe(false)
+      expect(fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
+      expect(button('common.cancel').disabled).toBe(true)
+      expect(button('usage_stats.credentials_inspection_disable_invalid').disabled).toBe(true)
+      expect(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button[aria-label="common.close"]')[0].disabled).toBe(true)
+      expect(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[0].checked).toBe(false)
+      await act(async () => button('usage_stats.credentials_inspection_invalid_accounts_confirm').click())
+      expect(setCredentialsDisabled).toHaveBeenCalledOnce()
+
+      await act(async () => {
+        if (outcome === 'success') finishRefresh(running)
+        else failRefresh(new Error('temporary outage'))
+      })
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+      expect(button('usage_stats.credentials_inspection_disable_invalid').disabled).toBe(false)
+      if (outcome === 'failure') expect(document.body.textContent).toContain('temporary outage')
+      await act(async () => vi.advanceTimersByTimeAsync(3_000))
+      expect(fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(3)
+      expect(document.body.textContent).not.toContain('temporary outage')
+      await act(async () => vi.advanceTimersByTimeAsync(3_000))
+      expect(fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(4)
+      expect(onCompleted).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('retains selection and error when a write fails', async () => {

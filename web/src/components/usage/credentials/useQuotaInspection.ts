@@ -39,6 +39,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   const onInspectionCompletedRef = useRef(onInspectionCompleted)
   const requestGenerationRef = useRef(0)
   const statusControllerRef = useRef<AbortController | null>(null)
+  const pendingManualRefreshRef = useRef<Promise<void> | null>(null)
   const retireStatusRequest = useCallback(() => {
     statusControllerRef.current?.abort()
     statusControllerRef.current = null
@@ -47,6 +48,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   const resetQuotaInspection = useCallback(() => {
     // 清除旧轮次展示并取消状态 GET；已提交的巡检 POST 只丢弃晚到页面响应。
     requestGenerationRef.current += 1
+    pendingManualRefreshRef.current = null
     retireStatusRequest()
     setQuotaInspectionStatus(null)
     setQuotaInspectionLoading(false)
@@ -64,6 +66,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   useEffect(() => () => {
     // 离开页面时退休旧 GET/POST 的响应归属，已受理的巡检后台工作继续运行。
     requestGenerationRef.current += 1
+    pendingManualRefreshRef.current = null
     retireStatusRequest()
   }, [retireStatusRequest])
 
@@ -136,6 +139,11 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     let timer: number | undefined
     const controller = new AbortController()
     const pollQuotaInspectionStatus = async () => {
+      // 手动刷新由操作会话等待，轮询不能抢占；仍按原间隔检查下一轮。
+      if (pendingManualRefreshRef.current) {
+        timer = window.setTimeout(() => { void pollQuotaInspectionStatus() }, QUOTA_INSPECTION_REFRESH_INTERVAL_MS)
+        return
+      }
       const generation = requestGenerationRef.current
       const response = await loadQuotaInspectionStatus(controller)
       if (cancelled || controller.signal.aborted || requestGenerationRef.current !== generation) {
@@ -167,23 +175,42 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   const refreshQuotaInspectionStatus = useCallback(async () => {
     if (!enabled) return
     const generation = requestGenerationRef.current
-    // 手动读取会替换旧轮询 GET；即使本次读取失败，也应保留下一轮定时查询。
+    const previous = pendingManualRefreshRef.current
+    // 后来的手动读取顺序执行，既不提前解除前一会话的等待，也不复用可能早于本次操作的快照。
     setInspectionPollEpoch((current) => current + 1)
-    const response = await loadQuotaInspectionStatus()
-    if (requestGenerationRef.current !== generation || response === null) return
-    setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+    const refresh = (async () => {
+      if (previous) await previous
+      if (requestGenerationRef.current !== generation) return
+      const response = await loadQuotaInspectionStatus()
+      if (requestGenerationRef.current !== generation || response === null) return
+      setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+    })()
+    pendingManualRefreshRef.current = refresh
+    try {
+      await refresh
+    } finally {
+      if (pendingManualRefreshRef.current === refresh) pendingManualRefreshRef.current = null
+    }
   }, [enabled, loadQuotaInspectionStatus])
 
   const startQuotaInspection = useCallback(async () => {
     const generation = requestGenerationRef.current
     const wasPolling = inspectionPollingActive
-    // 新轮次启动前使旧状态读取失效；POST 受理期间出现的 GET 也不能盖过启动响应。
-    retireStatusRequest()
     setInspectionPollingActive(false)
     setQuotaInspectionStarting(true)
     setQuotaInspectionError('')
     try {
+      // 新轮次和 POST 响应不能取消正由会话等待的手动读取；普通旧 GET 仍须退休。
+      while (pendingManualRefreshRef.current && requestGenerationRef.current === generation) {
+        await pendingManualRefreshRef.current
+      }
+      if (requestGenerationRef.current !== generation) return
+      setInspectionPollingActive(false)
+      retireStatusRequest()
       const response = await startUsageQuotaInspection()
+      while (pendingManualRefreshRef.current && requestGenerationRef.current === generation) {
+        await pendingManualRefreshRef.current
+      }
       if (requestGenerationRef.current !== generation) return
       retireStatusRequest()
       setQuotaInspectionStatus(response)
