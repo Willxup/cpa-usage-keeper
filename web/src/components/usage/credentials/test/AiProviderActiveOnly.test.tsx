@@ -60,9 +60,9 @@ describe('AI Provider active-only controls', () => {
     expect(checkbox.checked).toBe(true)
     expect(container.textContent).toContain('usage_stats.credentials_ai_providers_active_only')
     expect(button.textContent).toBe('?')
-    expect(button.getAttribute('aria-label')).toBe('usage_stats.credentials_ai_providers_active_only_help_label')
+    expect(button.getAttribute('aria-label')).toBe('usage_stats.credentials_ai_providers_view_help_label')
     expect(document.getElementById(descriptionId)!.textContent)
-      .toBe('usage_stats.credentials_ai_providers_active_only_help')
+      .toBe('usage_stats.credentials_ai_providers_subtitle usage_stats.credentials_ai_providers_compatibility_help')
     expect(document.getElementById(tooltipId)!.getAttribute('role')).toBe('tooltip')
   })
 

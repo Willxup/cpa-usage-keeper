@@ -134,7 +134,7 @@ for (const engine of ['chromium', 'webkit']) {
           await page.setContent(`<div id="root" style="width:${width}px"></div>`)
           await page.evaluate((value) => { window.fixture = value }, { mode: 'cards', language, section: 'providers' })
           await page.addScriptTag({ content: script })
-          const helpName = language === 'en' ? 'About AI provider enabled-only filtering' : 'AI 供应商仅启用筛选说明'
+          const helpName = language === 'en' ? 'About AI provider views' : 'AI 供应商视图说明'
           const help = page.getByRole('button', { name: helpName })
           await help.waitFor()
           const order = await page.evaluate((helpLabel) => {

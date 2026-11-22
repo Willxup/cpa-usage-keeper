@@ -10,7 +10,7 @@ import { AiProviderCardsView } from './cards/AiProviderCardsView'
 import { AiProviderListView } from './list/AiProviderListView'
 import { CredentialViewModeSwitch } from './CredentialViewModeSwitch'
 import type { CredentialViewMode } from './credentialListPreferences'
-import { QuestionMarkHelp } from '@/components/ui/QuestionMarkHelp'
+import { CredentialViewHelp } from './CredentialViewHelp'
 
 interface AiProviderCredentialsSectionProps {
   rows: AiProviderCredentialRow[]
@@ -39,7 +39,6 @@ interface AiProviderCredentialsSectionProps {
 
 export function AiProviderCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, viewMode, onViewModeChange, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange }: AiProviderCredentialsSectionProps) {
   const { t } = useTranslation()
-  const helpText = t('usage_stats.credentials_ai_providers_active_only_help')
 
   return (
     <CredentialSectionShell
@@ -47,19 +46,12 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
       viewMode={viewMode}
       contentClassName={viewMode === 'cards' ? cardStyles.cardContent : listStyles.listContent}
       titleHelp={(
-        <QuestionMarkHelp
-          label={t('usage_stats.credentials_ai_providers_active_only_help_label')}
-          description={helpText}
-          positioning={{
-            align: 'center',
-            estimatedHeight: 96,
-            maxWidth: 280,
-            offset: 10,
-            viewportPadding: 8,
-          }}
-        >
-          <span>{helpText}</span>
-        </QuestionMarkHelp>
+        <CredentialViewHelp
+          mode={viewMode}
+          label={t('usage_stats.credentials_ai_providers_view_help_label')}
+          cardDescription={t('usage_stats.credentials_ai_providers_subtitle')}
+          note={t('usage_stats.credentials_ai_providers_compatibility_help')}
+        />
       )}
       titleExtra={(
         <div className={styles.credentialsTitleControls}>

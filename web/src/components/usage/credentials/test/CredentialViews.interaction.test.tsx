@@ -26,9 +26,11 @@ describe('credential view switching', () => {
     await act(async () => root.render(<Empty />))
     const choice = container.querySelector<HTMLButtonElement>('button[aria-label="List view"]')!
     await act(async () => choice.focus())
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('List view')
+    const tooltipId = choice.getAttribute('aria-describedby')!
+    expect(document.getElementById(tooltipId)?.textContent).toBe('List view')
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+    expect(choice.hasAttribute('aria-describedby')).toBe(false)
+    expect(document.getElementById(tooltipId)).toBeNull()
     await act(async () => choice.click())
     expect(choice.getAttribute('aria-pressed')).toBe('true')
     expect(container.querySelector('[data-view-mode="list"]')).not.toBeNull()
