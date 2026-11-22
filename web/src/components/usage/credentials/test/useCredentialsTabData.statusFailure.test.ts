@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
-import { resolveCredentialStatusFailure } from '../useCredentialsTabData'
+import { resolveCredentialStatusFailure } from '../useCredentialMutations'
 
 describe('resolveCredentialStatusFailure', () => {
   it('refreshes the list after a 404 because the local page is stale', () => {
