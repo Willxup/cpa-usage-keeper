@@ -45,7 +45,6 @@ const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((op
 }))
 
 export function CredentialsPagination({
-  leadingControls,
   className,
   controlsClassName,
   page,
@@ -62,7 +61,6 @@ export function CredentialsPagination({
   onPageSizeChange,
   onSortChange,
 }: {
-  leadingControls?: ReactNode
   className?: string
   controlsClassName?: string
   page: number
@@ -94,7 +92,6 @@ export function CredentialsPagination({
       }
     }}>
       <div className={`${styles.credentialPaginationControls} ${controlsClassName ?? ''}`.trim()}>
-        {leadingControls}
         {sortOptions && sortOptions.length > 0 && sortLabel && onSortChange && (
           <div className={styles.credentialPageSizeControl}>
             <span>{sortLabel}</span>

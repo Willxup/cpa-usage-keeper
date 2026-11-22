@@ -39,7 +39,7 @@ const bundle = await build({
 const script = bundle.output.find((item) => item.type === 'chunk')?.code
 assert.ok(script)
 const { launchBrowser } = await import(process.env.BROWSER_TEST_RUNTIME)
-const scenarios = [240, 268, 320, 340, 380, 499, 501, 550, 600, 800].flatMap((width) =>
+const scenarios = [240, 268, 279, 280, 320, 340, 379, 380, 381, 410, 499, 501, 550, 599, 600, 601, 800, 815, 816, 817, 850, 900, 950, 1000, 1100, 1280, 1440].flatMap((width) =>
   (width >= 268 ? [1, 2] : [1]).map((scale) => ({ width, scale })))
 let checks = 0
 let providerChecks = 0
@@ -68,6 +68,11 @@ for (const engine of ['chromium', 'webkit']) {
             sizes.forEach(([child, size]) => { child.style.fontSize = `${size * 2}px` })
           })
           const geometry = await controls.evaluate((element) => {
+            const header = element.closest('[class*="credentialSectionHeader"]')
+            const title = header.querySelector('h3')
+            const help = header.querySelector('[class*="credentialSectionHeading"] button')
+            const filter = element.querySelector('input[type="checkbox"]')
+            const groups = [...element.querySelectorAll('[role="group"]')]
             const children = [...element.children].filter((child) => child.getBoundingClientRect().height > 0)
             const orphan = children.some((child, index) => {
               if (!child.className.includes('Divider')) return false
@@ -80,9 +85,29 @@ for (const engine of ['chromium', 'webkit']) {
               const rect = button.getBoundingClientRect()
               return { width: rect.width, height: rect.height }
             })
-            return { orphan, heights, hitAreas, width: element.clientWidth, scrollWidth: element.scrollWidth }
+            const inside = (outer, inner) => {
+              const a = outer.getBoundingClientRect(), b = inner.getBoundingClientRect()
+              return b.left >= a.left - 1 && b.right <= a.right + 1 && b.top >= a.top - 1 && b.bottom <= a.bottom + 1
+            }
+            return {
+              orphan, heights, hitAreas, width: element.clientWidth, scrollWidth: element.scrollWidth,
+              groupNames: groups.map((group) => group.getAttribute('aria-label')),
+              ordered: [title, help, filter, groups[0]].every((child, index, all) => index === 0 || !!(all[index - 1].compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING)),
+              lastGroup: element.lastElementChild === groups.at(-1),
+              intact: groups.every((group) => inside(element, group) && [...group.querySelectorAll('button')].every((button) => inside(group, button))),
+              paginationUsageCount: document.querySelectorAll('[class*="credentialPagination_"] [aria-label="Quota usage display mode"], [class*="credentialPagination_"] [aria-label="限额用量显示模式"]').length,
+              pageWidth: document.documentElement.clientWidth, pageScrollWidth: document.documentElement.scrollWidth,
+            }
           })
           const label = `${engine} ${touch ? 'touch' : 'pointer'} ${mode} width=${width} text=${scale * 100}%`
+          const names = language === 'en'
+            ? ['View layout', 'List side panel', 'Quota usage display mode']
+            : ['视图布局', '列表右侧内容', '限额用量显示模式']
+          assert.deepEqual(geometry.groupNames, mode === 'list' ? names : [names[0], names[2]], `${label}: wrong header groups or order`)
+          assert.ok(geometry.ordered && geometry.lastGroup, `${label}: header order or last group is incorrect`)
+          assert.ok(geometry.intact, `${label}: a control group is split or overflows`)
+          assert.equal(geometry.paginationUsageCount, 0, `${label}: usage switch must not appear in pagination`)
+          assert.ok(geometry.pageScrollWidth <= geometry.pageWidth + 1, `${label}: page overflows`)
           assert.equal(geometry.orphan, false, `${label}: divider stranded across rows`)
           assert.ok(geometry.scrollWidth <= geometry.width + 1, `${label}: controls overflow`)
           assert.ok(geometry.heights.every((height) => Math.abs(height - (touch ? 52 : 34)) <= 1), `${label}: inconsistent control height`)

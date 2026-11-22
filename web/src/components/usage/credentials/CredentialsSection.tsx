@@ -100,13 +100,13 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
             </label></div>
             <span className={styles.credentialFilterDivider} aria-hidden="true" />
             <CredentialViewModeSwitch mode={viewMode} onChange={onViewModeChange} />
-            {viewMode === 'cards' && total !== 0 && <>
-              <span className={styles.credentialControlDivider} aria-hidden="true" />
-              <QuotaUsageModeSwitch mode={quotaUsageMode} onChange={setQuotaUsageMode} />
-            </>}
             {viewMode === 'list' && <>
               <span className={styles.credentialControlDivider} aria-hidden="true" />
               <CredentialListContentModeSwitch mode={listContentMode} onChange={setListContentMode} />
+            </>}
+            {total !== 0 && <>
+              <span className={styles.credentialControlDivider} aria-hidden="true" />
+              <QuotaUsageModeSwitch mode={quotaUsageMode} onChange={setQuotaUsageMode} />
             </>}
           </div>
         )}
@@ -150,7 +150,6 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
       <CredentialsPagination
         className={viewMode === 'cards' ? cardStyles.cardPagination : undefined}
         controlsClassName={viewMode === 'cards' ? cardStyles.cardPaginationControls : undefined}
-        leadingControls={viewMode === 'list' && listContentMode === 'quota' && total > 0 ? <QuotaUsageModeSwitch mode={quotaUsageMode} onChange={setQuotaUsageMode} /> : undefined}
         page={page}
         total={total}
         totalPages={totalPages}
