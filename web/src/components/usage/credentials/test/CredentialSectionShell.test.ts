@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from '../CredentialSectionShell'
+import { CredentialsPagination } from '../CredentialSectionShell'
+import { formatCredentialNumber, formatCredentialPercent } from '../credentialMetrics'
 
 const renderPagination = (props: Partial<Parameters<typeof CredentialsPagination>[0]> = {}) => renderToStaticMarkup(
   createElement(CredentialsPagination, {
