@@ -33,10 +33,10 @@ export function cacheReadRateTone(value: number | null): 'success' | 'warning' |
   if (value === null) {
     return 'neutral'
   }
-  if (value >= 80) {
+  if (value >= 90) {
     return 'success'
   }
-  if (value >= 50) {
+  if (value >= 80) {
     return 'warning'
   }
   return 'danger'

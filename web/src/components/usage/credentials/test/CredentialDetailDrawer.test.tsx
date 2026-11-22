@@ -720,9 +720,9 @@ describe('CredentialDetailDrawer', () => {
   })
 
   it.each([
-    { label: 'success boundaries', successRate: 95, cacheReadRate: 80, expectedTones: ['success', 'success'] },
-    { label: 'warning boundaries', successRate: 80, cacheReadRate: 50, expectedTones: ['warning', 'warning'] },
-    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 49.99, expectedTones: ['danger', 'danger'] },
+    { label: 'success boundaries', successRate: 95, cacheReadRate: 90, expectedTones: ['success', 'success'] },
+    { label: 'warning boundaries', successRate: 80, cacheReadRate: 80, expectedTones: ['warning', 'warning'] },
+    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 79.99, expectedTones: ['danger', 'danger'] },
     { label: 'missing rates', successRate: null, cacheReadRate: null, expectedTones: ['neutral', 'neutral'] },
   ])('uses the shared list thresholds for $label', async ({ successRate, cacheReadRate, expectedTones }) => {
     await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, successRate, cacheReadRate } } })

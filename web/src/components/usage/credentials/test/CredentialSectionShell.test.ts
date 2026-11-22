@@ -29,10 +29,10 @@ describe('CredentialSectionShell formatting', () => {
   it.each([
     [null, 'neutral'],
     [0, 'danger'],
-    [49.99, 'danger'],
-    [50, 'warning'],
-    [79.99, 'warning'],
-    [80, 'success'],
+    [79.99, 'danger'],
+    [80, 'warning'],
+    [89.99, 'warning'],
+    [90, 'success'],
     [100, 'success'],
   ] as const)('classifies cache rate %s as %s', (value, expected) => {
     expect(cacheReadRateTone(value)).toBe(expected)
