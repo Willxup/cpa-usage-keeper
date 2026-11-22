@@ -54,10 +54,13 @@ for (const engine of ['chromium', 'webkit']) {
       await page.route('http://credential-controls.test/', (route) => route.fulfill({ body: '<!doctype html>' }))
       await page.goto('http://credential-controls.test/')
       for (const { width, scale } of scenarios) {
-        for (const mode of ['cards', 'list']) {
+        for (const { mode, contentMode } of [{ mode: 'cards', contentMode: 'quota' }, { mode: 'list', contentMode: 'quota' }, { mode: 'list', contentMode: 'health' }]) {
           const language = scale === 2 || width === 501 ? 'en' : 'zh'
           await page.setContent(`<div id="root" style="width:${width}px"></div>`)
-          await page.evaluate((value) => { window.fixture = value }, { mode, language })
+          await page.evaluate((value) => {
+            localStorage.setItem('cpa.credentials.displayMode', value.contentMode)
+            window.fixture = value
+          }, { mode, contentMode, language })
           await page.addScriptTag({ content: script })
           const controls = page.locator('[class*="credentialsTitleControls"]')
           await controls.waitFor()
@@ -73,7 +76,8 @@ for (const engine of ['chromium', 'webkit']) {
             const help = header.querySelector('[class*="credentialSectionHeading"] button')
             const filter = element.querySelector('input[type="checkbox"]')
             const groups = [...element.querySelectorAll('[role="group"]')]
-            const children = [...element.children].filter((child) => child.getBoundingClientRect().height > 0)
+            const allChildren = [...element.children]
+            const children = allChildren.filter((child) => child.getBoundingClientRect().height > 0)
             const orphan = children.some((child, index) => {
               if (!child.className.includes('Divider')) return false
               const before = children[index - 1]?.getBoundingClientRect()
@@ -83,7 +87,7 @@ for (const engine of ['chromium', 'webkit']) {
             const heights = [element.querySelector('label'), ...element.querySelectorAll('[role="group"]')].map((child) => child.getBoundingClientRect().height)
             const hitAreas = [...element.querySelectorAll('[role="group"] button')].map((button) => {
               const rect = button.getBoundingClientRect()
-              return { width: rect.width, height: rect.height }
+              return { width: rect.width, height: rect.height, icons: button.querySelectorAll('svg').length, text: button.textContent.trim() }
             })
             const inside = (outer, inner) => {
               const a = outer.getBoundingClientRect(), b = inner.getBoundingClientRect()
@@ -93,18 +97,22 @@ for (const engine of ['chromium', 'webkit']) {
               orphan, heights, hitAreas, width: element.clientWidth, scrollWidth: element.scrollWidth,
               groupNames: groups.map((group) => group.getAttribute('aria-label')),
               ordered: [title, help, filter, groups[0]].every((child, index, all) => index === 0 || !!(all[index - 1].compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING)),
-              lastGroup: element.lastElementChild === groups.at(-1),
+              lastGroup: element.lastElementChild?.contains(groups.at(-1)),
+              structure: allChildren.length === 1 + groups.length * 2 && groups.every((group, index) => allChildren[index * 2 + 1].className.includes('Divider') && allChildren[index * 2 + 2].contains(group)),
               intact: groups.every((group) => inside(element, group) && [...group.querySelectorAll('button')].every((button) => inside(group, button))),
+              usageCount: document.querySelectorAll('[aria-label="Quota usage display mode"], [aria-label="限额用量显示模式"]').length,
               paginationUsageCount: document.querySelectorAll('[class*="credentialPagination_"] [aria-label="Quota usage display mode"], [class*="credentialPagination_"] [aria-label="限额用量显示模式"]').length,
               pageWidth: document.documentElement.clientWidth, pageScrollWidth: document.documentElement.scrollWidth,
             }
           })
-          const label = `${engine} ${touch ? 'touch' : 'pointer'} ${mode} width=${width} text=${scale * 100}%`
+          const label = `${engine} ${touch ? 'touch' : 'pointer'} ${mode}/${contentMode} width=${width} text=${scale * 100}%`
           const names = language === 'en'
             ? ['View layout', 'List side panel', 'Quota usage display mode']
             : ['视图布局', '列表右侧内容', '限额用量显示模式']
-          assert.deepEqual(geometry.groupNames, mode === 'list' ? names : [names[0], names[2]], `${label}: wrong header groups or order`)
-          assert.ok(geometry.ordered && geometry.lastGroup, `${label}: header order or last group is incorrect`)
+          const expected = mode === 'cards' ? [names[0], names[2]] : contentMode === 'quota' ? names : [names[0], names[1]]
+          assert.deepEqual(geometry.groupNames, expected, `${label}: wrong header groups or order`)
+          assert.equal(geometry.usageCount, expected.includes(names[2]) ? 1 : 0, `${label}: usage switch must be absent or unique`)
+          assert.ok(geometry.ordered && geometry.lastGroup && geometry.structure, `${label}: header order or divider structure is incorrect`)
           assert.ok(geometry.intact, `${label}: a control group is split or overflows`)
           assert.equal(geometry.paginationUsageCount, 0, `${label}: usage switch must not appear in pagination`)
           assert.ok(geometry.pageScrollWidth <= geometry.pageWidth + 1, `${label}: page overflows`)
@@ -113,6 +121,7 @@ for (const engine of ['chromium', 'webkit']) {
           assert.ok(geometry.heights.every((height) => Math.abs(height - (touch ? 52 : 34)) <= 1), `${label}: inconsistent control height`)
           const target = touch ? 44 : 24
           assert.ok(geometry.hitAreas.every((rect) => rect.width >= target && rect.height >= target), `${label}: undersized button`)
+          assert.ok(geometry.hitAreas.every((rect) => rect.icons === 1 && rect.text === ''), `${label}: options must remain icon-only`)
           if (mode === 'list') {
             const visual = await page.evaluate(({ layoutName, contentName }) => {
               const group = (name) => document.querySelector(`[role="group"][aria-label="${name}"]`)

@@ -104,7 +104,7 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
               <span className={styles.credentialControlDivider} aria-hidden="true" />
               <CredentialListContentModeSwitch mode={listContentMode} onChange={setListContentMode} />
             </>}
-            {total !== 0 && <>
+            {total !== 0 && (viewMode === 'cards' || listContentMode === 'quota') && <>
               <span className={styles.credentialControlDivider} aria-hidden="true" />
               <QuotaUsageModeSwitch mode={quotaUsageMode} onChange={setQuotaUsageMode} />
             </>}
