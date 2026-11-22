@@ -66,7 +66,9 @@ for (const engine of ['chromium', 'webkit']) {
     for (const mode of ['credentials', 'provider']) {
       for (const { viewport, width, stacked } of [
         { viewport: 1440, width: 380, stacked: true },
-        { viewport: 1440, width: 480, stacked: true },
+        { viewport: 1440, width: 460, stacked: true },
+        { viewport: 1440, width: 464, stacked: false },
+        { viewport: 1440, width: 480, stacked: false },
         { viewport: 1440, width: 500, stacked: false },
         { viewport: 1440, width: 650, stacked: false },
         { viewport: 320, width: 320, stacked: true },
@@ -83,12 +85,15 @@ for (const engine of ['chromium', 'webkit']) {
           const chart = el.querySelector('[class*="credentialHealthChart_"]')
           const meta = el.querySelector('[class*="credentialHealthMeta_"]')
           const r = (node) => { const b = node.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom } }
-          return { scroll: root.scrollWidth, width: root.clientWidth, panel: r(el), chart: r(chart), meta: r(meta), text: el.textContent, times: meta.querySelectorAll('[class*="credentialHealthMetaTime_"]').length }
+          return { scroll: root.scrollWidth, width: root.clientWidth, panel: r(el), chart: r(chart), meta: r(meta), gap: getComputedStyle(el).columnGap, text: el.textContent, times: meta.querySelectorAll('[class*="credentialHealthMetaTime_"]').length }
         })
         const label = `${engine} ${mode} viewport=${viewport} width=${width}`
         assert.ok(result.scroll <= result.width + 1, `${label}: section overflow ${result.scroll}/${result.width}`)
         assert.ok(result.meta.left >= result.panel.left - 0.5 && result.meta.right <= result.panel.right + 0.5, `${label}: metadata outside panel`)
         assert.equal(result.meta.top >= result.chart.bottom - 0.5, stacked, `${label}: wrong panel arrangement`)
+        if (width === 464 && viewport === 1440) assert.equal(result.gap, '20px', `${label}: minimum gap at the threshold`)
+        if (width === 480 && viewport === 1440) assert.equal(result.gap, '36px', `${label}: preserve two columns with a fitting gap`)
+        if (width === 500 && viewport === 1440) assert.equal(result.gap, '40px', `${label}: preserve the normal gap`)
         assert.match(result.text, /90\.0%/)
         assert.match(result.text, /40\.00%/)
         assert.equal(result.times, 2, `${label}: expected both timestamps`)
