@@ -19,4 +19,10 @@ describe('CredentialDetailDrawer styles', () => {
     expect(drawerStyles).toMatch(/\.quotaRows \[data-quota-key\]\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
     expect(drawerStyles).toMatch(/\.quotaRows \[data-quota-group\]\s*\{[^}]*> div\s*\{\s*grid-column:\s*1\s*\/\s*-1;/)
   })
+
+  it('aligns flat quota group tooltips inward on desktop and mobile inside the drawer', () => {
+    const [desktopStyles, mobileStyles = ''] = drawerStyles.split('@include mobile')
+    expect(desktopStyles).toMatch(/> \[role='tooltip'\]\s*\{[^}]*right:\s*0;\s*left:\s*auto;[\s\S]*?&::after\s*\{\s*right:\s*14px;\s*left:\s*auto;\s*\}/)
+    expect(mobileStyles).toMatch(/> \[role='tooltip'\]\s*\{[^}]*right:\s*auto;\s*left:\s*0;[\s\S]*?&::after\s*\{\s*right:\s*auto;\s*left:\s*14px;\s*\}/)
+  })
 })
