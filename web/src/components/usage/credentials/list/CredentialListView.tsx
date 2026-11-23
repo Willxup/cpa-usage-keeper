@@ -4,8 +4,9 @@ import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import styles from '../CredentialSections.module.scss'
 import listStyles from './CredentialList.module.scss'
-import { formatCredentialTimestamp } from '../credentialViewModels'
+import { credentialSIWCState, formatCredentialTimestamp } from '../credentialViewModels'
 import { credentialBrandOverride } from '../credentialBrand'
+import { CredentialSIWCStatus } from '../CredentialSIWCStatus'
 import type { CredentialViewProps } from '../credentialViewProps'
 import type { CredentialListContentMode } from '../credentialListPreferences'
 import { CredentialAliasEditor } from '../CredentialAliasEditor'
@@ -38,6 +39,7 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
         const rowRefreshing = isRowRefreshing(row)
         const { isClaude, resetCredits, canResetQuota } = credentialResetCapabilities(row)
         const rowKey = row.identity.id || row.identity.identity
+        const siwcState = credentialSIWCState(row.identity)
         const brandType = credentialBrandOverride(row.identity.type)?.iconType ?? row.identity.type
         return (
           <CredentialRowShell
@@ -79,6 +81,7 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
               </button>
             ) : <span>{row.displayName}</span>}
             subtitle={badges(row, onSavePriority)}
+            status={siwcState && <CredentialSIWCStatus state={siwcState} className={listStyles.credentialListSIWCStatus} />}
             identityId={rowKey}
             metricsTitle={row.identity.stats_reset_at ? t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(row.identity.stats_reset_at) ?? row.identity.stats_reset_at }) : undefined}
             metrics={(

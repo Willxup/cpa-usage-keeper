@@ -3,9 +3,9 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import styles from '../CredentialSections.module.scss'
-import cardStyles from './CredentialCards.module.scss'
 import { credentialSIWCState, formatCredentialTimestamp } from '../credentialViewModels'
 import { credentialBrandOverride } from '../credentialBrand'
+import { CredentialSIWCStatus } from '../CredentialSIWCStatus'
 import type { CredentialViewProps } from '../credentialViewProps'
 import { CredentialAliasEditor, CredentialEditButton } from '../CredentialAliasEditor'
 import { CredentialHealthPanel } from '../CredentialHealthPanel'
@@ -70,12 +70,7 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
             )}
             health={<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={row.credentialHealth} lastUsedAt={row.identity.last_used_at} windowCacheReadRate={row.windowCacheReadRate} />}
             quota={<CredentialQuotaPanel variant="compact" row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />}
-            footerLeft={siwcState && (
-              <span className={cardStyles.credentialSIWCStatus} data-siwc-state={siwcState}>
-                <span className={cardStyles.credentialSIWCDot} aria-hidden="true" />
-                <span>SIWC {t(`usage_stats.credentials_siwc_${siwcState}`)}</span>
-              </span>
-            )}
+            footerLeft={siwcState && <CredentialSIWCStatus state={siwcState} />}
             actions={(
               <>
                   {onEdit && <CredentialEditButton identityId={row.identity.id} disabled={row.identity.is_deleted} onEdit={() => onEdit(row)} cardTooltip />}

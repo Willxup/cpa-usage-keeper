@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import styles from './CredentialList.module.scss'
 import shared from '../CredentialSections.module.scss'
 
-export function CredentialRowShell({ icon, title, subtitle, metrics, metricsTitle, side, rowClassName, identityId }: {
-  icon: ReactNode; title: ReactNode; subtitle?: ReactNode; metrics: ReactNode; metricsTitle?: string;
+export function CredentialRowShell({ icon, title, subtitle, status, metrics, metricsTitle, side, rowClassName, identityId }: {
+  icon: ReactNode; title: ReactNode; subtitle?: ReactNode; status?: ReactNode; metrics: ReactNode; metricsTitle?: string;
   side: ReactNode; rowClassName: string; identityId: string
 }) {
   return <article className={`${styles.credentialRow} ${rowClassName}`} data-credential-list-row="true" data-credential-identity={identityId}>
@@ -12,6 +12,7 @@ export function CredentialRowShell({ icon, title, subtitle, metrics, metricsTitl
         <span className={styles.credentialDisplayName}>{title}</span>
       </div></div>
       {subtitle && <span className={styles.credentialIdentityText}>{subtitle}</span>}
+      {status && <div className={styles.credentialIdentityMeta}>{status}</div>}
     </div></div>
     <div className={styles.credentialMetricGroup} title={metricsTitle}>{metrics}</div>
     <div className={styles.credentialSidePanel}>{side}</div>
