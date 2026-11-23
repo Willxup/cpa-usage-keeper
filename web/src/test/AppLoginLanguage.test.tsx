@@ -44,7 +44,7 @@ it.each(['callback', 'start', 'password'])('updates a %s error with the selected
   if (source !== 'callback') await act(async () => container.querySelector<HTMLButtonElement>(source === 'start' ? '[data-oidc]' : '[data-password]')!.click());
   const english = container.querySelector('[role="alert"]')!.textContent;
   expect(english).toBe(i18n.t(key));
-  for (const language of ['zh', 'zh-TW', 'en']) {
+  for (const language of ['zh', 'zh-TW', 'ru', 'en']) {
     await act(async () => { await i18n.changeLanguage(language); });
     const error = container.querySelector('[role="alert"]')!.textContent;
     expect(error).toBe(i18n.t(key));

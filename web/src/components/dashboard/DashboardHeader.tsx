@@ -27,7 +27,7 @@ export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = fa
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const language = isSupportedLanguage(i18n.language) ? i18n.language : 'en';
-  const languages = [{ value: 'en', label: 'English' }, { value: 'zh', label: '简体中文' }, { value: 'zh-TW', label: '繁體中文' }];
+  const languages = [{ value: 'en', label: 'English' }, { value: 'zh', label: '简体中文' }, { value: 'zh-TW', label: '繁體中文' }, { value: 'ru', label: 'Русский' }];
   const themes = [{ value: 'white', label: t('usage_stats.theme_light') }, { value: 'dark', label: t('usage_stats.theme_dark') }, { value: 'auto', label: t('usage_stats.theme_auto') }];
   const selectedTheme = theme === 'light' ? 'white' : theme;
   const nextTheme = selectedTheme === 'white' ? 'dark' : selectedTheme === 'dark' ? 'auto' : 'white';
@@ -62,7 +62,7 @@ export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = fa
         dropdownMinWidth={160}
         fullWidth={false}
         showChevron={false}
-        renderValue={() => <span data-dashboard-language={language}>{language === 'zh' ? '中' : language === 'zh-TW' ? '繁' : 'EN'}</span>}
+        renderValue={() => <span data-dashboard-language={language}>{language === 'zh' ? '中' : language === 'zh-TW' ? '繁' : language === 'ru' ? 'РУ' : 'EN'}</span>}
       />
       <button
         type="button"
