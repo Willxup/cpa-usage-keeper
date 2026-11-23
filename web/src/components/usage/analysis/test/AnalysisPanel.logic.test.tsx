@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Interaction, Tooltip } from 'chart.js';
@@ -948,5 +949,113 @@ describe('AnalysisPanel token chart data', () => {
     const analysis = { ...emptyAnalysis, heatmap: undefined } as unknown as AnalysisResponse;
 
     expect(() => renderToStaticMarkup(<AnalysisTestPanel analysis={analysis} />)).not.toThrow();
+  });
+
+  it('keeps Usage Distribution title and 4 dimension tabs before the pricing hint when cost_available is false', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      model_composition: [composition({
+        key: 'unpriced-model',
+        label: 'Unpriced Model',
+        cost_usd: 0,
+        cost_available: false,
+      })],
+    };
+
+    const container = renderAnalysisPanel({ analysis });
+    const compositionHeading = [...container.querySelectorAll('h2')]
+      .find((heading) => heading.textContent === 'usage_stats.analysis_composition_title');
+    expect(compositionHeading).toBeTruthy();
+
+    const titleLine = compositionHeading!.parentElement!;
+    expect(titleLine.className).toContain('cardTitleLineWithActions');
+
+    const tablist = titleLine.querySelector('[role="tablist"]');
+    expect(tablist).toBeTruthy();
+    const tabs = [...tablist!.querySelectorAll('[role="tab"]')];
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      'usage_stats.analysis_composition_model_tab',
+      'usage_stats.analysis_composition_api_key_tab',
+      'usage_stats.analysis_composition_credentials_tab',
+      'usage_stats.analysis_composition_ai_provider_tab',
+    ]);
+
+    const hint = titleLine.querySelector('small');
+    expect(hint?.textContent).toBe('usage_stats.cost_need_price');
+    expect(hint?.parentElement).toBe(titleLine);
+
+    const children = [...titleLine.children];
+    expect(children.indexOf(compositionHeading!)).toBeLessThan(children.indexOf(tablist!));
+    expect(children.indexOf(tablist!)).toBeLessThan(children.indexOf(hint!));
+  });
+
+  it('synchronizes paired header height only when Usage Distribution and Top Models sit side by side', () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+    class MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    let firstTop = 100;
+    let secondTop = 100;
+    let compositionLineHeight = 58;
+    const topModelsLineHeight = 36;
+
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === 'SECTION' && this.className.includes('pairedChartCard')) {
+        const grid = this.parentElement;
+        const top = grid?.firstElementChild === this ? firstTop : secondTop;
+        return { top, left: 0, right: 400, bottom: top + 740, width: 400, height: 740, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      }
+      if (this.className.includes('cardTitleLine')) {
+        const isComposition = this.textContent?.includes('usage_stats.analysis_composition_title');
+        const height = isComposition ? compositionLineHeight : topModelsLineHeight;
+        return { top: 0, left: 0, right: 360, bottom: height, width: 360, height, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+      }
+      return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    });
+
+    try {
+      act(() => {
+        root.render(<AnalysisTestPanel analysis={{
+          ...emptyAnalysis,
+          model_composition: [composition({ cost_available: false })],
+        }} />);
+      });
+
+      const pairedGrid = host.querySelector('[class*="insightGrid"]') as HTMLElement;
+      expect(pairedGrid.style.getPropertyValue('--paired-header-height')).toBe('58px');
+
+      // 缺价提示消失或回到单行高度后，同步变量应能立即回落。
+      compositionLineHeight = 36;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      expect(pairedGrid.style.getPropertyValue('--paired-header-height')).toBe('36px');
+
+      // 移动端/窄屏单列堆叠时清除变量，避免 Top Models 留下多余头部留白。
+      firstTop = 100;
+      secondTop = 720;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      expect(pairedGrid.style.getPropertyValue('--paired-header-height')).toBe('');
+    } finally {
+      rectSpy.mockRestore();
+      act(() => root.unmount());
+      host.remove();
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
   });
 });

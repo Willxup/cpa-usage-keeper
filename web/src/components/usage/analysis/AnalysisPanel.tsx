@@ -831,10 +831,10 @@ function AnalysisCardHeader({
 }) {
   return (
     <div className={`${styles.cardHeader} keeper-card-heading`}>
-      <div className={`${styles.cardTitleLine} keeper-card-title-track`}>
+      <div className={`${styles.cardTitleLine} keeper-card-title-track${actions ? ` ${styles.cardTitleLineWithActions}` : ''}`}>
         <h2 className="keeper-card-title">{title}</h2>
-        <CostHeaderHint show={showPricingHint} label={hint} />
         {actions}
+        <CostHeaderHint show={showPricingHint} label={hint} />
       </div>
     </div>
   );
@@ -1730,6 +1730,7 @@ export function AnalysisPanel({
   const credentialsComposition = analysis?.credentials_composition ?? EMPTY_COMPOSITION_ITEMS;
   const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
+  const pairedGridRef = useRef<HTMLDivElement | null>(null);
   const compositionTabs = useMemo<CompositionTab[]>(() => {
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
       api_key: { id: 'api_key', label: t('usage_stats.analysis_composition_api_key_tab'), items: apiComposition },
@@ -1740,11 +1741,51 @@ export function AnalysisPanel({
     return compositionDimensions.map((dimension) => tabs[dimension]);
   }, [apiComposition, modelComposition, credentialsComposition, aiProviderComposition, compositionDimensions, t]);
 
+  useLayoutEffect(() => {
+    const grid = pairedGridRef.current;
+    if (!grid) return;
+    const cards = Array.from(grid.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    const titleLines = cards
+      .map((card) => card.querySelector<HTMLElement>(`.${styles.cardTitleLine}`))
+      .filter((line): line is HTMLElement => Boolean(line));
+
+    const syncHeaderHeight = () => {
+      if (cards.length < 2 || titleLines.length < 2) {
+        grid.style.removeProperty('--paired-header-height');
+        return;
+      }
+      const firstTop = cards[0].getBoundingClientRect().top;
+      const secondTop = cards[1].getBoundingClientRect().top;
+      // 仅在桌面双栏左右并排时同步头部最小高度，单列堆叠时清除变量以免产生多余留白。
+      if (Math.abs(firstTop - secondTop) > 1) {
+        grid.style.removeProperty('--paired-header-height');
+        return;
+      }
+      // 测量内部自然内容轨道 .cardTitleLine，避免被 .cardHeader 的 min-height 反噬导致无法缩回。
+      const maxTitleHeight = titleLines.reduce(
+        (max, line) => Math.max(max, line.getBoundingClientRect().height),
+        0,
+      );
+      if (maxTitleHeight > 0) {
+        grid.style.setProperty('--paired-header-height', `${Math.ceil(maxTitleHeight)}px`);
+      } else {
+        grid.style.removeProperty('--paired-header-height');
+      }
+    };
+
+    syncHeaderHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncHeaderHeight);
+    observer.observe(grid);
+    titleLines.forEach((line) => observer.observe(line));
+    return () => observer.disconnect();
+  }, [analysis, loading, isMobile, compositionTabs]);
+
   return (
     <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={analysis} refreshSignal={chartRefreshSignal}>
     <div className={styles.analysisPanel}>
       <TokenUsageChart rows={tokenRows} summary={analysis?.cost_summary} loading={loading} isDark={isDark} isMobile={isMobile} />
-      <div className={styles.insightGrid}>
+      <div ref={pairedGridRef} className={styles.insightGrid}>
         <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
         <TopModelsCard
           modelUsage={analysis?.model_usage}
