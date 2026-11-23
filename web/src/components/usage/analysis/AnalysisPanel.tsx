@@ -37,7 +37,7 @@ interface AnalysisPanelProps {
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'credentials' | 'ai_provider';
 
-const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'credentials', 'ai_provider'];
+const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['model', 'api_key', 'credentials', 'ai_provider'];
 
 type ChartRow = {
   label: string;

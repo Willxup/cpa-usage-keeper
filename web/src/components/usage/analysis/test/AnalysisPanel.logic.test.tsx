@@ -229,7 +229,7 @@ describe('AnalysisPanel token chart data', () => {
     const markup = renderToStaticMarkup(<AnalysisTestPanel analysis={analysis} />);
 
     expect(chartCapture.doughnutCount).toBe(1);
-    expect(chartCapture.doughnutData?.labels).toEqual(['Primary Key']);
+    expect(chartCapture.doughnutData?.labels).toEqual(['gpt-4o']);
     expect(chartCapture.doughnutData?.datasets[0]?.data).toEqual([1000]);
     expect(chartCapture.doughnutOptions).toMatchObject({
       interaction: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
@@ -241,20 +241,20 @@ describe('AnalysisPanel token chart data', () => {
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.external).toBeUndefined();
     expect(chartCapture.doughnutPlugins?.map((plugin) => plugin.id)).toContain('analysis-composition-labels');
     expect(markup).toContain('usage_stats.analysis_composition_title');
-    expect(markup).toContain('usage_stats.analysis_composition_api_key_tab');
+    expect(markup).toContain('usage_stats.analysis_composition_model_tab');
     expect(markup).toContain('usage_stats.analysis_composition_token_percent');
-    expect(markup).toContain('Primary Key');
+    expect(markup).toContain('gpt-4o');
     expect(markup).toContain('usage_stats.rpm');
     expect(markup).toContain('0.03');
     expect(markup).toContain('usage_stats.tpm');
     expect(markup).toContain('8.33');
-    expect(markup).not.toContain('gpt-4o');
+    expect(markup).not.toContain('Primary Key');
   });
 
   it('uses native usage distribution tooltip callbacks with wrapped long titles', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
-      api_key_composition: [composition()],
+      model_composition: [composition()],
     };
 
     renderToStaticMarkup(<AnalysisTestPanel analysis={analysis} />);
@@ -278,7 +278,7 @@ describe('AnalysisPanel token chart data', () => {
   it('coerces non-string usage distribution tooltip titles before wrapping', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
-      api_key_composition: [composition()],
+      model_composition: [composition()],
     };
 
     renderToStaticMarkup(<AnalysisTestPanel analysis={analysis} />);
@@ -290,7 +290,7 @@ describe('AnalysisPanel token chart data', () => {
   it('uses usage distribution interaction options for small arcs', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
-      api_key_composition: [
+      model_composition: [
         composition({
           total_tokens: 999,
           percent: 99.9,
@@ -332,7 +332,7 @@ describe('AnalysisPanel token chart data', () => {
   it('limits usage distribution hover to the doughnut ring while allowing arc edges', () => {
     renderToStaticMarkup(<AnalysisTestPanel analysis={{
       ...emptyAnalysis,
-      api_key_composition: [composition()],
+      model_composition: [composition()],
     }} />);
 
     const mode = (Interaction.modes as typeof Interaction.modes & {
@@ -362,7 +362,7 @@ describe('AnalysisPanel token chart data', () => {
   it('falls back to painted full-circle doughnut arcs when Chart.js radial nearest returns no candidates', () => {
     renderToStaticMarkup(<AnalysisTestPanel analysis={{
       ...emptyAnalysis,
-      api_key_composition: [composition()],
+      model_composition: [composition()],
     }} />);
 
     const mode = (Interaction.modes as typeof Interaction.modes & {
@@ -402,7 +402,7 @@ describe('AnalysisPanel token chart data', () => {
   it('positions the usage distribution tooltip away from the hovered arc', () => {
     renderToStaticMarkup(<AnalysisTestPanel analysis={{
       ...emptyAnalysis,
-      api_key_composition: [composition()],
+      model_composition: [composition()],
     }} />);
 
     const positioner = (Tooltip.positioners as typeof Tooltip.positioners & {
@@ -425,7 +425,7 @@ describe('AnalysisPanel token chart data', () => {
   it('shows raw composition percentages while bounding progress bar width', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
-      api_key_composition: [composition({
+      model_composition: [composition({
         total_tokens: 1200,
         requests: 3,
         percent: 120,
@@ -446,7 +446,7 @@ describe('AnalysisPanel token chart data', () => {
   it('uses distinct colors for every composition entry', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
-      api_key_composition: Array.from({ length: 7 }, (_, index) => (composition({
+      model_composition: Array.from({ length: 7 }, (_, index) => (composition({
         key: `key-${index + 1}`,
         label: `Key ${index + 1}`,
         total_tokens: 700 - (index * 100),
@@ -816,8 +816,8 @@ describe('AnalysisPanel token chart data', () => {
       token_usage: [tokenBucket({
         cost_available: false,
       })],
-      api_key_composition: [composition({
-        key: 'unpriced-key',
+      model_composition: [composition({
+        key: 'unpriced-model',
         label: 'Unpriced Key',
         requests: 3,
         input_tokens: 1000,

@@ -40,15 +40,22 @@ const analysis: AnalysisResponse = {
 };
 
 describe('AnalysisPanel composition dimensions', () => {
-  it('keeps all administrator dimensions by default', () => {
+  it('orders administrator dimensions as Models, API Key, Credentials, AI Providers and selects Models first', () => {
     const markup = renderToStaticMarkup(
       <AnalysisTestPanel analysis={analysis} />,
     );
 
-    expect(markup).toContain('usage_stats.analysis_composition_api_key_tab');
-    expect(markup).toContain('usage_stats.analysis_composition_model_tab');
-    expect(markup).toContain('usage_stats.analysis_composition_credentials_tab');
-    expect(markup).toContain('usage_stats.analysis_composition_ai_provider_tab');
+    const modelIndex = markup.indexOf('usage_stats.analysis_composition_model_tab');
+    const apiKeyIndex = markup.indexOf('usage_stats.analysis_composition_api_key_tab');
+    const credentialsIndex = markup.indexOf('usage_stats.analysis_composition_credentials_tab');
+    const aiProviderIndex = markup.indexOf('usage_stats.analysis_composition_ai_provider_tab');
+
+    expect(modelIndex).toBeGreaterThan(-1);
+    expect(apiKeyIndex).toBeGreaterThan(modelIndex);
+    expect(credentialsIndex).toBeGreaterThan(apiKeyIndex);
+    expect(aiProviderIndex).toBeGreaterThan(credentialsIndex);
+    expect(markup).toContain('Model usage');
+    expect(markup).not.toContain('API Key usage');
   });
 
   it('shows the model dimension as selected immediately for the key viewer', () => {

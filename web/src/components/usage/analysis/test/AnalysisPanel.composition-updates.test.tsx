@@ -193,6 +193,13 @@ describe('composition labels after mounted chart updates', () => {
   it('updates the composition title when changing language while keeping all entries', async () => {
     const analysis = analysisWith([50, 20, 10, 8, 5, 4, 3].map((share, index) => item(String(index), `Model ${index}`, share)));
     await render(analysis);
+    expect(Array.from(container.querySelectorAll('[role="tab"]'), (tab) => tab.textContent)).toEqual([
+      'Models',
+      'API Key',
+      'Credentials',
+      'AI Providers',
+    ]);
+    expect(i18n.t('usage_stats.overview_realtime_dimension_ai_providers')).toBe('AI Providers');
     expect(container.querySelector('ol')?.querySelectorAll('button')).toHaveLength(7);
     expect(container.textContent).toContain('Usage Distribution');
 
