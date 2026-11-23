@@ -891,20 +891,14 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
     plugins: {
       legend: { display: false },
       tooltip: {
+        ...buildUsageChartTooltipStyle(chartTheme),
         enabled: true,
         mode: 'analysisCompositionArc',
         intersect: false,
         axis: 'r',
         position: 'analysisCompositionCursor',
         caretPadding: COMPOSITION_TOOLTIP_CARET_PADDING,
-        backgroundColor: chartTheme.tooltipBg,
-        titleColor: chartTheme.textPrimary,
-        bodyColor: chartTheme.tooltipBody,
-        borderColor: chartTheme.tooltipBorder,
-        borderWidth: 1,
-        padding: 10,
-        displayColors: true,
-        usePointStyle: true,
+        cornerRadius: 8,
         callbacks: {
           title: (context) => wrapCompositionTooltipTitle(context[0]?.label),
           label: (context) => `${labels.totalTokens}: ${formatCompactNumber(Number(context.parsed ?? 0))}`,
@@ -1161,12 +1155,12 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
       </div>
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : items.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
-          <div className={styles.analysisChartSurface}>
+          <ChartSurface className={styles.analysisChartSurface}>
             <div className={`${styles.pairedChartFrame} ${styles.donutCanvasBox}`} role="img"
               aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}>
               <Doughnut data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, stableLabelsPlugin, interactionPlugin]} />
             </div>
-          </div>
+          </ChartSurface>
           <AnalysisRankingList key={activeTab.id} items={rankingItems} label={t('usage_stats.analysis_composition_title')} windowMinutes={windowMinutes} highlight={highlight} />
         </>
       )}
