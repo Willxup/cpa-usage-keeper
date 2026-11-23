@@ -138,14 +138,14 @@ const TOP_MODEL_COLORS: GradientColor[] = [
 const TOP_MODELS_MIN_SEGMENT_PX = 4;
 const TOP_MODELS_SCALE_HEADROOM_RATIO = 1.12;
 const MODEL_EFFICIENCY_COLORS: ModelEfficiencyColor[] = [
-  { base: '#5b7fb9', light: '#7898c8', dark: '#395a8d' },
-  { base: '#b46f68', light: '#c68b84', dark: '#864943' },
-  { base: '#6f9a7a', light: '#89b193', dark: '#4b7255' },
-  { base: '#b79257', light: '#c6a66d', dark: '#86652e' },
-  { base: '#8d79b5', light: '#a08cc4', dark: '#66518d' },
-  { base: '#5f9aa7', light: '#7aadb8', dark: '#3e737f' },
-  { base: '#b07194', light: '#c188a7', dark: '#854f6c' },
-  { base: '#8c9f61', light: '#a0b374', dark: '#62733d' },
+  { base: '#3b82f6', light: '#93c5fd', dark: '#1d4ed8' },
+  { base: '#0d9488', light: '#5eead4', dark: '#0f766e' },
+  { base: '#8b5cf6', light: '#c4b5fd', dark: '#6d28d9' },
+  { base: '#f59e0b', light: '#fcd34d', dark: '#b45309' },
+  { base: '#06b6d4', light: '#67e8f9', dark: '#0e7490' },
+  { base: '#f43f5e', light: '#fda4af', dark: '#be123c' },
+  { base: '#6366f1', light: '#a5b4fc', dark: '#4338ca' },
+  { base: '#10b981', light: '#6ee7b7', dark: '#047857' },
 ];
 const COMPOSITION_DONUT_BORDER_RADIUS = 10;
 const COMPOSITION_DONUT_SPACING = 4;
@@ -1328,7 +1328,9 @@ function createModelEfficiencyTooltipHandler({
       header.className = styles.modelEfficiencyTooltipHeader;
       const dot = document.createElement('span');
       dot.className = styles.modelEfficiencyTooltipDot;
-      dot.style.background = getEfficiencyColor(dataPoint.dataIndex);
+      const dotColor = getEfficiencyColor(dataPoint.dataIndex);
+      dot.style.background = dotColor;
+      dot.style.color = dotColor;
       header.appendChild(dot);
       const name = document.createElement('strong');
       name.textContent = row.model;
