@@ -35,11 +35,16 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   const [quotaInspectionError, setQuotaInspectionError] = useState('')
   const [inspectionPollingActive, setInspectionPollingActive] = useState(false)
   const [inspectionPollEpoch, setInspectionPollEpoch] = useState(0)
+  const inspectionPollingActiveRef = useRef(false)
   const onAuthRequiredRef = useRef(onAuthRequired)
   const onInspectionCompletedRef = useRef(onInspectionCompleted)
   const requestGenerationRef = useRef(0)
   const statusControllerRef = useRef<AbortController | null>(null)
   const pendingManualRefreshRef = useRef<Promise<void> | null>(null)
+  const updateInspectionPollingActive = useCallback((active: boolean) => {
+    inspectionPollingActiveRef.current = active
+    setInspectionPollingActive(active)
+  }, [])
   const retireStatusRequest = useCallback(() => {
     statusControllerRef.current?.abort()
     statusControllerRef.current = null
@@ -54,8 +59,8 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     setQuotaInspectionLoading(false)
     setQuotaInspectionStarting(false)
     setQuotaInspectionError('')
-    setInspectionPollingActive(false)
-  }, [retireStatusRequest])
+    updateInspectionPollingActive(false)
+  }, [retireStatusRequest, updateInspectionPollingActive])
 
   useEffect(() => {
     if (!enabled) {
@@ -67,6 +72,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     // 离开页面时退休旧 GET/POST 的响应归属，已受理的巡检后台工作继续运行。
     requestGenerationRef.current += 1
     pendingManualRefreshRef.current = null
+    inspectionPollingActiveRef.current = false
     retireStatusRequest()
   }, [retireStatusRequest])
 
@@ -114,7 +120,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
 
   useEffect(() => {
     if (!enabled) {
-      setInspectionPollingActive(false)
+      updateInspectionPollingActive(false)
       return
     }
     const controller = new AbortController()
@@ -122,14 +128,14 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
       const generation = requestGenerationRef.current
       const response = await loadQuotaInspectionStatus(controller)
       if (!controller.signal.aborted && requestGenerationRef.current === generation) {
-        setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+        updateInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
       }
     }
     void loadInitialInspectionStatus()
     return () => {
       controller.abort()
     }
-  }, [enabled, loadQuotaInspectionStatus])
+  }, [enabled, loadQuotaInspectionStatus, updateInspectionPollingActive])
 
   useEffect(() => {
     if (!enabled || !inspectionPollingActive) {
@@ -150,7 +156,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
         return
       }
       if (!shouldContinueQuotaInspectionPolling(response)) {
-        setInspectionPollingActive(false)
+        updateInspectionPollingActive(false)
         if (shouldNotifyQuotaInspectionCompleted(response)) {
           onInspectionCompletedRef.current?.()
         }
@@ -170,7 +176,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, inspectionPollingActive, inspectionPollEpoch, loadQuotaInspectionStatus])
+  }, [enabled, inspectionPollingActive, inspectionPollEpoch, loadQuotaInspectionStatus, updateInspectionPollingActive])
 
   const refreshQuotaInspectionStatus = useCallback(async () => {
     if (!enabled) return
@@ -183,7 +189,13 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
       if (requestGenerationRef.current !== generation) return
       const response = await loadQuotaInspectionStatus()
       if (requestGenerationRef.current !== generation || response === null) return
-      setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+      const wasPolling = inspectionPollingActiveRef.current
+      const nextPolling = shouldContinueQuotaInspectionPolling(response)
+      updateInspectionPollingActive(nextPolling)
+      // 仅在巡检从运行态转入完成态时通知一次缓存刷新，避免静态已完成快照或串行手动读取重复回调。
+      if (wasPolling && !nextPolling && shouldNotifyQuotaInspectionCompleted(response)) {
+        onInspectionCompletedRef.current?.()
+      }
     })()
     pendingManualRefreshRef.current = refresh
     try {
@@ -191,12 +203,12 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     } finally {
       if (pendingManualRefreshRef.current === refresh) pendingManualRefreshRef.current = null
     }
-  }, [enabled, loadQuotaInspectionStatus])
+  }, [enabled, loadQuotaInspectionStatus, updateInspectionPollingActive])
 
   const startQuotaInspection = useCallback(async () => {
     const generation = requestGenerationRef.current
-    const wasPolling = inspectionPollingActive
-    setInspectionPollingActive(false)
+    const wasPolling = inspectionPollingActiveRef.current
+    updateInspectionPollingActive(false)
     setQuotaInspectionStarting(true)
     setQuotaInspectionError('')
     try {
@@ -205,7 +217,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
         await pendingManualRefreshRef.current
       }
       if (requestGenerationRef.current !== generation) return
-      setInspectionPollingActive(false)
+      updateInspectionPollingActive(false)
       retireStatusRequest()
       const response = await startUsageQuotaInspection()
       while (pendingManualRefreshRef.current && requestGenerationRef.current === generation) {
@@ -214,7 +226,7 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
       if (requestGenerationRef.current !== generation) return
       retireStatusRequest()
       setQuotaInspectionStatus(response)
-      setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+      updateInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
       setInspectionPollEpoch((current) => current + 1)
       if (shouldNotifyQuotaInspectionCompleted(response)) {
         onInspectionCompletedRef.current?.()
@@ -223,14 +235,14 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
       if (requestGenerationRef.current === generation) {
         handleInspectionError(error)
         if (wasPolling) {
-          setInspectionPollingActive(true)
+          updateInspectionPollingActive(true)
           setInspectionPollEpoch((current) => current + 1)
         }
       }
     } finally {
       if (requestGenerationRef.current === generation) setQuotaInspectionStarting(false)
     }
-  }, [handleInspectionError, inspectionPollingActive, retireStatusRequest])
+  }, [handleInspectionError, retireStatusRequest, updateInspectionPollingActive])
 
   return {
     quotaInspectionStatus,
