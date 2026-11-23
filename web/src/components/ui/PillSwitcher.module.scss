@@ -1,6 +1,10 @@
 .toolbar {
   display: inline-flex;
   align-items: stretch;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   gap: 2px;
   padding: 4px;
   border-radius: 999px;
@@ -11,6 +15,7 @@
 
 .compact {
   display: flex;
+  max-width: 100%;
   gap: 4px;
   padding: 3px;
   border: 1px solid var(--border-color);
@@ -18,9 +23,11 @@
   background: var(--bg-secondary);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
 
 .option {
+  flex-shrink: 0;
   border: 0;
   background: transparent;
   color: var(--text-secondary);
@@ -36,9 +43,10 @@
     color: var(--text-primary);
   }
 
+  // 在 padding: 3px 的横向可滚动胶囊内收紧焦点环偏移，避免边缘被容器裁切。
   &:focus-visible {
     outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
+    outline-offset: 0;
   }
 
   &:disabled {

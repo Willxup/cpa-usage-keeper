@@ -17,6 +17,7 @@ const EMPTY_BUCKETS: string[] = [];
 const COLORS = ['#cfe3fc', '#387ff5', '#234f91', '#8950ee', '#b69af5', '#94a3b8'];
 type UsageDimension = 'models' | 'api_keys' | 'credentials' | 'ai_providers';
 const DIMENSIONS: readonly UsageDimension[] = ['models', 'api_keys', 'credentials', 'ai_providers'];
+const KEY_VIEWER_DIMENSIONS: readonly UsageDimension[] = DIMENSIONS.slice(0, 2);
 const colorFor = (row: ComparisonRow, index: number) => COLORS[row.other ? 5 : index];
 const formatShare = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
 const formatCost = (value: number | null) => value === null ? '—' : formatUsd(value);
@@ -35,7 +36,7 @@ export function UsageComparisonCharts({ comparisons, loading, keyViewer = false,
   const headingId = useId();
   const [selected, setSelected] = useState<UsageDimension>('models');
   const dimension = keyViewer && (selected === 'credentials' || selected === 'ai_providers') ? 'models' : selected;
-  const dimensions = keyViewer ? DIMENSIONS.slice(0, 2) : DIMENSIONS;
+  const dimensions = keyViewer ? KEY_VIEWER_DIMENSIONS : DIMENSIONS;
   const items = comparisons?.[dimension] ?? EMPTY;
   const total = items.reduce((sum, item) => sum + item.total_tokens, 0);
   const dimensionOptions = useMemo(

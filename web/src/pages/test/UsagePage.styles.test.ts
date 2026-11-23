@@ -8,6 +8,7 @@ const keyOverviewPageStyles = readSource(new URL('../../features/key-viewer/KeyV
 const credentialStyles = readSource(new URL('../../components/usage/credentials/CredentialSections.module.scss', import.meta.url))
 const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
+const pillSwitcherStyles = readSource(new URL('../../components/ui/PillSwitcher.module.scss', import.meta.url))
 
 const styleRuleBlock = (source: string, selector: string) => {
   const start = source.indexOf(selector)
@@ -311,6 +312,20 @@ describe('UsagePage responsive layout and accessibility', () => {
     expect(usagePageStyles).toMatch(
       /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.requestEventsColumnVisibilityTrack,[\s\S]*?\.requestEventsColumnVisibilityThumb\s*\{[\s\S]*?transition:\s*none;/
     )
+  })
+
+  it('keeps Realtime toolbar actions wrapping naturally and PillSwitcher toolbars contained on narrow screens', () => {
+    expect(usagePageStyles).toMatch(
+      /@include mobile\s*\{[\s\S]*?\.overviewRealtimeToolbar\s*>\s*\.overviewRealtimeActions\s*\{[\s\S]*?width:\s*auto;/
+    )
+    const toolbar = styleRuleBlock(pillSwitcherStyles, '.toolbar')
+    const option = styleRuleBlock(pillSwitcherStyles, '.option')
+
+    expect(toolbar).toContain('max-width: 100%;')
+    expect(toolbar).toContain('overflow-x: auto;')
+    expect(toolbar).toContain('scrollbar-width: none;')
+    expect(option).toContain('flex-shrink: 0;')
+    expect(pillSwitcherStyles).toMatch(/\.option[\s\S]*?&:focus-visible\s*\{[^}]*outline-offset:\s*(?:0|1px);/)
   })
 
 })
