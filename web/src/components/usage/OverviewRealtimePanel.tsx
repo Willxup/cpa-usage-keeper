@@ -413,6 +413,8 @@ function buildThroughputData(
         yAxisID: 'tokens',
         borderColor: CHART_COLORS.token,
         backgroundColor: (context) => toThroughputAreaFill(context, CHART_COLORS.token),
+        // 面积图使用透明渐变填充，需显式指定实心点背景色以避免悬停 Tooltip 色标发白空心。
+        pointBackgroundColor: CHART_COLORS.token,
         pointHoverBackgroundColor: CHART_COLORS.token,
         pointHoverBorderColor: hoverBorder,
         fill: true,

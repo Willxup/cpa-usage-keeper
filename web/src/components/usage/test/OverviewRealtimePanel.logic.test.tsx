@@ -446,4 +446,22 @@ describe('OverviewRealtimePanel', () => {
     expect((chartCapture.chartCalls[0].options.scales?.y as { type?: string }).type).not.toBe('logarithmic');
   });
 
+  it('uses a solid pointBackgroundColor on the Throughput Tokens/min dataset while keeping area fill gradient', () => {
+    renderToStaticMarkup(
+      <OverviewRealtimePanel
+        realtime={realtime}
+        loading={false}
+        window="15m"
+        onWindowChange={() => {}}
+        isDark={false}
+        isMobile={false}
+        timezone="UTC"
+      />
+    );
+
+    const tokenDataset = chartCapture.lineCalls[0].data.datasets[0];
+    expect(tokenDataset.pointBackgroundColor).toBe('#8b5cf6');
+    expect(typeof tokenDataset.backgroundColor).toBe('function');
+  });
+
 });
