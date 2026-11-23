@@ -640,6 +640,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
         className={styles.overviewRealtimeToolbar}
         headingClassName={styles.overviewRealtimeHeading}
         titleClassName={styles.overviewRealtimeTitle}
+        actionsClassName={styles.overviewRealtimeActions}
         actions={(
           <PillSwitcher
             ariaLabel={t('usage_stats.overview_realtime_window')}

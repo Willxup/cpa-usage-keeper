@@ -3279,6 +3279,13 @@
   flex-wrap: wrap;
 }
 
+// 实时窗口按内容占宽，由标题栏在空间不足时自然换行。
+@include mobile {
+  .overviewRealtimeToolbar > .overviewRealtimeActions {
+    width: auto;
+  }
+}
+
 .overviewRealtimeHeading {
   min-width: 0;
   display: flex;
