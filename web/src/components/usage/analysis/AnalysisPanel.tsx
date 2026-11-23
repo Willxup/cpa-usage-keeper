@@ -1394,7 +1394,8 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
       pointHoverRadius: pointRadii.map((radius) => Math.min(MODEL_EFFICIENCY_MAX_RADIUS + MODEL_EFFICIENCY_HOVER_RADIUS_DELTA, radius + MODEL_EFFICIENCY_HOVER_RADIUS_DELTA)),
       backgroundColor: getEfficiencyPointFill,
       borderColor: pricedRows.map((_, index) => getEfficiencyPalette(index).base),
-      borderWidth: 1,
+      borderWidth: 0,
+      pointHoverBorderWidth: 0,
       clip: false,
     }],
   }), [pointRadii, pricedRows, t]);
