@@ -119,31 +119,31 @@
 
 .pairedChartCard {
   --paired-chart-height: 300px;
-  height: 780px;
+  height: 740px;
   display: grid;
-  grid-template-rows: 68px 38px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
 
   .cardHeader { margin-bottom: 0; }
-  .analysisChartSurface { padding: 12px; }
-  .emptyState { grid-row: 3 / -1; }
-
-  @include mobile {
-    --paired-chart-height: 240px;
-    height: 640px;
-    grid-template-rows: 80px 38px auto minmax(0, 1fr);
-    gap: 10px;
-    .analysisChartSurface { padding: 8px; }
+  .cardTitleLine {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    min-height: 36px;
   }
-}
-
-.topModelsCard {
-  grid-template-rows: 68px auto minmax(0, 1fr);
-
+  .costHeaderHint {
+    align-self: center;
+    margin-top: 0;
+  }
+  .analysisChartSurface { padding: 12px; }
   .emptyState { grid-row: 2 / -1; }
 
   @include mobile {
-    grid-template-rows: 80px auto minmax(0, 1fr);
+    --paired-chart-height: 240px;
+    height: 600px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 10px;
+    .analysisChartSurface { padding: 8px; }
   }
 }
 
@@ -157,14 +157,6 @@
     max-height: 100%;
     touch-action: pan-x pan-y !important;
   }
-}
-
-.pairedChartToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
 }
 
 .rankingList {
@@ -446,7 +438,7 @@
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  gap: 4px;
+  gap: 2px;
   padding: 3px;
   border: 1px solid var(--border-color);
   border-radius: 999px;
@@ -460,10 +452,10 @@
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
-  min-height: 30px;
-  padding: 0 11px;
+  min-height: 28px;
+  padding: 0 9px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;

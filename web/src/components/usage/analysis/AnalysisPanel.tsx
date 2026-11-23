@@ -1,5 +1,5 @@
 import { ChartLifecycleProvider, type ChartRefreshSignal } from '../charts/chartLifecycle';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
@@ -818,12 +818,23 @@ function CostHeaderHint({ show, label }: { show: boolean; label: string }) {
   return show ? <small className={styles.costHeaderHint}>{label}</small> : null;
 }
 
-function AnalysisCardHeader({ title, showPricingHint, hint }: { title: string; showPricingHint: boolean; hint: string }) {
+function AnalysisCardHeader({
+  title,
+  showPricingHint,
+  hint,
+  actions,
+}: {
+  title: string;
+  showPricingHint: boolean;
+  hint: string;
+  actions?: ReactNode;
+}) {
   return (
     <div className={`${styles.cardHeader} keeper-card-heading`}>
       <div className={`${styles.cardTitleLine} keeper-card-title-track`}>
         <h2 className="keeper-card-title">{title}</h2>
         <CostHeaderHint show={showPricingHint} label={hint} />
+        {actions}
       </div>
     </div>
   );
@@ -1014,7 +1025,7 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
   }), [chartTheme, external, isMobile, t, view.bucketTotals]);
 
   return (
-    <section className={`${styles.analysisCard} ${styles.pairedChartCard} ${styles.topModelsCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
       <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} showPricingHint={false} hint="" />
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
@@ -1152,17 +1163,20 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
     <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
-      <AnalysisCardHeader title={t('usage_stats.analysis_composition_title')}
-        showPricingHint={hasUnavailableCost} hint={t('usage_stats.cost_need_price')} />
-      <div className={styles.pairedChartToolbar}>
-        <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
-          {tabs.map((tab) => (
-            <button key={tab.id} type="button" role="tab" aria-selected={tab.id === activeTab?.id}
-              className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
-              onClick={() => setActiveTabId(tab.id)}>{tab.label}</button>
-          ))}
-        </div>
-      </div>
+      <AnalysisCardHeader
+        title={t('usage_stats.analysis_composition_title')}
+        showPricingHint={hasUnavailableCost}
+        hint={t('usage_stats.cost_need_price')}
+        actions={(
+          <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
+            {tabs.map((tab) => (
+              <button key={tab.id} type="button" role="tab" aria-selected={tab.id === activeTab?.id}
+                className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
+                onClick={() => setActiveTabId(tab.id)}>{tab.label}</button>
+            ))}
+          </div>
+        )}
+      />
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : items.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
           <ChartSurface className={styles.analysisChartSurface}>
