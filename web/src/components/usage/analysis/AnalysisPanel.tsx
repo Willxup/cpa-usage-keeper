@@ -538,7 +538,7 @@ function buildTopModelsChartData(view: TopModelsViewModel, highlightedModel: str
       borderColor: item.color.base,
       borderWidth: highlightedModel === item.key ? 1.5 : 0,
       borderSkipped: false,
-      borderRadius: 2,
+      borderRadius: 3,
       minBarLength: TOP_MODELS_MIN_SEGMENT_PX,
       stack: 'models',
       yAxisID: 'tokens',
@@ -687,6 +687,16 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
+    datasets: {
+      bar: {
+        borderWidth: 0,
+        borderRadius: 3,
+        borderSkipped: false,
+        barPercentage: 0.82,
+        categoryPercentage: 0.78,
+        maxBarThickness: 42,
+      },
+    },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -743,8 +753,9 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
   };
 }
 
-function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels): MixedTokenChartData {
+function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels, isDark = false): MixedTokenChartData {
   const tokenColors = TOKEN_COLORS;
+  const hoverBorder = isDark ? 'rgba(17, 24, 39, 0.94)' : '#ffffff';
   return {
     labels: rows.map((row) => row.label),
     datasets: [
@@ -760,11 +771,15 @@ function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels): Mix
         borderColor: tokenColors.requests,
         backgroundColor: tokenColors.requests,
         pointBackgroundColor: tokenColors.requests,
-        pointBorderColor: tokenColors.requests,
+        pointBorderColor: hoverBorder,
+        pointHoverBackgroundColor: tokenColors.requests,
+        pointHoverBorderColor: hoverBorder,
+        pointHoverBorderWidth: 2,
         tension: 0.35,
         borderWidth: 2,
         borderDash: [6, 4],
         pointRadius: 0,
+        pointHoverRadius: 4.5,
         yAxisID: 'requests',
       } as unknown as MixedTokenChartData['datasets'][number],
       {
@@ -774,10 +789,15 @@ function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels): Mix
         borderColor: tokenColors.cost,
         backgroundColor: tokenColors.cost,
         pointBackgroundColor: tokenColors.cost,
-        pointBorderColor: tokenColors.cost,
+        pointBorderColor: hoverBorder,
+        pointBorderWidth: 1.5,
+        pointHoverBackgroundColor: tokenColors.cost,
+        pointHoverBorderColor: hoverBorder,
+        pointHoverBorderWidth: 2,
         tension: 0.35,
         borderWidth: 2,
-        pointRadius: 2,
+        pointRadius: 2.5,
+        pointHoverRadius: 4.5,
         yAxisID: 'cost',
       } as unknown as MixedTokenChartData['datasets'][number],
     ],
@@ -910,7 +930,7 @@ function TokenUsageChart({ rows, summary, loading, isDark, isMobile }: { rows: C
   }), [t]);
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
   const averageTokenTotal = useMemo(() => calculateAverageTotalTokens(rows), [rows]);
-  const chartData = useMemo(() => buildAnalysisTokenChartData(rows, tokenLabels), [rows, tokenLabels]);
+  const chartData = useMemo(() => buildAnalysisTokenChartData(rows, tokenLabels, isDark), [isDark, rows, tokenLabels]);
   const chartOptions = useMemo(() => buildAnalysisTokenChartOptions({
     chartTheme,
     isMobile,
