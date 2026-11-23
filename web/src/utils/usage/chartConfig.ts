@@ -13,12 +13,12 @@ export interface UsageChartGradientColor {
 }
 
 export const USAGE_CHART_COMPOSITION_COLORS: UsageChartGradientColor[] = [
-  { base: '#1d4ed8', light: '#60a5fa' },
-  { base: '#ca8a04', light: '#facc15' },
-  { base: '#15803d', light: '#22c55e' },
-  { base: '#7e22ce', light: '#c084fc' },
-  { base: '#b91c1c', light: '#ef4444' },
-  { base: '#0891b2', light: '#67e8f9' },
+  { base: '#3b82f6', light: '#60a5fa' },
+  { base: '#0d9488', light: '#2dd4bf' },
+  { base: '#8b5cf6', light: '#a78bfa' },
+  { base: '#f59e0b', light: '#fbbf24' },
+  { base: '#06b6d4', light: '#22d3ee' },
+  { base: '#f43f5e', light: '#fb7185' },
 ];
 export const USAGE_CHART_TOKEN_COLORS = {
   input: { base: '#3b82f6', light: '#93c5fd' },
