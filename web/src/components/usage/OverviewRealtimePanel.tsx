@@ -89,8 +89,8 @@ const toThroughputAreaFill = (
 };
 
 const CHART_COLORS = {
-  token: '#3b82f6',
-  request: '#f97316',
+  token: '#8b5cf6',
+  request: '#0ea5e9',
 } as const;
 
 const REALTIME_DURATION_UNITS = { d: 'd', h: 'h', m: 'm', s: 's', ms: 'ms' } as const;
