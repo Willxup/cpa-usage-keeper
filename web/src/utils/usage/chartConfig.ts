@@ -21,13 +21,13 @@ export const USAGE_CHART_COMPOSITION_COLORS: UsageChartGradientColor[] = [
   { base: '#0891b2', light: '#67e8f9' },
 ];
 export const USAGE_CHART_TOKEN_COLORS = {
-  input: { base: '#2563eb', light: '#93c5fd' },
-  output: { base: '#16a34a', light: '#86efac' },
-  cacheRead: { base: '#d97706', light: '#fde68a' },
-  cacheWrite: { base: '#e11d48', light: '#fda4af' },
+  input: { base: '#3b82f6', light: '#93c5fd' },
+  output: { base: '#6366f1', light: '#a5b4fc' },
+  cacheRead: { base: '#0d9488', light: '#5eead4' },
+  cacheWrite: { base: '#f59e0b', light: '#fcd34d' },
   reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
-  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
-  cost: '#14b8a6',
+  requests: '#f97316',
+  cost: '#eab308',
 };
 
 // Realtime 的新增结果图表使用更饱和的渐变；Analysis 的 Token Usage Over Time

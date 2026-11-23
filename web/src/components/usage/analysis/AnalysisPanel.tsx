@@ -119,11 +119,11 @@ declare module 'chart.js' {
 }
 
 const TOP_MODEL_COLORS: GradientColor[] = [
-  { base: '#db2777', light: '#f9a8d4' },
-  { base: '#d97706', light: '#fcd34d' },
-  { base: '#059669', light: '#6ee7b7' },
-  { base: '#2563eb', light: '#93c5fd' },
-  { base: '#dc2626', light: '#fca5a5' },
+  { base: '#387ff5', light: '#7cb3ff' },
+  { base: '#10b981', light: '#6ee7b7' },
+  { base: '#8b5cf6', light: '#c4b5fd' },
+  { base: '#f59e0b', light: '#fcd34d' },
+  { base: '#06b6d4', light: '#67e8f9' },
 ];
 const TOP_MODELS_MIN_SEGMENT_PX = 4;
 const TOP_MODELS_SCALE_HEADROOM_RATIO = 1.12;
