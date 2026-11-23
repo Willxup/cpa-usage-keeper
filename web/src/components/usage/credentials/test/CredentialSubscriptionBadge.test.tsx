@@ -59,6 +59,20 @@ describe('CredentialSubscriptionBadge', () => {
   )
 
   it.each([
+    ['ultra-lite', 'Ultra 5x', 'credentialPlanBadgePro5x'],
+    ['ultra', 'Ultra 20x', 'credentialPlanBadgeEnterprise'],
+  ])('renders Antigravity %s as %s with its animated presentation', async (plan, label, className) => {
+    await i18n.changeLanguage('en')
+    const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan })!,
+    }))
+    expect(html).toContain(className)
+    expect(html.replace(/<[^>]+>/g, '')).toBe(label)
+    expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
+    expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
+  })
+
+  it.each([
     ['Everyday', 'credentialPlanBadgePlus'],
     ['High', 'credentialPlanBadgePlus'],
     ['Power', 'credentialPlanBadgePro5x'],
