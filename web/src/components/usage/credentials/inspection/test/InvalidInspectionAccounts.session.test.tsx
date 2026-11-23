@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchUsageQuotaInspectionStatus, setCredentialsDisabled } from '@/lib/api'
@@ -139,5 +139,78 @@ describe('invalid inspection account session', () => {
     expect(document.body.textContent).toContain('write failed')
     expect(document.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true)
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
+  })
+
+  it.each(['cancel', 'escape'] as const)('restores focus to the trigger button inside the inspection modal when closing via %s', async (closeWay) => {
+    await act(async () => root.render(<QuotaInspectionModal open status={status(['a.json', 'b.json'])} loading={false} starting={false} error=""
+      onClose={() => undefined} onStart={async () => undefined} onRefreshStatus={async () => undefined} />))
+    const parentDialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    const triggerButton = button('usage_stats.credentials_inspection_disable_invalid')
+    await act(async () => {
+      triggerButton.focus()
+      triggerButton.click()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]')
+    expect(dialogs).toHaveLength(2)
+    expect(dialogs[1].contains(document.activeElement)).toBe(true)
+
+    await act(async () => {
+      if (closeWay === 'cancel') {
+        button('common.cancel').click()
+      } else {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      }
+    })
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+    expect(triggerButton.disabled).toBe(false)
+    expect(document.activeElement).toBe(triggerButton)
+    expect(parentDialog.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('keeps focus inside the inspection modal when submitting clears all invalid accounts and disables the trigger', async () => {
+    vi.mocked(setCredentialsDisabled).mockResolvedValue({} as Awaited<ReturnType<typeof setCredentialsDisabled>>)
+    const normalOnlyStatus: UsageQuotaInspectionStatusResponse = {
+      ...status([]),
+      total: 1,
+      cached: 1,
+      normal: 1,
+      results: [{ auth_index: 'auth-ok', file_name: 'ok.json', name: 'ok.json', type: 'codex', status: 'normal' }],
+    }
+    function StatefulInspection() {
+      const [currentStatus, setCurrentStatus] = useState<UsageQuotaInspectionStatusResponse>(() => status(['a.json']))
+      return (
+        <QuotaInspectionModal
+          open
+          status={currentStatus}
+          loading={false}
+          starting={false}
+          error=""
+          onClose={() => undefined}
+          onStart={async () => undefined}
+          onRefreshStatus={async () => { setCurrentStatus(normalOnlyStatus) }}
+        />
+      )
+    }
+
+    await act(async () => root.render(<StatefulInspection />))
+    const parentDialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    const triggerButton = button('usage_stats.credentials_inspection_disable_invalid')
+    await act(async () => {
+      triggerButton.focus()
+      triggerButton.click()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]')
+    expect(dialogs).toHaveLength(2)
+    expect(dialogs[1].contains(document.activeElement)).toBe(true)
+
+    await act(async () => button('usage_stats.credentials_inspection_invalid_accounts_confirm').click())
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+    expect(button('usage_stats.credentials_inspection_disable_invalid').disabled).toBe(true)
+    expect(document.activeElement).not.toBe(document.body)
+    expect(parentDialog.contains(document.activeElement)).toBe(true)
+    expect((document.activeElement as HTMLButtonElement).disabled).not.toBe(true)
   })
 })

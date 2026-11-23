@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
@@ -13,6 +13,15 @@ import { credentialBrandOverride } from '../credentialBrand'
 import { QuotaAutoRefreshSettingsModal } from './QuotaAutoRefreshSettingsModal'
 import { InvalidInspectionAccountsModal, type InvalidInspectionAccountSession } from './InvalidInspectionAccountsModal'
 import { INSPECTION_RESULT_PAGE_SIZE_OPTIONS, DEFAULT_INSPECTION_RESULT_PAGE_SIZE, inspectionProgressTotal, formatInspectionProgressPercent, isInspectionStartDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, isQuotaInspectionCloseDisabled, formatInspectionCompletedAt, type InspectionResultStatusFilter, type InspectionResultStatusFilterState, type InspectionStatTone } from './quotaInspectionModel'
+
+const INSPECTION_MODAL_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
 
 export function QuotaInspectionModal({
   open,
@@ -41,6 +50,10 @@ export function QuotaInspectionModal({
   const [resultPageSize, setResultPageSize] = useState<number>(DEFAULT_INSPECTION_RESULT_PAGE_SIZE)
   const [invalidSession, setInvalidSession] = useState<InvalidInspectionAccountSession | null>(null)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const disableInvalidButtonRef = useRef<HTMLButtonElement | null>(null)
+  const deleteInvalidButtonRef = useRef<HTMLButtonElement | null>(null)
+  const restoreInvalidActionFocusRef = useRef<InvalidInspectionAccountSession['action'] | null>(null)
   // total 由后端 Credentials 身份统计提供，不用页面分页总数替代。
   const total = status?.total ?? 0
   // cached 是已经能解析出最近巡检结果的账号数。
@@ -72,7 +85,38 @@ export function QuotaInspectionModal({
   const openInvalidAccountAction = (action: InvalidInspectionAccountSession['action']) => {
     setInvalidSession({ action, fileNamesSnapshot: [...invalidFileNames] })
   }
+  const closeInvalidAccountAction = (action: InvalidInspectionAccountSession['action']) => {
+    restoreInvalidActionFocusRef.current = action
+    setInvalidSession(null)
+  }
   const inspectionCloseDisabled = isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: invalidSession !== null, settingsModalOpen })
+
+  useEffect(() => {
+    if (!open) {
+      restoreInvalidActionFocusRef.current = null
+      return
+    }
+    if (invalidSession !== null) return
+    const closedAction = restoreInvalidActionFocusRef.current
+    if (!closedAction) return
+    restoreInvalidActionFocusRef.current = null
+
+    // 子弹窗直接卸载会跳过 Modal 关闭回焦；待父弹窗按钮恢复可用状态后优先回到原触发按钮，
+    // 若所有无效账号已被处理导致原按钮禁用，则兜底聚焦父巡检弹窗内可用控件，避免焦点落回 body。
+    const triggerButton = closedAction === 'delete'
+      ? deleteInvalidButtonRef.current
+      : disableInvalidButtonRef.current
+    if (triggerButton && triggerButton.isConnected && !triggerButton.disabled) {
+      triggerButton.focus()
+      return
+    }
+    const parentDialog = panelRef.current?.closest<HTMLElement>('.modal[role="dialog"][aria-modal="true"]')
+    if (!parentDialog) return
+    const fallbackTarget = Array.from(
+      parentDialog.querySelectorAll<HTMLElement>(INSPECTION_MODAL_FOCUSABLE_SELECTOR),
+    ).find((element) => !element.hasAttribute('disabled') && element.tabIndex !== -1)
+    ;(fallbackTarget ?? parentDialog).focus()
+  }, [invalidSession, open])
 
   return (
     <Modal
@@ -86,7 +130,7 @@ export function QuotaInspectionModal({
       className={styles.credentialInspectionModal}
       closeDisabled={inspectionCloseDisabled}
     >
-      <div className={styles.credentialInspectionPanel}>
+      <div ref={panelRef} className={styles.credentialInspectionPanel}>
         <div className={styles.credentialInspectionTitleBar}>
           <button
             type="button"
@@ -154,6 +198,7 @@ export function QuotaInspectionModal({
               <div className={styles.credentialInspectionResultControls}>
                 <div className={styles.credentialInspectionInvalidActions}>
                   <button
+                    ref={disableInvalidButtonRef}
                     type="button"
                     className={styles.credentialInspectionInvalidActionButton}
                     onClick={() => openInvalidAccountAction('disable')}
@@ -163,6 +208,7 @@ export function QuotaInspectionModal({
                     <span>{t('usage_stats.credentials_inspection_disable_invalid')}</span>
                   </button>
                   <button
+                    ref={deleteInvalidButtonRef}
                     type="button"
                     className={`${styles.credentialInspectionInvalidActionButton} ${styles.credentialInspectionInvalidActionButtonDanger}`.trim()}
                     onClick={() => openInvalidAccountAction('delete')}
@@ -204,8 +250,14 @@ export function QuotaInspectionModal({
           )}
         </div>
       </div>
-      {invalidSession && <InvalidInspectionAccountsModal session={invalidSession} onClose={() => setInvalidSession(null)}
-        onRefreshStatus={onRefreshStatus} onAfterInvalidAccountAction={onAfterInvalidAccountAction} />}
+      {invalidSession && (
+        <InvalidInspectionAccountsModal
+          session={invalidSession}
+          onClose={() => closeInvalidAccountAction(invalidSession.action)}
+          onRefreshStatus={onRefreshStatus}
+          onAfterInvalidAccountAction={onAfterInvalidAccountAction}
+        />
+      )}
       <QuotaAutoRefreshSettingsModal open={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} />
     </Modal>
   )
