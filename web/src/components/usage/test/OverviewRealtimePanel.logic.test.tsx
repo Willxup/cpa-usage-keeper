@@ -1,9 +1,12 @@
+// @vitest-environment happy-dom
+
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
 import type { OverviewRealtimeBlock } from '@/lib/types';
 import i18n from '@/i18n';
+import styles from '@/pages/UsagePage.module.scss';
 
 const chartCapture = vi.hoisted(() => ({
   lineCalls: [] as Array<{ data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'>; plugins?: Plugin<'line'>[] }>,
@@ -169,12 +172,32 @@ describe('OverviewRealtimePanel', () => {
       { text: 'usage_stats.overview_realtime_rpm', lineDash: [6, 4], pointStyle: 'line' },
     ]);
     expect(chartCapture.lineCalls[0].plugins?.map((plugin) => plugin.id)).toContain('throughputLegendSpacing');
-    expect(html).toContain('usage_stats.tpm');
-    expect(html).toContain('usage_stats.rpm');
-    expect(html).toContain('>usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm 240 usage_stats.overview_realtime_rpm 4 usage_stats.overview_realtime_throughput_hint</span>');
-    expect(html).toContain('aria-hidden="true">usage_stats.overview_realtime_latest</span>');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const paired = doc.querySelectorAll(`.${styles.overviewRealtimePairedMetric}`);
+    expect(paired).toHaveLength(3);
+    expect(paired[0].querySelector(`.${styles.overviewRealtimeScreenReaderOnly}`)?.textContent).toBe('usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm 240 usage_stats.overview_realtime_rpm 4 usage_stats.overview_realtime_throughput_hint');
+    expect(paired[0].querySelector(`.${styles.overviewRealtimePairedMetricLabel}[aria-hidden="true"]`)?.textContent).toBe('usage_stats.overview_realtime_latest');
+    const now = paired[0].querySelector(`.${styles.overviewRealtimePairedMetricValues}[aria-hidden="true"]`)!;
+    expect(Array.from(now.children, (series) => series.textContent)).toEqual(['usage_stats.tpm240', 'usage_stats.rpm4']);
+    expect(now.querySelectorAll(`.${styles.overviewRealtimePairedMetricDot}`)).toHaveLength(2);
+    expect(paired[2].querySelectorAll(`strong.${styles.overviewRealtimePairedMetricValueUp}`)).toHaveLength(2);
     expect(chartCapture.scatterCalls[0].data.datasets[0].data).toEqual([{ x: 120, y: 520 }, { x: 230, y: 940 }]);
     expect(chartCapture.chartCalls[0].data.datasets[3].data).toEqual([25, 50]);
+  });
+
+  it.each([false, true])('matches latency header dots to the reference lines and labels cache trends (dark=%s)', (isDark) => {
+    const html = renderToStaticMarkup(<OverviewRealtimePanel realtime={realtime} loading={false} window="15m" onWindowChange={() => {}} isDark={isDark} isMobile={false} />);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const [latency, cache] = doc.querySelectorAll(`dl.${styles.overviewRealtimeMetrics}`);
+    const latencyLabels = latency.querySelectorAll('dt');
+    expect(Array.from(latencyLabels, (dt) => dt.textContent)).toEqual(['usage_stats.analysis_latency_p95_ttft', 'usage_stats.analysis_latency_p95_latency', 'usage_stats.analysis_latency_samples_count']);
+    expect(Array.from(latencyLabels, (dt) => dt.querySelector<HTMLElement>(`.${styles.overviewRealtimeMetricDot}`)?.style.backgroundColor)).toEqual(isDark ? ['#7dd3fc', '#fda4af', undefined] : ['#38bdf8', '#fb7185', undefined]);
+    expect(Array.from(latency.querySelectorAll('dd'), (dd) => dd.textContent)).toEqual(['230ms', '940ms', '2']);
+    expect(Array.from(cache.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual(['usage_stats.overview_realtime_latest', 'usage_stats.overview_realtime_average', 'usage_stats.overview_realtime_trend']);
+    expect(Array.from(cache.querySelectorAll('dd'), (dd) => dd.textContent)).toEqual(['50.00%', '37.50%', '+100.00%']);
+    const trend = cache.querySelector(`.${styles.overviewRealtimeMetricUp}`)!;
+    expect(trend.getAttribute('title')).toBe('usage_stats.overview_realtime_rolling_metric_hint');
+    expect(trend.getAttribute('aria-label')).toBe('usage_stats.overview_realtime_trend +100.00% usage_stats.overview_realtime_rolling_metric_hint');
   });
 
   it('aligns throughput series by bucket when one response series has a missing point', () => {
