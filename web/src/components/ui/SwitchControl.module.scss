@@ -6,6 +6,21 @@
   cursor: pointer;
 }
 
+.pill {
+  min-height: 34px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+}
+
 .iconOnly {
   width: 42px;
   height: 24px;

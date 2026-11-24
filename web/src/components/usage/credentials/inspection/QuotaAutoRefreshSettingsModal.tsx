@@ -239,10 +239,7 @@ export function QuotaAutoRefreshSettingsForm({
             checked={enabled}
             disabled={controlsDisabled}
             label={t('usage_stats.credentials_auto_refresh_enabled')}
-            className={`${shared.credentialActiveOnlySwitch} ${controlsDisabled ? shared.credentialActiveOnlySwitchDisabled : ''}`.trim()}
-            labelClassName={shared.credentialActiveOnlyLabel}
-            trackClassName={shared.credentialActiveOnlyTrack}
-            thumbClassName={shared.credentialActiveOnlyThumb}
+            variant="pill"
             onChange={onEnabledChange}
           />
           <button

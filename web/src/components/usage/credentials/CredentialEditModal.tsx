@@ -4,6 +4,7 @@ import { useCredentialEnterSave } from './useCredentialEnterSave'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { SwitchControl } from '@/components/ui/SwitchControl'
 import { ApiError } from '@/lib/api'
 import { parseCredentialPriority } from './CredentialPriorityEditor'
 import { isCredentialStatusToggleSupported } from './CredentialStatusToggle'
@@ -97,12 +98,14 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
           hint={t('usage_stats.credentials_edit_alias_hint')} onChange={(event) => setAlias(event.target.value)} />
         <div className={styles.credentialEditStatusRow}>
           <span>{t('usage_stats.credentials_edit_status')}</span>
-          <label className={`${styles.credentialActiveOnlySwitch} ${!statusSupported || saving || readOnly ? styles.credentialActiveOnlySwitchDisabled : ''}`}>
-            <span className={styles.credentialActiveOnlyLabel}>{t(enabled ? 'usage_stats.credentials_edit_enabled' : 'usage_stats.credentials_edit_disabled')}</span>
-            <input type="checkbox" checked={enabled} disabled={!statusSupported || saving || readOnly}
-              aria-label={t('usage_stats.credentials_edit_status')} onChange={(event) => setEnabled(event.target.checked)} />
-            <span className={styles.credentialActiveOnlyTrack} aria-hidden="true"><span className={styles.credentialActiveOnlyThumb} /></span>
-          </label>
+          <SwitchControl
+            checked={enabled}
+            disabled={!statusSupported || saving || readOnly}
+            label={t(enabled ? 'usage_stats.credentials_edit_enabled' : 'usage_stats.credentials_edit_disabled')}
+            ariaLabel={t('usage_stats.credentials_edit_status')}
+            variant="pill"
+            onChange={setEnabled}
+          />
         </div>
         {!statusSupported && <p className="hint">{t('usage_stats.credentials_edit_unsupported')}</p>}
         <Input label={t('usage_stats.credentials_edit_priority')} type="text" value={priority} disabled={saving || readOnly}

@@ -15,6 +15,7 @@ export interface SwitchControlProps {
   checked: boolean;
   onChange: (checked: boolean, event: ChangeEvent<HTMLInputElement>) => void;
   label?: ReactNode;
+  variant?: 'default' | 'pill';
   disabled?: boolean;
   ariaLabel?: string;
   className?: string;
@@ -32,6 +33,7 @@ export const SwitchControl = forwardRef<HTMLInputElement, SwitchControlProps>(fu
     checked,
     onChange,
     label,
+    variant = 'default',
     disabled = false,
     ariaLabel,
     className,
@@ -44,6 +46,7 @@ export const SwitchControl = forwardRef<HTMLInputElement, SwitchControlProps>(fu
 ) {
   const rootClassName = [
     styles.root,
+    variant === 'pill' ? styles.pill : '',
     label === undefined ? styles.iconOnly : '',
     disabled ? styles.disabled : '',
     className ?? '',

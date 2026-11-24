@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PillSwitcher } from '../PillSwitcher';
 import { SwitchControl } from '../SwitchControl';
+import switchStyles from '../SwitchControl.module.scss';
 
 describe('SwitchControl and PillSwitcher primitives', () => {
   let container: HTMLDivElement;
@@ -47,6 +48,20 @@ describe('SwitchControl and PillSwitcher primitives', () => {
       buttons[0].click();
     });
     expect(onChange).toHaveBeenCalledWith('day');
+  });
+
+  it('toggles from the pill label unless disabled', async () => {
+    const props = { label: 'Active only', checked: false, onChange: vi.fn() };
+    await act(async () => root.render(<SwitchControl variant="pill" {...props} />));
+
+    const label = container.querySelector('label')!;
+    expect(label.classList.contains(switchStyles.pill)).toBe(true);
+    await act(async () => label.click());
+    expect(props.onChange).toHaveBeenCalledWith(true, expect.any(Object));
+
+    await act(async () => root.render(<SwitchControl variant="pill" {...props} disabled />));
+    await act(async () => label.click());
+    expect(props.onChange).toHaveBeenCalledTimes(1);
   });
 
   it('renders SwitchControl checkbox state, label, and input attributes', async () => {

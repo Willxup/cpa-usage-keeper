@@ -97,10 +97,7 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
                 ref={editFallbackRef}
                 checked={activeOnly}
                 label={t('usage_stats.credentials_active_only')}
-                className={styles.credentialActiveOnlySwitch}
-                labelClassName={styles.credentialActiveOnlyLabel}
-                trackClassName={styles.credentialActiveOnlyTrack}
-                thumbClassName={styles.credentialActiveOnlyThumb}
+                variant="pill"
                 onChange={onActiveOnlyChange}
               />
             </div>
