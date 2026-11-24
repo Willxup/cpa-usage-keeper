@@ -2,12 +2,16 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const credentialStyles = readFileSync(new URL('../CredentialSections.module.scss', import.meta.url), 'utf8')
+const quotaStyles = readFileSync(new URL('../quota/CredentialQuota.module.scss', import.meta.url), 'utf8')
+const healthStyles = readFileSync(new URL('../CredentialHealthPanel.module.scss', import.meta.url), 'utf8')
+const inspectionStyles = readFileSync(new URL('../inspection/QuotaInspection.module.scss', import.meta.url), 'utf8')
+const settingsStyles = readFileSync(new URL('../inspection/QuotaAutoRefreshSettings.module.scss', import.meta.url), 'utf8')
 
-const cssBlock = (selector: string) => {
-  const start = credentialStyles.indexOf(selector)
+const cssBlock = (selector: string, source = credentialStyles) => {
+  const start = source.indexOf(selector)
   expect(start).toBeGreaterThanOrEqual(0)
-  const next = credentialStyles.indexOf('\n.', start + selector.length)
-  return credentialStyles.slice(start, next === -1 ? undefined : next)
+  const next = source.indexOf('\n.', start + selector.length)
+  return source.slice(start, next === -1 ? undefined : next)
 }
 
 const scssRule = (source: string, selector: string, occurrence = 0) => {
@@ -38,32 +42,32 @@ describe('Credential section layout and accessibility', () => {
   })
 
   it('bounds quota bars and reveals wrapped group tooltips on hover or keyboard focus', () => {
-    expect(credentialStyles).toMatch(/\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(150px, 1fr\)\);/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*150px;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupBlock\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupBars\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(150px, 1fr\)\);/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaGroupBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?opacity:\s*0;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?max-width:\s*min\(240px, 70vw\);/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget \.credentialQuotaGroupTooltip\s*\{[\s\S]*?white-space:\s*normal;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:hover \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:focus-visible \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaBarTooltipRight \.credentialQuotaGroupTooltip\s*\{[\s\S]*?right:\s*0;[\s\S]*?left:\s*auto;/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialHealthPanel\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(150px, 1fr\)\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*150px;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupBlock\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupBars\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(150px, 1fr\)\);/)
+    expect(quotaStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaGroupBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?opacity:\s*0;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?max-width:\s*min\(240px, 70vw\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltip\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltipTarget \.credentialQuotaGroupTooltip\s*\{[\s\S]*?white-space:\s*normal;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:hover \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:focus-visible \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaBarTooltipRight \.credentialQuotaGroupTooltip\s*\{[\s\S]*?right:\s*0;[\s\S]*?left:\s*auto;/)
+    expect(healthStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialHealthPanel\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
   })
 
   it('reveals health bucket tooltips on hover', () => {
-    expect(credentialStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?position:\s*relative;/)
-    expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?position:\s*absolute;/)
-    expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?opacity:\s*0;/)
-    expect(credentialStyles).toMatch(/\.credentialHealthCell:hover \.credentialHealthTooltip[\s\S]*?opacity:\s*1;/)
-    expect(credentialStyles).not.toMatch(/\.credentialHealthCell:focus-visible/)
+    expect(healthStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?position:\s*relative;/)
+    expect(healthStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?position:\s*absolute;/)
+    expect(healthStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?opacity:\s*0;/)
+    expect(healthStyles).toMatch(/\.credentialHealthCell:hover \.credentialHealthTooltip[\s\S]*?opacity:\s*1;/)
+    expect(healthStyles).not.toMatch(/\.credentialHealthCell:focus-visible/)
   })
 
   it('keeps Credentials quota actions inside the mobile card boundary', () => {
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(quotaStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBars\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(quotaStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaBarBlock\s*\{[\s\S]*?min-width:\s*0;/)
   })
 
   it('keeps expiry tooltips above scrolling content without intercepting pointers', () => {
@@ -74,25 +78,25 @@ describe('Credential section layout and accessibility', () => {
   })
 
   it('bounds and scrolls the inspection results table', () => {
-    expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?max-height:\s*min\(52vh, 520px\);/)
-    expect(credentialStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?overflow-y:\s*auto;/)
+    expect(inspectionStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?max-height:\s*min\(52vh, 520px\);/)
+    expect(inspectionStyles).toMatch(/\.credentialInspectionResultsTable\s*\{[\s\S]*?overflow-y:\s*auto;/)
   })
 
   it('keeps Credentials quota reset popovers visible outside the section card', () => {
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetAction\s*\{[\s\S]*?position:\s*relative;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?position:\s*fixed;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?max-height:\s*calc\(100vh - 24px\);/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetExpiryList\s*\{[\s\S]*?max-height:\s*min\(40vh, 220px\);/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetExpiryList\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetActions\s*\{[\s\S]*?flex-shrink:\s*0;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetTooltip\s*\{[\s\S]*?position:\s*absolute;/)
-    expect(credentialStyles).toMatch(/\.credentialQuotaResetAction:hover \.credentialQuotaResetTooltip[\s\S]*?opacity:\s*1;/)
-    expect(credentialStyles).not.toContain('.credentialQuotaResetAction:focus-within .credentialQuotaResetTooltip')
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetAction\s*\{[\s\S]*?position:\s*relative;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?position:\s*fixed;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?max-height:\s*calc\(100vh - 24px\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?overflow-y:\s*auto;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetExpiryList\s*\{[\s\S]*?max-height:\s*min\(40vh, 220px\);/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetExpiryList\s*\{[\s\S]*?overflow-y:\s*auto;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetActions\s*\{[\s\S]*?flex-shrink:\s*0;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetTooltip\s*\{[\s\S]*?position:\s*absolute;/)
+    expect(quotaStyles).toMatch(/\.credentialQuotaResetAction:hover \.credentialQuotaResetTooltip[\s\S]*?opacity:\s*1;/)
+    expect(quotaStyles).not.toContain('.credentialQuotaResetAction:focus-within .credentialQuotaResetTooltip')
   })
 
   it('wraps quota errors and request metrics within their cells', () => {
-    expect(scssRule(credentialStyles, '\n.credentialQuotaErrorMessage')).toContain('white-space: normal;')
+    expect(scssRule(quotaStyles, '\n.credentialQuotaErrorMessage')).toContain('white-space: normal;')
     expect(credentialStyles).toMatch(/\.credentialMetricValueCell\s*\{[\s\S]*?white-space:\s*normal;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?align-items:\s*baseline;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
@@ -109,10 +113,10 @@ describe('Credential section layout and accessibility', () => {
   })
 
   it('collapses disabled schedules and keeps their form inside the viewport', () => {
-    expect(credentialStyles).toMatch(/\.credentialAutoRefreshSettingsModal\s*\{[\s\S]*?max-width:\s*min\(620px, calc\(100vw - 28px\)\);/)
-    expect(cssBlock('.credentialAutoRefreshScheduleArea')).toContain('grid-template-rows: 0fr;')
-    expect(cssBlock('.credentialAutoRefreshScheduleAreaActive')).toContain('grid-template-rows: 1fr;')
-    expect(cssBlock('.credentialAutoRefreshIntervalField')).toContain('max-width: 100%;')
+    expect(settingsStyles).toMatch(/\.credentialAutoRefreshSettingsModal\s*\{[\s\S]*?max-width:\s*min\(620px, calc\(100vw - 28px\)\);/)
+    expect(cssBlock('.credentialAutoRefreshScheduleArea', settingsStyles)).toContain('grid-template-rows: 0fr;')
+    expect(cssBlock('.credentialAutoRefreshScheduleAreaActive', settingsStyles)).toContain('grid-template-rows: 1fr;')
+    expect(cssBlock('.credentialAutoRefreshIntervalField', settingsStyles)).toContain('max-width: 100%;')
   })
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {

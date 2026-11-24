@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import type { UsageCredentialHealth } from '@/lib/types'
 import { CredentialHealthPanel, healthMetaToneClassName, useCredentialHealth } from './CredentialHealthPanel'
-import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
+import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './credentialMetrics'
 import styles from './CredentialDetailDrawer.module.scss'
-import credentialStyles from './CredentialSections.module.scss'
+import healthStyles from './CredentialHealthPanel.module.scss'
 
 interface CredentialRecentActivityProps {
   displayName: string
@@ -28,7 +28,7 @@ export function CredentialRecentActivity({ displayName, health, windowCacheReadR
   return <section className={styles.overviewSection} data-credential-overview-section="activity">
     <div className={styles.sectionHeading}>
       <h3>{t('usage_stats.credentials_activity_title')}</h3>
-      {health ? <span className={`${styles.activityState} ${healthMetaToneClassName[summary.tone]}`} data-tone={summary.tone} title={summary.detail}><span className={credentialStyles.credentialHealthMetaStatus}><i aria-hidden="true" />{summary.label}</span></span> : null}
+      {health ? <span className={`${styles.activityState} ${healthMetaToneClassName[summary.tone]}`} data-tone={summary.tone} title={summary.detail}><span className={healthStyles.credentialHealthMetaStatus}><i aria-hidden="true" />{summary.label}</span></span> : null}
       <span className={styles.activityWindow}>{t('usage_stats.credentials_health_last_5h')}</span>
     </div>
     <div className={styles.activityBody}>

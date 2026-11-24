@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
 import type { UsageQuotaRow } from '@/lib/types'
-import { CredentialQuotaPanel, CredentialsSection } from '../CredentialsSection'
+import { CredentialQuotaPanel } from '../quota/CredentialQuotaPanel'
+import { CredentialsSection } from '../CredentialsSection'
 import { buildCredentialRows } from '../credentialViewModels'
 import { createCredentialSectionProps, createSectionIdentity } from './credentialSectionFixtures'
 
@@ -81,7 +82,7 @@ describe('credential compact card data', () => {
     expect(quotaPanel().textContent).toContain('1.00M')
     expect(quotaPanel().textContent).toContain('$2.50')
     expect(quotaPanel().textContent).not.toContain('4.00M')
-    const estimated = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Estimated')!
+    const estimated = container.querySelector<HTMLButtonElement>('button[aria-label="Estimated usage"]')!
     await act(async () => estimated.click())
 
     expect(quotaPanel().textContent).toContain('4.00M')

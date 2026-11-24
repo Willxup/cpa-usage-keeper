@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { resolve } from 'node:path'
 import { compile } from 'sass'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { QuotaAutoRefreshSettingsModal, QuotaInspectionModal } from '../CredentialsSection'
+import { QuotaInspectionModal } from '../inspection/QuotaInspectionModal'
+import { QuotaAutoRefreshSettingsForm } from '../inspection/QuotaAutoRefreshSettingsModal'
 import credentialStyles from '../CredentialSections.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -91,7 +92,7 @@ describe('quota inspection select accessibility', () => {
     expect(error.className).toContain(credentialStyles.credentialInlineError)
     expect(getComputedStyle(error).color).toBe('#f1b0a6')
 
-    await act(async () => root.render(<QuotaAutoRefreshSettingsModal
+    await act(async () => root.render(<QuotaAutoRefreshSettingsForm
       open enabled unit="hour" value="6" loading={false} saving={false} loaded error="Settings failed"
       onClose={() => undefined} onEnabledChange={() => undefined} onUnitChange={() => undefined}
       onValueChange={() => undefined} onSave={async () => undefined}
@@ -105,7 +106,7 @@ describe('quota inspection select accessibility', () => {
     const onValueChange = vi.fn()
     function Settings() {
       const [value, setValue] = useState(initialValue)
-      return <QuotaAutoRefreshSettingsModal
+      return <QuotaAutoRefreshSettingsForm
         open enabled unit="week" value={value} loading={false} saving={false} loaded error=""
         onClose={() => undefined} onEnabledChange={() => undefined} onUnitChange={() => undefined}
         onValueChange={next => { onValueChange(next); setValue(next) }} onSave={async () => undefined}

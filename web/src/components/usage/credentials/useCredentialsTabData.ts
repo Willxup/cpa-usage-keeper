@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   buildAiProviderCredentialRows,
   buildCredentialRows,
@@ -10,50 +10,15 @@ import {
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { useQuotaInspection } from './useQuotaInspection'
-import { ApiError, resetUsageQuota, setCredentialDisabled, setCredentialPriority, updateUsageIdentityAlias, type CredentialStatusKind, type UsageIdentityPageSort } from '@/lib/api'
-import i18n from '@/i18n'
+import { useQuotaReset, type CredentialResetState } from './useQuotaReset'
+import { useCredentialMutations } from './useCredentialMutations'
+import { type CredentialStatusKind, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity, UsageIdentityTypeCount, UsageQuotaInspectionStatusResponse, UsageQuotaResetResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
 import type { CredentialProviderFilterKey } from './credentialProviderFilters'
+import type { CredentialViewMode } from './credentialListPreferences'
 
 type CredentialQuotaState = Pick<CredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>
-
-interface CredentialResetState {
-  quotaResetting?: boolean
-}
-
-export interface CredentialStatusFailureHandling {
-  /** 401 需要页面重新登录，其它状态只提示。 */
-  authRequired: boolean
-  /** 顶层提示使用的 i18n key。 */
-  noticeKey: string
-  /** 只有列表确实过期（404）才值得重新拉取；409 是凭证本身不可单独操作。 */
-  refresh: boolean
-}
-
-/**
- * 把凭证开关失败映射为提示与刷新决策。
- * 409 分两种来源：凭证的插件多账号子行，以及不支持启停的供应商类型。
- */
-export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error: unknown): CredentialStatusFailureHandling {
-  if (error instanceof ApiError && error.status === 401) {
-    return { authRequired: true, noticeKey: 'usage_stats.credentials_status_update_failed', refresh: false }
-  }
-  if (error instanceof ApiError && error.status === 404) {
-    return { authRequired: false, noticeKey: 'usage_stats.credentials_status_stale_target', refresh: true }
-  }
-  if (error instanceof ApiError && error.status === 412) {
-    return { authRequired: false, noticeKey: 'usage_stats.credentials_config_changed', refresh: false }
-  }
-  if (error instanceof ApiError && error.status === 409) {
-    return {
-      authRequired: false,
-      noticeKey: kind === 'credential' ? 'usage_stats.credentials_status_conflict_credential' : 'usage_stats.credentials_status_conflict_ai_provider',
-      refresh: false,
-    }
-  }
-  return { authRequired: false, noticeKey: 'usage_stats.credentials_status_update_failed', refresh: false }
-}
 
 interface UseCredentialsTabDataOptions {
   enabledCredentials: boolean
@@ -82,6 +47,10 @@ export interface CredentialsTabData {
   aiProviderProviderFilter: CredentialProviderFilterKey
   credentialSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
+  credentialViewMode: CredentialViewMode
+  aiProviderViewMode: CredentialViewMode
+  setCredentialViewMode: (mode: CredentialViewMode) => void
+  setAiProviderViewMode: (mode: CredentialViewMode) => void
   setCredentialPage: (page: number) => void
   setAiProviderPage: (page: number) => void
   setCredentialPageSize: (pageSize: number) => void
@@ -136,8 +105,7 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
     onAuthRequired,
   })
   const { refreshQuotaForAuthIndex, resetQuotaRefreshTasks } = quotaRefreshTasks
-  const [quotaResetStateByAuthIndex, setQuotaResetStateByAuthIndex] = useState<Record<string, CredentialResetState>>({})
-  const [credentialStatusPending, setCredentialStatusPending] = useState<Record<string, boolean>>({})
+  const { quotaResetStateByAuthIndex, resetQuotaForAuthIndex } = useQuotaReset({ refreshQuotaForAuthIndex, onNotice })
   const quotaInspection = useQuotaInspection({
     enabled: enabledCredentials,
     onAuthRequired,
@@ -160,11 +128,6 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
     [credentialPages.aiProviderIdentities],
   )
   const refreshCredentialPages = credentialPages.refresh
-  // 开关请求返回时页面参数可能已经变化，ref 始终指向最新 refresh，避免用旧页码或旧筛选覆盖用户当前视图。
-  const refreshCredentialPagesRef = useRef(refreshCredentialPages)
-  useEffect(() => {
-    refreshCredentialPagesRef.current = refreshCredentialPages
-  }, [refreshCredentialPages])
   const refresh = useCallback(async () => {
     await Promise.all([refreshCredentialPages(), refreshQuotaCache()])
   }, [refreshCredentialPages, refreshQuotaCache])
@@ -179,136 +142,10 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
     }
   }, [enabledCredentials, refreshQuotaCache, refreshQuotaInspectionStatus, resetQuotaCache, resetQuotaInspection, resetQuotaRefreshTasks])
 
-  // 开关按钮改用 aria-disabled 后不再由浏览器拦截重复点击，这里用 ref 做与渲染时序无关的兜底。
-  const credentialStatusInFlightRef = useRef<Set<string>>(new Set())
-  const credentialStatusPendingIdentityIds = useMemo(
-    () => new Set(Object.keys(credentialStatusPending).filter((identityId) => credentialStatusPending[identityId])),
-    [credentialStatusPending],
-  )
-
-  const toggleStatusByKind = useCallback(async (kind: CredentialStatusKind, identityId: string, authIndex: string, disabled: boolean) => {
-    // Keeper identity id 是全局唯一的本地主键；auth_index 只用于后端调用，不参与两个列表的 pending 隔离。
-    const pendingIdentityId = identityId || authIndex
-    if (credentialStatusInFlightRef.current.has(pendingIdentityId)) {
-      return
-    }
-    credentialStatusInFlightRef.current.add(pendingIdentityId)
-    setCredentialStatusPending((current) => ({ ...current, [pendingIdentityId]: true }))
-    try {
-      await setCredentialDisabled(kind, authIndex, disabled)
-      // 上游成功后刷新列表，让 enabled only 过滤与图标状态都来自后端结果。
-      await refreshCredentialPagesRef.current()
-      onNotice?.('success', i18n.t(disabled ? 'usage_stats.credentials_status_disable_success' : 'usage_stats.credentials_status_enable_success'))
-    } catch (error) {
-      const failure = resolveCredentialStatusFailure(kind, error)
-      if (failure.authRequired) {
-        onAuthRequired?.()
-      }
-      onNotice?.('error', i18n.t(failure.noticeKey))
-      // 404 说明本地列表已经过期，用最新筛选与页码重新拉取，让用户看到真实状态。
-      if (failure.refresh) {
-        await refreshCredentialPagesRef.current()
-      }
-    } finally {
-      credentialStatusInFlightRef.current.delete(pendingIdentityId)
-      setCredentialStatusPending((current) => {
-        if (!current[pendingIdentityId]) {
-          return current
-        }
-        const next = { ...current }
-        delete next[pendingIdentityId]
-        return next
-      })
-    }
-    // 刷新只经由 refreshCredentialPagesRef，避免把点击时的旧闭包固化进依赖列表。
-  }, [onAuthRequired, onNotice])
-
-  const toggleCredentialStatus = useCallback((identityId: string, authIndex: string, disabled: boolean) => {
-    void toggleStatusByKind('credential', identityId, authIndex, disabled)
-  }, [toggleStatusByKind])
-
-  const toggleAiProviderStatus = useCallback((identityId: string, authIndex: string, disabled: boolean) => {
-    void toggleStatusByKind('ai-provider', identityId, authIndex, disabled)
-  }, [toggleStatusByKind])
-
-  const savePriorityByKind = useCallback(async (kind: CredentialStatusKind, _identityId: string, authIndex: string, priority: number) => {
-    try {
-      await setCredentialPriority(kind, authIndex, priority)
-      // 重新读取当前筛选和排序；OpenAI provider 的其它 key 也通过服务端结果对齐。
-      await refreshCredentialPagesRef.current()
-      onPrioritySaved?.()
-      onNotice?.('success', i18n.t('usage_stats.credentials_priority_save_success'))
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) onAuthRequired?.()
-      if (error instanceof ApiError && error.status === 404) {
-        await refreshCredentialPagesRef.current()
-      }
-      const key = error instanceof ApiError && error.status === 404
-        ? 'usage_stats.credentials_priority_stale_target'
-        : error instanceof ApiError && error.status === 412
-          ? 'usage_stats.credentials_config_changed'
-          : error instanceof ApiError && error.status === 409 && kind === 'credential'
-            ? 'usage_stats.credentials_priority_conflict_credential'
-            : 'usage_stats.credentials_priority_save_failed'
-      onNotice?.('error', i18n.t(key))
-      throw error
-    }
-  }, [onAuthRequired, onNotice, onPrioritySaved])
-
-  const saveCredentialPriority = useCallback((identityId: string, authIndex: string, priority: number) =>
-    savePriorityByKind('credential', identityId, authIndex, priority), [savePriorityByKind])
-  const saveAiProviderPriority = useCallback((identityId: string, authIndex: string, priority: number) =>
-    savePriorityByKind('ai-provider', identityId, authIndex, priority), [savePriorityByKind])
-
-  const saveCredentialField = useCallback(async (kind: CredentialStatusKind, id: string, authIndex: string, change: CredentialEditChange) => {
-    try {
-      if (change.field === 'alias') {
-        const updated = await updateUsageIdentityAlias(id, change.value)
-        credentialPages.replaceUsageIdentity(updated)
-      } else if (change.field === 'priority') {
-        await setCredentialPriority(kind, authIndex, change.value)
-      } else {
-        await setCredentialDisabled(kind, authIndex, change.value)
-      }
-      // 每项成功立即对齐列表和详情；弹框在页面层保留，不随当前行卸载。
-      await refreshCredentialPagesRef.current()
-      onPrioritySaved?.()
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) onAuthRequired?.()
-      if (error instanceof ApiError && error.status === 404) await refreshCredentialPagesRef.current()
-      throw error
-    }
-  }, [credentialPages, onAuthRequired, onPrioritySaved])
-
-  const resetQuotaForAuthIndex = useCallback(async (authIndex: string, grantId?: string, organizationId?: string) => {
-    setQuotaResetStateByAuthIndex((current) => ({
-      ...current,
-      [authIndex]: { quotaResetting: true },
-    }))
-    try {
-      const outcome = await runQuotaResetForAuthIndex(authIndex, {
-        resetUsageQuota: grantId ? (value) => resetUsageQuota(value, undefined, grantId, organizationId) : resetUsageQuota,
-        refreshQuotaForAuthIndex,
-        grantId,
-      })
-      setQuotaResetStateByAuthIndex((current) => ({
-        ...current,
-        [authIndex]: { quotaResetting: false },
-      }))
-      if (outcome.kind === 'error') {
-        onNotice?.('error', outcome.message)
-      } else if (outcome.kind === 'warning') {
-        onNotice?.('info', outcome.message)
-      }
-      return outcome.result
-    } catch {
-      setQuotaResetStateByAuthIndex((current) => ({
-        ...current,
-        [authIndex]: { quotaResetting: false },
-      }))
-      onNotice?.('error', quotaResetDisplayError())
-    }
-  }, [onNotice, refreshQuotaForAuthIndex])
+  const { credentialStatusPendingIdentityIds, toggleCredentialStatus, toggleAiProviderStatus,
+    saveCredentialPriority, saveAiProviderPriority, saveCredentialField } = useCredentialMutations({
+    refreshCredentialPages, replaceUsageIdentity: credentialPages.replaceUsageIdentity, onAuthRequired, onNotice, onPrioritySaved,
+  })
 
   return {
     credentialRows,
@@ -329,6 +166,10 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
     aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
     credentialSort: credentialPages.credentialSort,
     aiProviderSort: credentialPages.aiProviderSort,
+    credentialViewMode: credentialPages.credentialViewMode,
+    aiProviderViewMode: credentialPages.aiProviderViewMode,
+    setCredentialViewMode: credentialPages.setCredentialViewMode,
+    setAiProviderViewMode: credentialPages.setAiProviderViewMode,
     setCredentialPage: credentialPages.setCredentialPage,
     setAiProviderPage: credentialPages.setAiProviderPage,
     setCredentialPageSize: credentialPages.setCredentialPageSize,
@@ -365,57 +206,6 @@ export function useCredentialsTabData({ enabledCredentials, enabledAiProviders, 
 }
 
 export { quotaRefreshDisplayError }
-
-export type QuotaResetOutcome = (
-  | { kind: 'success' }
-  | { kind: 'warning'; message: string }
-  | { kind: 'error'; message: string }
-) & { result?: UsageQuotaResetResponse }
-
-export async function runQuotaResetForAuthIndex(
-  authIndex: string,
-  deps: {
-    resetUsageQuota: (authIndex: string) => Promise<UsageQuotaResetResponse>
-    refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
-    grantId?: string
-  },
-): Promise<QuotaResetOutcome> {
-  let result: UsageQuotaResetResponse
-  try {
-    // 后端在官方重置后恢复 CPA 路由；只有官方重置失败才中止额度刷新。
-    result = await deps.resetUsageQuota(authIndex)
-  } catch {
-    if (deps.grantId) return { kind: 'warning', message: i18n.t('usage_stats.claude_reset_unknown'), result: { authIndex, code: 'unknown' } }
-    return {
-      kind: 'error',
-      message: quotaResetDisplayError(),
-    }
-  }
-
-  const response = deps.grantId ? { result } : {}
-  if (deps.grantId && result.code !== 'reset' && result.code !== 'already_used') {
-    return { kind: 'warning', message: i18n.t(`usage_stats.claude_reset_${claudeResetResultKey(result.code)}`), ...response }
-  }
-
-  try {
-    // reset 成功后复用现有单行刷新，让缓存继续以官方刷新结果为准；刷新失败走原有行内错误链路。
-    await deps.refreshQuotaForAuthIndex(authIndex)
-  } catch {
-    // reset 已成功消费官方次数，后续刷新失败不影响本次 reset 的成功提示。
-  }
-  if (result.recoveryFailed) {
-    return { kind: 'warning', message: i18n.t('usage_stats.credentials_quota_reset_recovery_failed'), ...response }
-  }
-  return { kind: 'success', ...response }
-}
-
-export function claudeResetResultKey(code?: string): string {
-  return ['not_limited', 'cooldown', 'ineligible', 'unavailable', 'rate_limited', 'auth_error', 'status_unavailable', 'unknown'].includes(code ?? '') ? code! : 'unavailable'
-}
-
-export function quotaResetDisplayError(): string {
-  return i18n.t('usage_stats.credentials_quota_reset_failed', { defaultValue: 'Quota reset failed. Please try again later.' })
-}
 
 export function buildCredentialQuotaStateMap(
   quotaStateByAuthIndex: Record<string, QuotaState>,

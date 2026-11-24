@@ -6,6 +6,7 @@ import type { CredentialsSection } from '../CredentialsSection'
 const paginationDefaults = {
   total: 0, page: 1, totalPages: 1, pageSize: 10,
   activeOnly: false, sort: 'priority' as const, loading: false,
+  viewMode: 'cards' as const, onViewModeChange: () => undefined,
   onPageChange: () => undefined,
   onPageSizeChange: () => undefined,
   onActiveOnlyChange: () => undefined,

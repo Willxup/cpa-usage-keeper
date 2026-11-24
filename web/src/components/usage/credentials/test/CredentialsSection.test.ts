@@ -1,7 +1,12 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { CredentialsSection, CredentialQuotaPanel, INSPECTION_RESULT_PAGE_SIZE_OPTIONS, QuotaAutoRefreshSettingsModal, QuotaInspectionModal, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, buildQuotaAutoRefreshSettings, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, resolveQuotaAutoRefreshSettingsLoadFailure, selectAllInvalidInspectionAccountFileNames } from '../CredentialsSection'
+import { CredentialsSection } from '../CredentialsSection'
+import { CredentialQuotaPanel } from '../quota/CredentialQuotaPanel'
+import { formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel } from '../quota/quotaPresentation'
+import { QuotaInspectionModal } from '../inspection/QuotaInspectionModal'
+import { INSPECTION_RESULT_PAGE_SIZE_OPTIONS, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, formatInspectionCompletedAt, formatInspectionProgressPercent, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, selectAllInvalidInspectionAccountFileNames } from '../inspection/quotaInspectionModel'
+import { QuotaAutoRefreshSettingsForm, buildQuotaAutoRefreshSettings, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, resolveQuotaAutoRefreshSettingsLoadFailure } from '../inspection/QuotaAutoRefreshSettingsModal'
 import { createCredentialSectionProps } from './credentialSectionFixtures'
 import type { CredentialRow, DisplayQuota } from '../credentialViewModels'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus } from '@/lib/types'
@@ -24,8 +29,8 @@ const createRow = (overrides: RowFixture = {}): CredentialRow => ({
   ...overrides,
 } as CredentialRow)
 
-const renderSettings = (props: Partial<Parameters<typeof QuotaAutoRefreshSettingsModal>[0]> = {}) => renderToStaticMarkup(
-  createElement(QuotaAutoRefreshSettingsModal, {
+const renderSettings = (props: Partial<Parameters<typeof QuotaAutoRefreshSettingsForm>[0]> = {}) => renderToStaticMarkup(
+  createElement(QuotaAutoRefreshSettingsForm, {
     open: true, enabled: true, unit: 'hour', value: '6',
     loading: false, saving: false, loaded: true, error: '',
     onClose: () => undefined, onEnabledChange: () => undefined,
@@ -133,7 +138,7 @@ describe('CredentialsSection account details and metrics', () => {
       expect(html).toContain('usage_stats.credentials_health_cache_short')
       expect(html).toContain('37.50%')
       expect(html).toContain('usage_stats.credentials_last_used')
-      expect(html).toContain('usage_stats.credentials_quota_usage_mode_label')
+      expect(html).toContain('usage_stats.credentials_quota_usage_mode_aria')
     } finally {
       vi.unstubAllGlobals()
     }
@@ -169,7 +174,7 @@ describe('CredentialsSection account details and metrics', () => {
 
     expect(html).toContain('data-credential-card="true"')
     expect(html).toContain('data-credential-health-variant="compact"')
-    expect(html).toContain('usage_stats.credentials_quota_usage_mode_label')
+    expect(html).toContain('usage_stats.credentials_quota_usage_mode_aria')
     expect(html).toContain('1.23K')
     expect(html).toContain('97.24%')
     expect(html).toContain('data-provider-brand-icon="codex"')
@@ -669,10 +674,10 @@ describe('CredentialsSection inspection controls', () => {
     expect(html).toMatch(/<input[^>]*type="number"[^>]*disabled=""/)
   })
 
-  it('keeps the inspection modal close behavior independent from auto refresh settings saving', () => {
-    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: true, invalidAccountSubmitting: false })).toBe(true)
-    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: false, invalidAccountSubmitting: true })).toBe(true)
-    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: false, invalidAccountSubmitting: false })).toBe(false)
+  it('blocks inspection close while either child session is open', () => {
+    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: true, settingsModalOpen: false })).toBe(true)
+    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: false, settingsModalOpen: true })).toBe(true)
+    expect(isQuotaInspectionCloseDisabled({ invalidAccountActionOpen: false, settingsModalOpen: false })).toBe(false)
   })
 
   it('uses running and completed status dots for the Credentials inspection button', () => {

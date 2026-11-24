@@ -171,6 +171,21 @@ describe('credential status refresh after toggle', () => {
 })
 
 describe('credential status pending identity', () => {
+  it('preserves an in-flight status update while changing layout without another request', async () => {
+    await act(async () => root.render(<Harness onNotice={() => undefined} />))
+    await flush()
+    await act(async () => latest?.toggleCredentialStatus('identity-7', 'idx-1', true))
+    const requests = fetchMock.mock.calls.length
+    await act(async () => latest?.setCredentialViewMode('list'))
+    expect(fetchMock.mock.calls).toHaveLength(requests)
+    expect(latest?.credentialStatusPendingIdentityIds.has('identity-7')).toBe(true)
+    expect(statusPatchCalls(fetchMock)).toHaveLength(1)
+    await act(async () => {
+      statusDeferred.resolve({ ok: true, status: 200, json: async () => ({ auth_index: 'idx-1', disabled: true }) } as unknown as Response)
+    })
+    await waitFor(() => !latest!.credentialStatusPendingIdentityIds.has('identity-7'))
+  })
+
   it('isolates pending state by Keeper identity id while still sending auth_index upstream', async () => {
     await act(async () => root.render(<Harness onNotice={() => undefined} />))
     await flush()

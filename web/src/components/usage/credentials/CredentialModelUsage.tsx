@@ -6,7 +6,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import type { UsageIdentityModelsRange, UsageIdentityModelTotals } from '@/lib/types'
 import { calculateCacheReadRate, calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactTokenValue, formatUsd } from '@/utils/usage'
 import { USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig'
-import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
+import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent } from './credentialMetrics'
 import { useCredentialModelUsage } from './useCredentialModelUsage'
 import styles from './CredentialModelUsage.module.scss'
 

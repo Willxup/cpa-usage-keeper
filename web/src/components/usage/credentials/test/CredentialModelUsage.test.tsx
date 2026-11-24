@@ -195,20 +195,20 @@ describe('CredentialModelUsage', () => {
       cache_creation_tokens: 0, output_tokens: output, reasoning_tokens: 0, total_tokens: input + output,
     })
     const data = response({
-      models: [cacheModel('eighty', 100, 80), cacheModel('fifty', 900, 450), cacheModel('zero', 100, 0), cacheModel('no-input', 0, 0, 50)],
-      summary: { ...response().summary, request_count: 8, input_tokens: 1100, cache_read_tokens: 530, cache_creation_tokens: 0, output_tokens: 50, reasoning_tokens: 0, total_tokens: 1150, cost_usd: 1.6, unavailable_cost_count: 4 },
+      models: [cacheModel('ninety', 100, 90), cacheModel('eighty', 900, 720), cacheModel('zero', 100, 0), cacheModel('no-input', 0, 0, 50)],
+      summary: { ...response().summary, request_count: 8, input_tokens: 1100, cache_read_tokens: 810, cache_creation_tokens: 0, output_tokens: 50, reasoning_tokens: 0, total_tokens: 1150, cost_usd: 1.6, unavailable_cost_count: 4 },
     })
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(data))
     await render()
 
     const rateFor = (name: string) => [...container.querySelectorAll('tbody tr')].find(row => row.querySelector('th')?.textContent === name)?.querySelector('[data-model-cache-rate]')
-    expect([rateFor('eighty')?.textContent, rateFor('fifty')?.textContent, rateFor('zero')?.textContent, rateFor('no-input')?.textContent]).toEqual(['80.00%', '50.00%', '0.00%', '—'])
-    expect(rateFor('eighty')?.className).toBe(credentialStyles.credentialMetricValueSuccess)
-    expect(rateFor('fifty')?.className).toBe(credentialStyles.credentialMetricValueWarning)
+    expect([rateFor('ninety')?.textContent, rateFor('eighty')?.textContent, rateFor('zero')?.textContent, rateFor('no-input')?.textContent]).toEqual(['90.00%', '80.00%', '0.00%', '—'])
+    expect(rateFor('ninety')?.className).toBe(credentialStyles.credentialMetricValueSuccess)
+    expect(rateFor('eighty')?.className).toBe(credentialStyles.credentialMetricValueWarning)
     expect(rateFor('zero')?.className).toBe(credentialStyles.credentialMetricValueDanger)
     expect(rateFor('no-input')?.className).toBe(credentialStyles.credentialMetricValueNeutral)
     const total = container.querySelector('tfoot [data-model-cache-rate]')
-    expect(total?.textContent).toBe('48.18%')
+    expect(total?.textContent).toBe('73.64%')
     expect(total?.className).toBe(credentialStyles.credentialMetricValueDanger)
   })
 

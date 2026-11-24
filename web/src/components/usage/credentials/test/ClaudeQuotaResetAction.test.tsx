@@ -2,12 +2,13 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CredentialsSection, QuotaResetAction } from '../CredentialsSection'
+import { CredentialsSection } from '../CredentialsSection'
+import { QuotaResetAction } from '../quota/QuotaResetAction'
 import type { ClaudeResetGrantsResponse, UsageQuotaResetResponse } from '@/lib/types'
 import type { CredentialRow } from '../credentialViewModels'
 import { createCredentialSectionProps } from './credentialSectionFixtures'
 import * as api from '@/lib/api'
-import styles from '../CredentialSections.module.scss'
+import styles from '../quota/CredentialQuota.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: () => undefined }, useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => `${key}${params ? ':' + JSON.stringify(params) : ''}` }) }))
