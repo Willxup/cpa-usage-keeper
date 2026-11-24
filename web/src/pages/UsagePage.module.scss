@@ -3570,7 +3570,7 @@
 }
 
 // 指标换行后由间距区分，不让新行从竖线开始。
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .overviewRealtimePairedMetrics { flex-wrap: wrap; gap: 10px 18px; }
   .overviewRealtimePairedMetric {
     padding: 0;
