@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from '../CredentialSectionShell'
+import { CredentialsPagination } from '../CredentialSectionShell'
+import { cacheReadRateTone, formatCredentialNumber, formatCredentialPercent } from '../credentialMetrics'
 
 const renderPagination = (props: Partial<Parameters<typeof CredentialsPagination>[0]> = {}) => renderToStaticMarkup(
   createElement(CredentialsPagination, {
@@ -25,6 +26,18 @@ describe('CredentialSectionShell formatting', () => {
     expect(formatCredentialPercent(null)).toBe('—')
   })
 
+  it.each([
+    [null, 'neutral'],
+    [0, 'danger'],
+    [79.99, 'danger'],
+    [80, 'warning'],
+    [89.99, 'warning'],
+    [90, 'success'],
+    [100, 'success'],
+  ] as const)('classifies cache rate %s as %s', (value, expected) => {
+    expect(cacheReadRateTone(value)).toBe(expected)
+  })
+
   it('keeps pagination controls visible for non-empty single-page sections', () => {
     const html = renderPagination({ total: 3 })
 
@@ -34,7 +47,6 @@ describe('CredentialSectionShell formatting', () => {
 
   it('renders an optional sort control before pagination buttons', () => {
     const html = renderPagination({
-      leadingControls: createElement('span', null, 'Quota Usage'),
       total: 3,
       sortValue: 'priority',
       sortOptions: [{ value: 'priority', label: 'Priority' }],
@@ -43,7 +55,6 @@ describe('CredentialSectionShell formatting', () => {
       onSortChange: () => undefined,
     })
 
-    expect(html.indexOf('Quota Usage')).toBeLessThan(html.indexOf('Order by'))
     expect(html.indexOf('Order by')).toBeLessThan(html.indexOf('Rows'))
     expect(html).toContain('Priority')
   })

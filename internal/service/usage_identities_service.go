@@ -60,6 +60,7 @@ type UsageIdentityProvider interface {
 
 type UsageIdentityServiceOptions struct {
 	OnDisplayNameChanged func(entities.UsageIdentity)
+	Now                  func() time.Time
 }
 
 // UsageIdentityStatsResetter 是管理员对本地统计基线的写入能力。
@@ -92,7 +93,11 @@ func NewUsageIdentityServiceWithRecentCache(db *gorm.DB, recentUsage *repository
 }
 
 func NewUsageIdentityServiceWithOptions(db *gorm.DB, recentUsage *repository.UsageRecentEventCache, options UsageIdentityServiceOptions) UsageIdentityProvider {
-	return &usageIdentityService{db: db, recentUsage: recentUsage, now: time.Now, onDisplayNameChanged: options.OnDisplayNameChanged}
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &usageIdentityService{db: db, recentUsage: recentUsage, now: now, onDisplayNameChanged: options.OnDisplayNameChanged}
 }
 
 func (s *usageIdentityService) ListUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {

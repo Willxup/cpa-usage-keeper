@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
-import { buildCredentialQuotaStateMap, quotaRefreshDisplayError, quotaResetDisplayError, runQuotaResetForAuthIndex } from '../useCredentialsTabData'
+import { buildCredentialQuotaStateMap, quotaRefreshDisplayError } from '../useCredentialsTabData'
+import { quotaResetDisplayError, runQuotaResetForAuthIndex } from '../useQuotaReset'
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS, mergeUsageIdentityAliasUpdate } from '../useCredentialPages'
 import { buildQuotaCacheAuthIndexesKey, QUOTA_CACHE_REFRESH_INTERVAL_MS } from '../useQuotaCache'
 import { buildQuotaRefreshSubmissionUpdate, buildQuotaRefreshTaskErrorUpdate } from '../useQuotaRefreshTasks'

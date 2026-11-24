@@ -4,10 +4,13 @@ export type SubscriptionBadgeKind =
   | 'codex-free'
   | 'codex-plus'
   | 'codex-team'
-  | 'codex-pro5x'
+  | 'codex-pro10x'
   | 'codex-pro20x'
+  | 'codex-pro50x'
+  | 'codex-business'
+  | 'codex-go'
+  | 'codex-edu'
   | 'codex-enterprise'
-  | 'codex-unknown'
   | 'claude-free'
   | 'claude-pro'
   | 'claude-max'
@@ -18,7 +21,6 @@ export type SubscriptionBadgeKind =
   | 'antigravity-pro'
   | 'antigravity-ultra-lite'
   | 'antigravity-ultra'
-  | 'antigravity-unknown'
 
 export type SubscriptionBadgeModel = {
   kind: SubscriptionBadgeKind
@@ -30,7 +32,12 @@ const CODEX_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallba
   ['free', { kind: 'codex-free', labelKey: 'usage_stats.credentials_subscription_codex_free' }],
   ['plus', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_codex_plus' }],
   ['team', { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' }],
-  ['pro-5x', { kind: 'codex-pro5x', labelKey: 'usage_stats.credentials_subscription_codex_pro_5x' }],
+  ['pro-5x', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_codex_pro_10x' }],
+  ['pro-10x', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_codex_pro_10x' }],
+  ['pro-50x', { kind: 'codex-pro50x', labelKey: 'usage_stats.credentials_subscription_codex_pro_50x' }],
+  ['business', { kind: 'codex-business', labelKey: 'usage_stats.credentials_subscription_codex_business' }],
+  ['go', { kind: 'codex-go', labelKey: 'usage_stats.credentials_subscription_codex_go' }],
+  ['edu', { kind: 'codex-edu', labelKey: 'usage_stats.credentials_subscription_codex_edu' }],
   ['pro-20x', { kind: 'codex-pro20x', labelKey: 'usage_stats.credentials_subscription_codex_pro_20x' }],
   ['enterprise', { kind: 'codex-enterprise', labelKey: 'usage_stats.credentials_subscription_codex_enterprise' }],
 ])
@@ -51,7 +58,16 @@ const ANTIGRAVITY_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, '
   ['ultra', { kind: 'antigravity-ultra', labelKey: 'usage_stats.credentials_subscription_antigravity_ultra' }],
 ])
 
+// Muse 复用已有动效：Codex Pro 10x 仍是原金色，Pro 20x 使用原 Enterprise 淡紫色。
+const META_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallbackLabel'>>([
+  ['everyday usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_everyday' }],
+  ['high usage', { kind: 'codex-plus', labelKey: 'usage_stats.credentials_subscription_meta_high' }],
+  ['power usage', { kind: 'codex-pro10x', labelKey: 'usage_stats.credentials_subscription_meta_power' }],
+  ['maximum usage', { kind: 'codex-pro20x', labelKey: 'usage_stats.credentials_subscription_meta_maximum' }],
+])
+
 const PRESENTATIONS_BY_PROVIDER = new Map([
+  ['meta', META_PRESENTATIONS],
   ['codex', CODEX_PRESENTATIONS],
   ['claude', CLAUDE_PRESENTATIONS],
   ['antigravity', ANTIGRAVITY_PRESENTATIONS],
@@ -69,19 +85,5 @@ export function resolveCredentialSubscriptionBadge(subscription?: UsageSubscript
     return known
   }
 
-  if (provider === 'antigravity' && displayPlan.toLowerCase() === 'unknown') {
-    const fallbackLabel = subscription?.tierName?.trim() || subscription?.tierId?.trim()
-    return fallbackLabel
-      ? { kind: 'antigravity-unknown', fallbackLabel }
-      : { kind: 'antigravity-unknown', labelKey: 'usage_stats.credentials_subscription_antigravity_unknown' }
-  }
-
-  if (provider !== 'codex') {
-    return undefined
-  }
-
-  return {
-    kind: 'codex-unknown',
-    fallbackLabel: displayPlan,
-  }
+  return undefined
 }

@@ -4,7 +4,8 @@ import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, resetUsageQuota } from '@/lib/api'
-import { quotaResetDisplayError, useCredentialsTabData } from '../useCredentialsTabData'
+import { quotaResetDisplayError } from '../useQuotaReset'
+import { useCredentialsTabData } from '../useCredentialsTabData'
 
 const mocks = vi.hoisted(() => ({
   refreshPages: vi.fn(),

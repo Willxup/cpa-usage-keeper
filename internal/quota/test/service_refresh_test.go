@@ -949,6 +949,30 @@ func TestInspectionStatusClassifiesLimitReachedByKnownCredentialType(t *testing.
 			wantLimitReached: 1,
 		},
 		{
+			name:       "meta current window exhausted",
+			identity:   entities.UsageIdentity{Identity: "meta-auth", Type: "meta", AuthType: entities.UsageIdentityAuthTypeCredential},
+			quota:      []QuotaRow{{Key: "meta.window", UsedPercent: floatPtr(100)}, {Key: "meta.weekly", UsedPercent: floatPtr(25)}},
+			wantStatus: "limit_reached", wantLimitReached: 1,
+		},
+		{
+			name:       "meta weekly window exhausted",
+			identity:   entities.UsageIdentity{Identity: "meta-auth", Type: "meta", AuthType: entities.UsageIdentityAuthTypeCredential},
+			quota:      []QuotaRow{{Key: "meta.window", UsedPercent: floatPtr(25)}, {Key: "meta.weekly", UsedPercent: floatPtr(100)}},
+			wantStatus: "limit_reached", wantLimitReached: 1,
+		},
+		{
+			name:       "meta both windows available",
+			identity:   entities.UsageIdentity{Identity: "meta-auth", Type: "meta", AuthType: entities.UsageIdentityAuthTypeCredential},
+			quota:      []QuotaRow{{Key: "meta.window", UsedPercent: floatPtr(0)}, {Key: "meta.weekly", UsedPercent: floatPtr(99.5)}},
+			wantStatus: "normal", wantNormal: 1,
+		},
+		{
+			name:       "meta missing percentages are not exhausted",
+			identity:   entities.UsageIdentity{Identity: "meta-auth", Type: "meta", AuthType: entities.UsageIdentityAuthTypeCredential},
+			quota:      []QuotaRow{{Key: "meta.window"}, {Key: "meta.weekly"}},
+			wantStatus: "normal", wantNormal: 1,
+		},
+		{
 			name:     "gemini remaining fraction",
 			identity: entities.UsageIdentity{Identity: "gemini-auth", Name: "Gemini", Provider: "gemini", Type: "gemini-cli", AuthType: entities.UsageIdentityAuthTypeCredential},
 			quota: []QuotaRow{{

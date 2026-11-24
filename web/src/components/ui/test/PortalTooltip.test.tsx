@@ -120,4 +120,48 @@ describe('PortalTooltip positioning', () => {
       container.remove();
     }
   });
+
+  it('keeps default lines and remeasures custom content changes and resizes', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const anchorTop = window.innerHeight - 220;
+    const state = { lines: ['First line', 'Second line'], x: 160, y: anchorTop + 30, placement: 'below' as const, anchorTop, anchorBottom: anchorTop + 20 };
+    let height = 30;
+    let resize: (() => void) | undefined;
+    const disconnect = vi.fn();
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) { resize = () => callback([], this as unknown as ResizeObserver); }
+      observe() {}
+      disconnect() { disconnect(); }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver);
+    const getBoundingClientRect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function getRect() { return this.getAttribute('role') === 'tooltip' ? new DOMRect(0, 0, 180, height) : new DOMRect(); });
+    const tooltip = () => document.body.querySelector<HTMLDivElement>('[role="tooltip"]')!;
+    try {
+      await act(async () => root.render(<PortalTooltip tooltip={state} />));
+      expect([...tooltip().children].map(child => [child.tagName, child.textContent])).toEqual([['SPAN', 'First line'], ['SPAN', 'Second line']]);
+      expect(tooltip().style.top).toBe(`${anchorTop + 30}px`);
+
+      height = 220;
+      await act(async () => root.render(<PortalTooltip tooltip={state}><strong>Long model name</strong><span>Custom values</span></PortalTooltip>));
+      expect(tooltip().querySelector('strong')?.textContent).toBe('Long model name');
+      expect(tooltip().textContent).not.toContain('First line');
+      expect(tooltip().style.top).toBe(`${anchorTop - 10}px`);
+      expect(tooltip().style.transform).toBe('translate(-50%, -100%)');
+
+      height = 30;
+      await act(async () => resize?.());
+      expect(tooltip().style.top).toBe(`${anchorTop + 30}px`);
+      expect(tooltip().style.transform).toBe('translateX(-50%)');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      expect(disconnect).toHaveBeenCalled();
+      getBoundingClientRect.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
 });

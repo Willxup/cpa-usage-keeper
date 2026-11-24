@@ -2,21 +2,25 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
-import type { AiProviderCredentialRow, CredentialRow, CredentialDetailSelection } from '../credentialViewModels'
+import { buildAiProviderCredentialRows, buildCredentialRows, type AiProviderCredentialRow, type CredentialRow, type CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
+import { CredentialHealthPanel } from '../CredentialHealthPanel'
 
 const fetchUsageEvents = vi.fn()
 const fetchErrorEvents = vi.fn()
 const fetchCodexQuotaHistory = vi.fn()
+const fetchUsageIdentityModels = vi.fn()
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
     fetchCodexQuotaHistory: (...args: unknown[]) => fetchCodexQuotaHistory(...args),
+    fetchUsageIdentityModels: (...args: unknown[]) => fetchUsageIdentityModels(...args),
     fetchErrorEvents: (...args: unknown[]) => fetchErrorEvents(...args),
     fetchUsageEvents: (...args: unknown[]) => fetchUsageEvents(...args),
   }
@@ -87,6 +91,22 @@ const row = {
 } as AiProviderCredentialRow
 
 const selection: CredentialDetailSelection = { kind: 'ai-provider', row }
+
+function withHealth(base: AiProviderCredentialRow, health: UsageCredentialHealth | undefined): AiProviderCredentialRow {
+  const identity = { ...base.identity, credential_health: health }
+  const derived = buildAiProviderCredentialRows([identity])[0]
+  return { ...base, identity, credentialHealth: derived.credentialHealth, windowCacheReadRate: derived.windowCacheReadRate }
+}
+
+function healthSnapshot(success: number, failure: number, input: number, cached: number): UsageCredentialHealth {
+  const total = success + failure
+  return {
+    ...credentialHealth,
+    total_success: success, total_failure: failure, success_rate: total ? success / total * 100 : 0,
+    input_tokens: input, cache_read_tokens: cached,
+    buckets: [{ start_time: '2026-08-17T09:50:00Z', end_time: '2026-08-17T10:00:00Z', success, failure, rate: total ? success / total : 0 }],
+  }
+}
 
 const secondSelection: CredentialDetailSelection = {
   kind: 'ai-provider',
@@ -215,8 +235,14 @@ const errorResponse = (id: string, cursor?: string) => ({
 describe('CredentialDetailDrawer', () => {
   let container: HTMLDivElement
   let root: Root
+  let unexpectedRequests: string[]
 
   beforeEach(() => {
+    unexpectedRequests = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      unexpectedRequests.push(String(input))
+      throw new Error('Unexpected fetch')
+    })
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
     fetchUsageEvents.mockReset()
@@ -225,6 +251,7 @@ describe('CredentialDetailDrawer', () => {
     fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
     fetchCodexQuotaHistory.mockReset()
     fetchCodexQuotaHistory.mockResolvedValue(quotaHistoryResponse)
+    fetchUsageIdentityModels.mockReset().mockResolvedValue({ identity_id: 'provider-1', range: '7d', timezone: 'UTC', models: [], summary: { total_tokens: 0 } })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -237,6 +264,7 @@ describe('CredentialDetailDrawer', () => {
     container.remove()
     vi.restoreAllMocks()
     vi.useRealTimers()
+    expect(unexpectedRequests).toEqual([])
   })
 
   const renderDrawer = async (props: Partial<Parameters<typeof CredentialDetailDrawer>[0]> = {}) => {
@@ -266,6 +294,23 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
     await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, identity: { ...credentialRow.identity, type: 'generic', provider: 'kimi-ai' } } } })
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
+  })
+
+  it('shows Muse brand details only for authentication files and preserves account names', async () => {
+    const metaIdentity = { ...credentialRow.identity, type: 'meta', provider: 'Meta', displayName: 'My Meta account' }
+    const [metaCredential] = buildCredentialRows([metaIdentity])
+    await renderDrawer({ selection: { kind: 'credential', row: metaCredential } })
+    expect(document.body.querySelector('[data-provider-brand-icon="muse"]')?.getAttribute('aria-label')).toBe('Muse')
+    expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent).toBe(metaIdentity.file_name)
+    expect(document.body.textContent).toContain('My Meta account')
+    expect(document.body.querySelector('[data-provider-brand-icon="meta"]')).toBeNull()
+
+    const [metaProvider] = buildAiProviderCredentialRows([{ ...metaIdentity, auth_type: 2 }])
+    await renderDrawer({ selection: { kind: 'ai-provider', row: metaProvider } })
+    expect(document.body.querySelector('[data-provider-brand-icon="meta"]')?.getAttribute('aria-label')).toBe('meta')
+    expect(document.body.querySelector('[data-provider-brand-icon="muse"]')).toBeNull()
+    expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent).toContain('Meta · meta')
+    expect(document.body.textContent).toContain('My Meta account')
   })
 
   it('shows the concrete Credential filename as the subtitle', async () => {
@@ -298,6 +343,11 @@ describe('CredentialDetailDrawer', () => {
     await renderDrawer({ selection: unsupportedCredentialSelection })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
+
+    const callsBeforeMeta = fetchCodexQuotaHistory.mock.calls.length
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, identity: { ...credentialRow.identity, type: 'meta', provider: 'meta' } } } })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(callsBeforeMeta)
   })
 
   it('loads stored cycle cost again when the Codex history tab is reopened', async () => {
@@ -391,17 +441,288 @@ describe('CredentialDetailDrawer', () => {
 
     expect(overviewMetrics).toHaveLength(4)
     expect(overviewMetrics.map((metric) => metric.querySelector('strong')?.textContent)).toEqual(['10', '90.00%', '135', '10.00%'])
-    expect(tones).toEqual(['warning', 'neutral'])
+    expect(tones).toEqual(['warning', 'danger'])
     expect(document.body.textContent).toContain('usage_stats.success 9')
     expect(document.body.textContent).toContain('usage_stats.failure 1')
-    expect(document.body.textContent).toContain('usage_stats.credentials_health_cache_rate_5h')
-    expect(document.body.textContent).toContain('42.50%')
+    expect(document.body.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
+  })
+
+  it('renders the provider overview in order without identity or quota placeholders', async () => {
+    await renderDrawer()
+    const sections = [...document.body.querySelectorAll('[role="tabpanel"] > section')]
+    expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'models'])
+    expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_identity')
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBeNull()
+    expect(fetchUsageIdentityModels).toHaveBeenCalledWith('provider-1', '7d', expect.any(AbortSignal))
+  })
+
+  it('keeps native quota window data and independently shows cached recent activity', async () => {
+    const quotas = [
+      { key: 'primary', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, windowUsage: { tokens: '1.00M', cost: '$2.50' } },
+      { key: 'weekly', label: 'Weekly', percent: 50, barPercent: 50, percentKind: 'used' as const, status: 'warning' as const },
+    ]
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: quotas } } })
+    const sections = [...document.body.querySelectorAll('[role="tabpanel"] > section')]
+    expect(sections.map(section => section.getAttribute('data-credential-overview-section') ?? (section.hasAttribute('data-credential-model-usage') ? 'models' : null))).toEqual(['cumulative', 'activity', 'quota', 'models'])
+    const activity = document.body.querySelector('[data-credential-overview-section="activity"]')!
+    expect(activity.textContent).toContain('usage_stats.credentials_health_summary_healthy')
+    expect(activity.querySelector('[data-credential-activity-metric="requests"] strong')?.textContent).toBe('10')
+    expect(activity.querySelector('[data-credential-activity-metric="failures"] strong')?.textContent).toBe('1')
+    expect(activity.querySelector('[data-credential-activity-metric="cache-rate"] strong')?.textContent).toBe('42.50%')
+    expect(activity.textContent).not.toContain('quota exhausted')
+    expect(activity.querySelector('[data-credential-health-variant="compact"]')).not.toBeNull()
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    expect(quota.querySelectorAll('[data-quota-key]')).toHaveLength(2)
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.50')
+    expect(quota.textContent).not.toContain('Gemini Models')
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('credential-1', 'today', expect.any(AbortSignal))
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.50')
   })
 
   it.each([
-    { label: 'success boundaries', successRate: 95, cacheReadRate: 50, expectedTones: ['success', 'success'] },
-    { label: 'warning boundaries', successRate: 80, cacheReadRate: 20, expectedTones: ['warning', 'warning'] },
-    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 19.99, expectedTones: ['danger', 'neutral'] },
+    [95, 5, 'healthy'],
+    [90, 10, 'degraded'],
+    [1, 2, 'unhealthy'],
+    [0, 0, 'quiet'],
+  ] as const)('matches the external card health with %i successes and %i failures', async (success, failure, tone) => {
+    const health = healthSnapshot(success, failure, success + failure ? 400 : 0, success + failure ? 170 : 0)
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, health) } })
+
+    const card = document.createElement('div')
+    card.innerHTML = renderToStaticMarkup(<CredentialHealthPanel variant="compact" showCompactMeta displayName={row.displayName} health={health} />)
+    const cardState = card.querySelector('[class*="credentialHealthMetaStatus"]')!
+    const activityState = document.querySelector<HTMLElement>('[data-credential-overview-section="activity"] [class*="activityState"]')!
+    expect(activityState.textContent).toBe(cardState.textContent)
+    expect(activityState.dataset.tone).toBe(tone)
+    const cardBuckets = [...card.querySelectorAll('[role="listitem"]')]
+    const detailBuckets = [...document.querySelectorAll('[data-credential-overview-section="activity"] [role="listitem"]')]
+    expect(detailBuckets).toHaveLength(30)
+    expect(detailBuckets.map(bucket => bucket.getAttribute('aria-label'))).toEqual(cardBuckets.map(bucket => bucket.getAttribute('aria-label')))
+    expect(detailBuckets.map(bucket => bucket.querySelector('[role="tooltip"]')?.textContent)).toEqual(cardBuckets.map(bucket => bucket.querySelector('[role="tooltip"]')?.textContent))
+  })
+
+  it('shows unavailable metrics without a snapshot and zeros for a valid empty snapshot', async () => {
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, undefined) } })
+    const activity = document.querySelector('[data-credential-overview-section="activity"]')!
+    expect(activity.querySelector('[class*="activityState"]')).toBeNull()
+    expect([...activity.querySelectorAll('[data-credential-activity-metric] strong')].map(node => node.textContent)).toEqual(['—', '—', '—'])
+    expect(activity.querySelectorAll('[role="listitem"]')).toHaveLength(30)
+    expect(activity.querySelector('[role="listitem"]')?.getAttribute('aria-label')).toContain('usage_stats.no_data')
+    expect(activity.querySelector('[role="tooltip"]')?.textContent).toContain('usage_stats.no_data')
+    expect(activity.querySelector('[data-credential-health-variant="compact"] strong')?.textContent).toBe('—')
+    expect(activity.textContent).not.toContain('0.0%')
+    const emptyHealth = healthSnapshot(0, 0, 0, 0)
+    await renderDrawer({ selection: { kind: 'ai-provider', row: withHealth(row, emptyHealth) } })
+    expect(activity.querySelector('[data-tone="quiet"]')?.textContent).toBe('usage_stats.credentials_health_summary_quiet')
+    expect([...activity.querySelectorAll('[data-credential-activity-metric] strong')].map(node => node.textContent)).toEqual(['0', '0', '—'])
+    expect(activity.querySelector('[data-credential-health-variant="compact"] strong')?.textContent).toBe('0.0%')
+  })
+
+  it.each(['flat', 'group'] as const)('shows the project-timezone reset tooltip for %s quotas without closing the drawer on Escape', async (kind) => {
+    const quota = {
+      key: 'quota-5h', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const,
+      resetText: '2026-05-12T03:15:00-07:00',
+      ...(kind === 'group' ? { scope: 'quota_group', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' } : {}),
+    }
+    const onClose = vi.fn()
+    await renderDrawer({ timeZone: 'Asia/Shanghai', onClose, selection: { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } } })
+    const quotaRow = document.querySelector('[data-credential-overview-section="quota"] [data-quota-key]')!
+    const countdown = quotaRow.querySelector<HTMLButtonElement>('[data-quota-reset-countdown]')!
+    expect(countdown.getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
+    expect(quotaRow.textContent).not.toContain('05-12 18:15')
+    const tooltip = () => document.getElementById(countdown.getAttribute('aria-describedby') ?? '')
+
+    await act(async () => countdown.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(tooltip()?.textContent).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-12 18:15"}')
+    await act(async () => countdown.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+    expect(tooltip()).toBeNull()
+    await act(async () => countdown.click())
+    expect(tooltip()).not.toBeNull()
+    await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' })))
+    expect(tooltip()).toBeNull()
+    await act(async () => countdown.focus())
+    expect(tooltip()).not.toBeNull()
+    await act(async () => countdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(tooltip()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => countdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('cleans the reset tooltip on tab, identity and drawer changes', async () => {
+    const quota = { key: 'shared-window', label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, resetText: '2026-05-12T03:15:00-07:00' }
+    const first: CredentialDetailSelection = { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } }
+    const second: CredentialDetailSelection = {
+      kind: 'credential',
+      row: { ...credentialRow, identity: { ...credentialRow.identity, id: 'other', identity: 'other-auth' }, displayQuotas: [{ ...quota, resetText: '2026-05-13T03:15:00-07:00' }] },
+    }
+    const countdown = () => document.querySelector<HTMLButtonElement>('[data-credential-overview-section="quota"] [data-quota-reset-countdown]')!
+    const focusTooltip = async () => {
+      const target = countdown()
+      await act(async () => target.focus())
+      const id = target.getAttribute('aria-describedby')!
+      expect(document.getElementById(id)).not.toBeNull()
+      return id
+    }
+
+    await renderDrawer({ selection: first, timeZone: 'Asia/Shanghai' })
+    const firstId = await focusTooltip()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(document.getElementById(firstId)).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    const secondId = await focusTooltip()
+    await renderDrawer({ selection: second, timeZone: 'Asia/Shanghai' })
+    expect(document.getElementById(secondId)).toBeNull()
+    expect(countdown().getAttribute('aria-label')).toBe('usage_stats.credentials_quota_resets_at:{"time":"05-13 18:15"}')
+    const thirdId = await focusTooltip()
+    await renderDrawer({ selection: second, timeZone: 'Asia/Shanghai', open: false })
+    expect(document.getElementById(thirdId)).toBeNull()
+  })
+
+  it('closes the shared quota breakdown tooltip on Escape without closing the drawer and clears it on close', async () => {
+    const quota = {
+      key: 'billing.weekly', label: 'Weekly', scope: 'billing', percent: 16, barPercent: 84, percentKind: 'used' as const, status: 'ok' as const,
+      usageBreakdown: [{ product: 'GrokBuild', usedPercent: 14 }, { product: 'GrokChat', usedPercent: 2 }],
+    }
+    const onClose = vi.fn()
+    const selection: CredentialDetailSelection = { kind: 'credential', row: { ...credentialRow, displayQuotas: [quota] } }
+    await renderDrawer({ onClose, selection })
+    const infoButton = document.querySelector<HTMLButtonElement>('[data-credential-overview-section="quota"] [data-quota-key] button')!
+    const tooltip = () => document.getElementById(infoButton.getAttribute('aria-describedby') ?? '')
+
+    await act(async () => infoButton.focus())
+    expect(tooltip()?.textContent).toContain('GrokBuild: 14%')
+    await act(async () => infoButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(tooltip()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => infoButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(onClose).toHaveBeenCalledOnce()
+
+    await act(async () => infoButton.click())
+    const openedId = infoButton.getAttribute('aria-describedby')!
+    expect(document.getElementById(openedId)).not.toBeNull()
+    await renderDrawer({ onClose, selection, open: false })
+    expect(document.getElementById(openedId)).toBeNull()
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).not.toBeNull()
+  })
+
+  it('retains the displayed model list inside a scrolled drawer while the next range loads', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce({ identity_id: 'credential-1', range: '7d', models: [{ ...totals, model: 'upstream' }], summary: totals }).mockReturnValueOnce(pending.promise)
+    await renderDrawer({ selection: credentialSelection })
+    const panel = document.body.querySelector<HTMLElement>('[data-credential-model-usage]')!
+    const scroller = panel.closest<HTMLElement>('.modal-body')!
+    vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 900))
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1900 },
+      scrollTop: { configurable: true, writable: true, value: 900 },
+    })
+    const table = panel.querySelector('table')
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    await act(async () => panel.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(scroller.scrollTop).toBe(900)
+    expect(panel.querySelector('table')).toBe(table)
+    expect(panel.querySelector('tbody th')?.textContent).toBe('upstream')
+    expect(panel.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-busy')).toBe('true')
+    expect(document.body.querySelector('[data-credential-overview-section="quota"]')).toBe(quota)
+    await act(async () => pending.resolve({ identity_id: 'credential-1', range: 'today', models: [], summary: totals }))
+    expect(panel.querySelector('[data-model-range="today"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(panel.textContent).toContain('usage_stats.credentials_models_empty')
+    expect(panel.style.minHeight).toBe('300px')
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('retains only the native Antigravity quota group headings and their window usage', async () => {
+    const base = { label: '5h', percent: 25, barPercent: 75, percentKind: 'used' as const, status: 'ok' as const, scope: 'quota_group', windowUsage: { tokens: '1.00M', cost: '$2.80' } }
+    const displayQuotas = [
+      { ...base, key: 'gemini-5h', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' },
+      { ...base, key: 'gemini-weekly', label: 'Weekly', groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models' },
+      { ...base, key: 'claude-5h', groupKey: 'antigravity-claude-and-gpt-models', groupLabel: 'Claude and GPT models' },
+    ]
+    await renderDrawer({ selection: { kind: 'credential', row: { ...credentialRow, displayQuotas } } })
+    const quota = document.body.querySelector('[data-credential-overview-section="quota"]')!
+    expect([...quota.querySelectorAll('[data-quota-group]')].map(group => group.getAttribute('data-quota-group'))).toEqual(['antigravity-gemini-models', 'antigravity-claude-and-gpt-models'])
+    expect(quota.querySelectorAll('[data-quota-key]')).toHaveLength(3)
+    expect(quota.textContent?.match(/Gemini Models/g)).toHaveLength(1)
+    expect(quota.textContent?.match(/Claude and GPT models/g)).toHaveLength(1)
+    expect(quota.textContent).toContain('1.00M')
+    expect(quota.textContent).toContain('$2.80')
+  })
+
+  it('updates cached activity when the selected identity or its snapshot changes', async () => {
+    await renderDrawer()
+    const values = () => [...document.querySelectorAll('[data-credential-overview-section="activity"] [data-credential-activity-metric] strong')].map(node => node.textContent)
+    expect(values()).toEqual(['10', '1', '42.50%'])
+    const secondHealth = healthSnapshot(31, 4, 1_000, 661)
+    const second: CredentialDetailSelection = { kind: 'ai-provider', row: withHealth(secondSelection.row, secondHealth) }
+    await renderDrawer({ selection: second })
+    expect(values()).toEqual(['35', '4', '66.10%'])
+    const updatedHealth = healthSnapshot(50, 2, 400, 300)
+    const updated: CredentialDetailSelection = { kind: 'ai-provider', row: withHealth(second.row, updatedHealth) }
+    await renderDrawer({ selection: updated })
+    expect(values()).toEqual(['52', '2', '75.00%'])
+  })
+
+  it('aborts model requests on identity change and close and discards late authorization errors', async () => {
+    const old = Promise.withResolvers<unknown>()
+    const next = Promise.withResolvers<unknown>()
+    fetchUsageIdentityModels.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
+    const onAuthRequired = vi.fn()
+    await renderDrawer({ onAuthRequired })
+    const firstModelsSignal = fetchUsageIdentityModels.mock.calls[0][2] as AbortSignal
+    await renderDrawer({ selection: secondSelection, onAuthRequired })
+    expect(firstModelsSignal.aborted).toBe(true)
+    const secondModelsSignal = fetchUsageIdentityModels.mock.calls[1][2] as AbortSignal
+    await act(async () => old.reject(new ApiError('expired', 401)))
+    expect(onAuthRequired).not.toHaveBeenCalled()
+    await renderDrawer({ selection: secondSelection, open: false, onAuthRequired })
+    expect(secondModelsSignal.aborted).toBe(true)
+    await act(async () => next.reject(new ApiError('expired', 401)))
+    expect(onAuthRequired).not.toHaveBeenCalled()
+  })
+
+  it('cancels a pending model range and cleans its tooltip when leaving the Overview tab', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    const initial = { identity_id: 'provider-1', range: '7d', models: [{ ...totals, model: 'upstream' }], summary: totals }
+    fetchUsageIdentityModels.mockReset().mockResolvedValueOnce(initial).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(initial)
+    await renderDrawer()
+    const target = document.body.querySelector<HTMLElement>('[data-token-breakdown]')!
+    await act(async () => target.focus())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).not.toBeNull()
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-model-range="today"]')!.click())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).toBeNull()
+    const signal = fetchUsageIdentityModels.mock.calls[1][2] as AbortSignal
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(signal.aborted).toBe(true)
+    await act(async () => pending.resolve({ ...initial, range: 'today', models: [] }))
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    expect(fetchUsageIdentityModels).toHaveBeenLastCalledWith('provider-1', '7d', expect.any(AbortSignal))
+    expect(document.body.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(document.body.querySelector('[data-credential-model-usage] tbody th')?.textContent).toBe('upstream')
+  })
+
+  it('cleans an open model tooltip on close while preserving the drawer animation snapshot', async () => {
+    const totals = { request_count: 1, input_tokens: 10, output_tokens: 5, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 15, cost_usd: 1, unavailable_cost_count: 0, cost_available: true }
+    fetchUsageIdentityModels.mockResolvedValue({ identity_id: 'provider-1', models: [{ ...totals, model: 'upstream' }], summary: totals })
+    await renderDrawer()
+    await act(async () => document.body.querySelector<HTMLElement>('[data-token-breakdown]')!.focus())
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).not.toBeNull()
+    await renderDrawer({ open: false })
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden])')).toBeNull()
+    expect(document.body.querySelector('[data-credential-overview-section="cumulative"]')).not.toBeNull()
+  })
+
+  it.each([
+    { label: 'success boundaries', successRate: 95, cacheReadRate: 90, expectedTones: ['success', 'success'] },
+    { label: 'warning boundaries', successRate: 80, cacheReadRate: 80, expectedTones: ['warning', 'warning'] },
+    { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 79.99, expectedTones: ['danger', 'danger'] },
     { label: 'missing rates', successRate: null, cacheReadRate: null, expectedTones: ['neutral', 'neutral'] },
   ])('uses the shared list thresholds for $label', async ({ successRate, cacheReadRate, expectedTones }) => {
     await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, successRate, cacheReadRate } } })

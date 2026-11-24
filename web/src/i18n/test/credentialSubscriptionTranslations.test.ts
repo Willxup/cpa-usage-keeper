@@ -2,16 +2,27 @@ import { describe, expect, it } from 'vitest'
 import i18n, { SUPPORTED_LANGUAGES } from '../index'
 
 const OFFICIAL_PLAN_LABELS = {
+  'usage_stats.credentials_subscription_codex_pro_10x': 'Pro 10x',
+  'usage_stats.credentials_subscription_codex_pro_20x': 'Pro 20x',
+  'usage_stats.credentials_subscription_codex_pro_50x': 'Pro 50x',
+  'usage_stats.credentials_subscription_codex_team': 'Team',
+  'usage_stats.credentials_subscription_codex_business': 'Business',
+  'usage_stats.credentials_subscription_codex_go': 'Go',
+  'usage_stats.credentials_subscription_codex_edu': 'Edu',
   'usage_stats.credentials_subscription_claude_free': 'Free',
   'usage_stats.credentials_subscription_claude_pro': 'Pro',
   'usage_stats.credentials_subscription_claude_max': 'Max',
-  'usage_stats.credentials_subscription_claude_max_5x': 'Max 5x',
-  'usage_stats.credentials_subscription_claude_max_20x': 'Max 20x',
+  'usage_stats.credentials_subscription_claude_max_5x': 'Max',
+  'usage_stats.credentials_subscription_claude_max_20x': 'Ultra',
   'usage_stats.credentials_subscription_claude_team': 'Team',
   'usage_stats.credentials_subscription_antigravity_free': 'Free',
   'usage_stats.credentials_subscription_antigravity_pro': 'Pro',
-  'usage_stats.credentials_subscription_antigravity_ultra_lite': 'Ultra Lite',
-  'usage_stats.credentials_subscription_antigravity_ultra': 'Ultra',
+  'usage_stats.credentials_subscription_antigravity_ultra_lite': 'Ultra 5x',
+  'usage_stats.credentials_subscription_antigravity_ultra': 'Ultra 20x',
+  'usage_stats.credentials_subscription_meta_everyday': 'Everyday',
+  'usage_stats.credentials_subscription_meta_high': 'High',
+  'usage_stats.credentials_subscription_meta_power': 'Power',
+  'usage_stats.credentials_subscription_meta_maximum': 'Maximum',
 } as const
 
 describe('credential subscription translations', () => {

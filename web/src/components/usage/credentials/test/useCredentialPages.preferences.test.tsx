@@ -127,10 +127,45 @@ describe('credential list preferences wiring', () => {
     await act(async () => latest!.setAiProviderProviderFilter('claude'))
     expect(storedPreferences('ai-provider')).toEqual({
       version: 1,
+      viewMode: 'cards',
       sort: 'total_tokens',
       pageSize: 20,
       providerFilter: 'claude',
     })
+  })
+
+  it('switches layouts independently without a request or resetting page and filters', async () => {
+    await act(async () => root.render(<Harness />))
+    await act(async () => latest!.setCredentialSort('total_tokens'))
+    await act(async () => latest!.setCredentialProviderFilter('claude'))
+    await act(async () => latest!.setCredentialPage(3))
+    const calls = fetchMock.mock.calls.length
+    await act(async () => latest!.setCredentialViewMode('list'))
+    expect(fetchMock.mock.calls).toHaveLength(calls)
+    expect(latest?.credentialViewMode).toBe('list')
+    expect(latest?.aiProviderViewMode).toBe('cards')
+    expect(latest?.credentialPage).toBe(3)
+    expect(latest?.credentialSort).toBe('total_tokens')
+    expect(latest?.credentialProviderFilter).toBe('claude')
+    expect(storedPreferences('credentials')).toMatchObject({ viewMode: 'list', sort: 'total_tokens', providerFilter: 'claude' })
+    expect(localStorage.getItem(CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS['ai-provider'])).toBeNull()
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await act(async () => root.render(<Harness />))
+    expect(latest?.credentialViewMode).toBe('list')
+    expect(latest?.aiProviderViewMode).toBe('cards')
+  })
+
+  it('changes the active layout even if persistence fails', async () => {
+    await act(async () => root.render(<Harness />))
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    try {
+      await act(async () => latest!.setAiProviderViewMode('list'))
+      expect(latest?.aiProviderViewMode).toBe('list')
+      expect(latest?.credentialViewMode).toBe('cards')
+    } finally {
+      write.mockRestore()
+    }
   })
 
   it('keeps the two sections in separate records', async () => {

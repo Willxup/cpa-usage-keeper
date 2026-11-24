@@ -17,6 +17,7 @@ func NewDefaultProviderRegistry(caller ManagementClient, configs ProviderConfigs
 		"kimi-ai":     kimi,
 		"kimi.ai":     kimi,
 		"kimi.com":    kimi,
+		"meta":        NewMetaProvider(caller),
 		"xai":         NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
 	})
 }

@@ -7,7 +7,12 @@ describe('credentialSubscription', () => {
     ['free', 'codex-free', 'usage_stats.credentials_subscription_codex_free'],
     ['plus', 'codex-plus', 'usage_stats.credentials_subscription_codex_plus'],
     ['team', 'codex-team', 'usage_stats.credentials_subscription_codex_team'],
-    ['pro-5x', 'codex-pro5x', 'usage_stats.credentials_subscription_codex_pro_5x'],
+    ['pro-5x', 'codex-pro10x', 'usage_stats.credentials_subscription_codex_pro_10x'],
+    ['pro-10x', 'codex-pro10x', 'usage_stats.credentials_subscription_codex_pro_10x'],
+    ['pro-50x', 'codex-pro50x', 'usage_stats.credentials_subscription_codex_pro_50x'],
+    ['business', 'codex-business', 'usage_stats.credentials_subscription_codex_business'],
+    ['go', 'codex-go', 'usage_stats.credentials_subscription_codex_go'],
+    ['edu', 'codex-edu', 'usage_stats.credentials_subscription_codex_edu'],
     ['pro-20x', 'codex-pro20x', 'usage_stats.credentials_subscription_codex_pro_20x'],
     ['enterprise', 'codex-enterprise', 'usage_stats.credentials_subscription_codex_enterprise'],
   ] as const)('maps Codex %s to its namespaced badge', (plan, kind, labelKey) => {
@@ -17,11 +22,24 @@ describe('credentialSubscription', () => {
     })
   })
 
-  it('keeps unknown Codex plans readable without treating them as known tiers', () => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan: ' ChatGPT-Pro-Monthly ' })).toEqual({
-      kind: 'codex-unknown',
-      fallbackLabel: 'ChatGPT-Pro-Monthly',
+  it.each(['codex', 'claude', 'antigravity'])('hides unknown %s plans', (provider) => {
+    expect(resolveCredentialSubscriptionBadge({ provider, plan: ' Future-Plan ' })).toBeUndefined()
+  })
+
+  it.each([
+    ['Everyday Usage', 'codex-plus', 'everyday'],
+    ['High Usage', 'codex-plus', 'high'],
+    ['Power Usage', 'codex-pro10x', 'power'],
+    ['Maximum Usage', 'codex-pro20x', 'maximum'],
+  ] as const)('maps Meta %s directly to the shared badge presentation', (plan, kind, label) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: ' META ', plan: ` ${plan.toUpperCase()} ` })).toEqual({
+      kind,
+      labelKey: `usage_stats.credentials_subscription_meta_${label}`,
     })
+  })
+
+  it.each(['1234567890123456', 'Super Power Usage', 'high', 'unknown', ''])('hides unrecognized Meta plan %s', (plan) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: 'meta', plan })).toBeUndefined()
   })
 
   it.each([
@@ -54,26 +72,16 @@ describe('credentialSubscription', () => {
     })
   })
 
-  it('uses tier name, then tier id, then Unknown for unknown Antigravity tiers', () => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', tierId: 'future-tier', tierName: ' Future ' })).toEqual({
-      kind: 'antigravity-unknown',
-      fallbackLabel: 'Future',
-    })
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', tierId: ' future-tier ' })).toEqual({
-      kind: 'antigravity-unknown',
-      fallbackLabel: 'future-tier',
-    })
-    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown' })).toEqual({
-      kind: 'antigravity-unknown',
-      labelKey: 'usage_stats.credentials_subscription_antigravity_unknown',
-    })
+  it.each([
+    { tierId: 'future-tier', tierName: 'Future' },
+    { tierId: 'future-tier' },
+    {},
+  ])('hides unknown Antigravity tiers even when metadata is available: %j', (metadata) => {
+    expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', ...metadata })).toBeUndefined()
   })
 
   it.each(['constructor', 'toString', '__proto__'])('treats inherited object key %s as an unknown plan', (plan) => {
-    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan })).toEqual({
-      kind: 'codex-unknown',
-      fallbackLabel: plan,
-    })
+    expect(resolveCredentialSubscriptionBadge({ provider: 'codex', plan })).toBeUndefined()
   })
 
   it.each([

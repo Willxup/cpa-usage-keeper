@@ -31,12 +31,14 @@ describe('credentialProviderFilters', () => {
       ['devin', 9],
       ['gemini', 6],
       ['kimi', 10],
+      ['meta', 10],
       ['xai', 6],
       ['vertex', 7],
     ])
     expect(credentialProviderFilterTypes('credentials', 'gemini')).toEqual(['gemini', 'gemini-cli'])
     expect(credentialProviderFilterTypes('credentials', 'devin')).toEqual(['devin'])
     expect(credentialProviderFilterTypes('credentials', 'kimi')).toEqual(['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'])
+    expect(credentialProviderFilterTypes('credentials', 'meta')).toEqual(['meta'])
     expect(credentialProviderFilterTypes('credentials', 'xai')).toEqual(['xai'])
     expect(credentialProviderFilterTypes('credentials', 'vertex')).toEqual(['vertex'])
   })

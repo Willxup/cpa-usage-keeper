@@ -8,7 +8,7 @@ import type { UsageIdentity, UsageQuotaCacheResponse, UsageQuotaCheckResponse, U
 import { useQuotaCache } from '../useQuotaCache'
 import { useQuotaRefreshTasks } from '../useQuotaRefreshTasks'
 import { buildCredentialQuotaStateMap } from '../useCredentialsTabData'
-import { CredentialQuotaPanel } from '../CredentialsSection'
+import { CredentialQuotaPanel } from '../quota/CredentialQuotaPanel'
 import { buildCredentialRows } from '../credentialViewModels'
 
 vi.mock('@/lib/api', async (original) => ({

@@ -111,6 +111,38 @@ describe('credential provider navigation', () => {
     expect(provider()).toBe('codex');
   });
 
+  it.each(['en', 'zh', 'zh-TW'])('keeps Meta as the filter identity while showing Muse only for credentials in %s', async (language) => {
+    await i18n.changeLanguage(language);
+    api.fetchUsageIdentitiesPage.mockResolvedValue({ identities: [], total_count: 0, total_pages: 0,
+      type_counts: [{ type: 'meta', count: 3 }, { type: 'codex', count: 2 }] });
+    window.history.replaceState(null, '', '/cpa/credentials?embed=cpamc');
+    await act(async () => root.render(<UsagePage />));
+
+    const filter = (name: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button'))
+      .find((button) => button.textContent?.startsWith(name));
+    expect(filter('Muse')?.querySelector('[data-provider-brand-icon="muse"]')).toBeTruthy();
+    await select('Muse');
+    expect(provider()).toBe('meta');
+    expect(saved('credentials')).toBe('meta');
+    expect(api.fetchUsageIdentitiesPage.mock.lastCall?.[1]).toMatchObject({ authType: 1, types: ['meta'] });
+
+    await navigate('ai-provider');
+    expect(filter('Meta')?.querySelector('[data-provider-brand-icon="meta"]')).toBeTruthy();
+    expect(filter('Muse')).toBeUndefined();
+    await select('Meta');
+    expect(provider()).toBe('meta');
+    expect(saved('ai-provider')).toBe('meta');
+    expect(api.fetchUsageIdentitiesPage.mock.lastCall?.[1]).toMatchObject({ authType: 2, types: ['meta'] });
+
+    await navigate('credentials');
+    expect(provider()).toBe('meta');
+    expect(filter('Muse')?.getAttribute('aria-pressed')).toBe('true');
+    await reload();
+    expect(provider()).toBe('meta');
+    expect(filter('Muse')?.getAttribute('aria-pressed')).toBe('true');
+    expect(new URLSearchParams(window.location.search).get('embed')).toBe('cpamc');
+  });
+
   it('restores the remembered credential page at the root without treating its query as a provider link', async () => {
     localStorage.setItem('cli-proxy-usage-tab-v2', 'credentials');
     save('credentials', 'claude');

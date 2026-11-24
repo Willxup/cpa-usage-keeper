@@ -89,4 +89,60 @@ describe('Codex SIWC card status', () => {
     expect(container.querySelector('[data-siwc-state]')).toBeNull()
     expect(container.textContent).not.toContain('SIWC')
   })
+
+  it.each([
+    ['en', ['Not linked', 'Not enabled', 'Enabled', 'Invalid']],
+    ['zh', ['未绑定', '未启用', '已启用', '已失效']],
+    ['zh-TW', ['未綁定', '未啟用', '已啟用', '已失效']],
+  ])('renders the four localized states in the credential list view in %s outside the monospace subtitle container', async (language, labels) => {
+    await i18n.changeLanguage(language)
+    const rows = buildCredentialRows(identities)
+    await act(async () => root.render(<CredentialsSection {...createCredentialSectionProps({ rows, total: rows.length, viewMode: 'list' })} />))
+    for (const [index, id] of ['unlinked', 'disabled', 'enabled', 'invalid'].entries()) {
+      const listRow = container.querySelector(`[data-credential-list-row="true"][data-credential-identity="${id}"]`)!
+      const indicator = listRow.querySelector('[data-siwc-state]')!
+      expect(indicator.textContent).toBe(`SIWC ${labels[index]}`)
+      expect(indicator.querySelector('[aria-hidden="true"]')).not.toBeNull()
+      expect(indicator.hasAttribute('role')).toBe(false)
+      expect(indicator.hasAttribute('aria-live')).toBe(false)
+      expect(indicator.querySelector('button, a, [tabindex]')).toBeNull()
+      expect(indicator.closest('[class*="credentialIdentityText"]')).toBeNull()
+    }
+    for (const id of ['unknown', 'other']) {
+      const listRow = container.querySelector(`[data-credential-list-row="true"][data-credential-identity="${id}"]`)!
+      expect(listRow.querySelector('[data-siwc-state]')).toBeNull()
+      expect(listRow.textContent).not.toContain('SIWC')
+    }
+  })
+
+  it('keeps list-view edit, refresh, reset, and status toggle usable when SIWC is shown and hides SIWC in AI provider list view', async () => {
+    await i18n.changeLanguage('en')
+    const row = buildCredentialRows([identities[2]])[0]
+    row.quotaResetCreditsAvailableCount = 1
+    const onEdit = vi.fn()
+    const onRefreshQuotaForAuthIndex = vi.fn(async () => undefined)
+    const onToggleStatus = vi.fn()
+    await act(async () => root.render(
+      <CredentialsSection {...createCredentialSectionProps({ rows: [row], total: 1, viewMode: 'list', onEdit, onRefreshQuotaForAuthIndex, onToggleStatus })} />,
+    ))
+    const listRow = container.querySelector('[data-credential-list-row="true"][data-credential-identity="enabled"]')!
+    expect(listRow.querySelector('[data-siwc-state="enabled"]')?.textContent).toBe('SIWC Enabled')
+    const edit = listRow.querySelector<HTMLButtonElement>(`button[aria-label="${i18n.t('usage_stats.credentials_edit_title')}"]`)!
+    const refresh = listRow.querySelector<HTMLButtonElement>(`button[aria-label="${i18n.t('usage_stats.credentials_refresh_single', { name: row.displayName })}"]`)!
+    const reset = listRow.querySelector<HTMLButtonElement>(`button[aria-label="${i18n.t('usage_stats.credentials_quota_reset_button', { count: '1' })}"]`)!
+    const toggle = listRow.querySelector<HTMLButtonElement>('[data-credential-status-toggle="true"]')!
+    expect(reset.disabled).toBe(false)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { edit.click(); refresh.click(); toggle.click() })
+    expect(onEdit).toHaveBeenCalledWith(row)
+    expect(onRefreshQuotaForAuthIndex).toHaveBeenCalledWith('auth-enabled')
+    expect(onToggleStatus).toHaveBeenCalledWith('enabled', 'auth-enabled', true)
+
+    const provider = createSectionIdentity({ auth_type: 2, type: 'codex', siwc_bound: true, use_siwc: true, siwc_status: 'valid' })
+    const providerRows = buildAiProviderCredentialRows([provider])
+    await act(async () => root.render(<AiProviderCredentialsSection {...createAiProviderSectionProps({ rows: providerRows, total: 1, viewMode: 'list' })} />))
+    expect(container.querySelector('[data-credential-list-row="true"]')).not.toBeNull()
+    expect(container.querySelector('[data-siwc-state]')).toBeNull()
+    expect(container.textContent).not.toContain('SIWC')
+  })
 })

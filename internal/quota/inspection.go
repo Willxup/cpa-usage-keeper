@@ -324,8 +324,8 @@ func inspectionQuotaLimitReached(identity entities.UsageIdentity, task *RefreshT
 	switch inspectionQuotaProvider(identity, task) {
 	case "codex":
 		return codexInspectionLimitReached(rows)
-	case "claude":
-		return claudeInspectionLimitReached(rows)
+	case "claude", "meta":
+		return usedPercentInspectionLimitReached(rows)
 	case "gemini-cli":
 		return geminiCLIInspectionLimitReached(rows)
 	case "antigravity":
@@ -349,7 +349,7 @@ func inspectionQuotaProvider(identity entities.UsageIdentity, task *RefreshTaskR
 	for _, value := range []string{taskType, identity.Type} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		switch normalized {
-		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "kimi-ai", "kimi.ai", "kimi.com", "xai":
+		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "kimi-ai", "kimi.ai", "kimi.com", "meta", "xai":
 			return normalized
 		}
 	}
@@ -366,8 +366,8 @@ func codexInspectionLimitReached(rows []QuotaRow) bool {
 	return false
 }
 
-func claudeInspectionLimitReached(rows []QuotaRow) bool {
-	// Claude 当前以窗口利用率为主，100% 及以上视为达到限额。
+func usedPercentInspectionLimitReached(rows []QuotaRow) bool {
+	// Claude 和 Meta 均按窗口利用率判断，任一窗口达到 100% 即达到限额。
 	for _, row := range rows {
 		if quotaRowUsedPercentAtLeast(row, 100) {
 			return true

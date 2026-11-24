@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -7,20 +7,26 @@ import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
 import { ApiError, fetchErrorEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
 import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
-import { CredentialQuotaPanel } from './CredentialsSection'
+import { CredentialQuotaPanel } from './quota/CredentialQuotaPanel'
 import { CredentialErrorEventsList } from './CredentialErrorEventsList'
-import { CredentialHealthPanel } from './CredentialHealthPanel'
-import { CredentialPriorityBadge, cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent, successRateTone } from './CredentialSectionShell'
+import { CredentialModelUsage } from './CredentialModelUsage'
+import { CredentialRecentActivity } from './CredentialRecentActivity'
+import { CredentialPriorityBadge } from './CredentialSectionShell'
+import { cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent, successRateTone } from './credentialMetrics'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialKimiSiteBadge } from './CredentialKimiSiteBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
 import { formatCredentialTimestamp, type CredentialDetailSelection } from './credentialViewModels'
+import { credentialBrandOverride } from './credentialBrand'
 import styles from './CredentialDetailDrawer.module.scss'
 import credentialStyles from './CredentialSections.module.scss'
 
 const REQUEST_EVENTS_PAGE_SIZE = 50
 const ERROR_EVENTS_PAGE_SIZE = 50
+
+// Modal 在关闭动画期间保留内容快照；context 仍能通知快照内的请求立即停止。
+const CredentialDetailOpenContext = createContext(false)
 
 type CredentialDetailTab = 'overview' | 'quota-history' | 'requests' | 'errors'
 
@@ -426,7 +432,7 @@ export function CredentialDetailDrawer({
 
   const title = (
     <div className={styles.drawerTitle}>
-      <ProviderBrandIcon providerType={identity.type} size={36} ariaLabel={row.typeLabel} />
+      <ProviderBrandIcon providerType={(selection.kind === 'credential' ? credentialBrandOverride(identity.type)?.iconType : undefined) ?? identity.type} size={36} ariaLabel={row.typeLabel} />
       <div className={styles.drawerTitleText}>
         <strong>{row.displayName}</strong>
         <span data-credential-detail-subtitle>
@@ -454,6 +460,7 @@ export function CredentialDetailDrawer({
 
   return (
     <>
+      <CredentialDetailOpenContext.Provider value={open}>
       <Modal open={open} title={title} variant="drawer" width={920} className={styles.drawer} onClose={onClose} closeDisabled={resettingStats}>
         <div className={styles.tabBar} data-credential-detail-tab-bar>
           <div className={styles.tabs} role="tablist" aria-label={t('usage_stats.credentials_detail_tabs')}>
@@ -536,12 +543,12 @@ export function CredentialDetailDrawer({
 
         {activeTab === 'overview' ? (
           <section id={overviewPanelId} role="tabpanel" aria-labelledby={overviewTabId} className={styles.overviewPanel}>
+          <section className={styles.overviewSection} data-credential-overview-section="cumulative">
           <div className={styles.summaryToolbar}>
-            <span>{identity.stats_reset_at
-              ? t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(identity.stats_reset_at) ?? identity.stats_reset_at })
-              : t('usage_stats.credentials_stats_lifetime')}</span>
+            <h3>{t('usage_stats.credentials_detail_cumulative')}</h3>
+            {identity.stats_reset_at ? <span>{t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(identity.stats_reset_at) ?? identity.stats_reset_at })}</span> : null}
             {onResetStats ? (
-              <Button type="button" variant="danger" size="sm" appearance="action" className={styles.statsResetButton} disabled={resettingStats} onClick={() => {
+              <Button type="button" variant="secondary" size="sm" appearance="action" className={styles.statsResetButton} disabled={resettingStats} onClick={() => {
                 setStatsResetError('')
                 setResetTarget({ id: identityId, name: row.displayName })
               }}>
@@ -566,33 +573,15 @@ export function CredentialDetailDrawer({
             <DetailMetric label={t('usage_stats.total_tokens')} value={formatCredentialNumber(row.totalTokens)} />
             <DetailMetric valueTone={cacheReadRateTone(row.cacheReadRate)} label={t('usage_stats.cache_rate')} value={formatCredentialPercent(row.cacheReadRate)} />
           </div>
-          <div className={`${styles.overviewGrid} ${selection.kind === 'ai-provider' ? styles.overviewGridSingle : ''}`.trim()}>
-            <section className={styles.overviewSection}>
-              <h3>{t('usage_stats.credentials_detail_identity')}</h3>
-              <dl className={styles.identityList}>
-                <dt>{t('usage_stats.credentials_detail_provider')}</dt><dd>{row.providerLabel || '-'}</dd>
-                <dt>{t('usage_stats.credentials_detail_type')}</dt><dd>{row.typeLabel || '-'}</dd>
-                <dt>{t('usage_stats.credentials_detail_auth_type')}</dt><dd>{row.authTypeLabel || '-'}</dd>
-                <dt>{t('usage_stats.credentials_detail_priority')}</dt><dd>{row.priorityLabel || 'P0'}</dd>
-              </dl>
-            </section>
-            {selection.kind === 'credential' ? (
-              <section className={styles.overviewSection}>
-                <h3>{t('usage_stats.credentials_detail_quota')}</h3>
-                <CredentialQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} />
-              </section>
-            ) : null}
-          </div>
-          <section className={`${styles.overviewSection} ${styles.healthSection}`.trim()}>
-            <h3>{t('usage_stats.credentials_detail_health')}</h3>
-            <CredentialHealthPanel
-              displayName={row.displayName}
-              health={row.credentialHealth}
-              lastUsedAt={identity.last_used_at}
-              statsUpdatedAt={identity.stats_updated_at}
-              windowCacheReadRate={row.windowCacheReadRate}
-            />
           </section>
+          <CredentialRecentActivity displayName={row.displayName} health={row.credentialHealth} windowCacheReadRate={row.windowCacheReadRate} />
+          {selection.kind === 'credential' ? (
+            <section className={styles.overviewSection} data-credential-overview-section="quota">
+              <h3>{t('usage_stats.credentials_detail_quota')}</h3>
+              <div className={styles.quotaRows}><DrawerQuotaPanel key={selectionKey} row={selection.row} quotaUsageMode="current" timeZone={timeZone} /></div>
+            </section>
+          ) : null}
+          <DrawerModelUsage identityId={identityId} onAuthRequired={onAuthRequired} />
           </section>
         ) : activeTab === 'quota-history' && hasQuotaHistory ? (
           <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
@@ -631,6 +620,7 @@ export function CredentialDetailDrawer({
           </section>
         )}
       </Modal>
+      </CredentialDetailOpenContext.Provider>
       <Modal
         open={open && resetTarget?.id === identityId}
         title={t('usage_stats.credentials_stats_reset')}
@@ -657,6 +647,17 @@ export function CredentialDetailDrawer({
       ) : null}
     </>
   )
+}
+
+function DrawerQuotaPanel(props: Omit<Parameters<typeof CredentialQuotaPanel>[0], 'tooltipEnabled'>) {
+  // 关闭动画保留详情快照时，context 仍会立即隐藏并清理配额提示。
+  const enabled = useContext(CredentialDetailOpenContext)
+  return <CredentialQuotaPanel {...props} tooltipEnabled={enabled} />
+}
+
+function DrawerModelUsage(props: Omit<Parameters<typeof CredentialModelUsage>[0], 'enabled'>) {
+  const enabled = useContext(CredentialDetailOpenContext)
+  return <CredentialModelUsage {...props} enabled={enabled} />
 }
 
 type DetailMetricTone = 'success' | 'warning' | 'danger' | 'neutral'

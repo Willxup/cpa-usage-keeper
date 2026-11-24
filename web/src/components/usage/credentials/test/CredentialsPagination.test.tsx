@@ -69,4 +69,31 @@ describe('CredentialsPagination', () => {
     act(() => pageSizeOption!.click())
     expect(onPageSizeChange).toHaveBeenCalledWith(20)
   })
+
+  it('scrolls overflowing pagination focus without scrolling a Select portal option', () => {
+    act(() => root.render(
+      <CredentialsPagination
+        page={1} total={30} totalPages={3} pageSize={10}
+        sortValue="priority" sortOptions={[{ value: 'priority', label: 'Priority' }]}
+        sortLabel="Sort" previousLabel="Previous" nextLabel="Next" rowsPerPageLabel="Size"
+        onPageChange={() => undefined} onPageSizeChange={() => undefined} onSortChange={() => undefined}
+      />,
+    ))
+    const pagination = container.firstElementChild!
+    Object.defineProperties(pagination, { clientWidth: { value: 100 }, scrollWidth: { value: 200 } })
+    const next = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Next')!
+    const scrollNext = vi.fn()
+    next.scrollIntoView = scrollNext
+    act(() => next.focus())
+    expect(scrollNext).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Sort: Priority"]')!.click())
+    const option = document.querySelector<HTMLButtonElement>('[role="option"]')!
+    expect(container.contains(option)).toBe(false)
+    const scrollOption = vi.fn()
+    option.scrollIntoView = scrollOption
+    act(() => option.focus())
+    expect(document.activeElement).toBe(option)
+    expect(scrollOption).not.toHaveBeenCalled()
+  })
 })

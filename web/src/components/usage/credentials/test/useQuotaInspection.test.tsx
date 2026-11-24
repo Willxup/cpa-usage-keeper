@@ -19,6 +19,13 @@ const status = (running: boolean, completed: boolean): UsageQuotaInspectionStatu
   other_failed: 0, unknown: 0, results: [],
 })
 
+const deferredStatus = () => {
+  let resolve!: (value: UsageQuotaInspectionStatusResponse) => void
+  let reject!: (reason: Error) => void
+  const promise = new Promise<UsageQuotaInspectionStatusResponse>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
 let latest: ReturnType<typeof useQuotaInspection> | null = null
 function Harness(props: Parameters<typeof useQuotaInspection>[0]) {
   const result = useQuotaInspection(props)
@@ -153,6 +160,123 @@ describe('useQuotaInspection', () => {
     expect(onCompleted).toHaveBeenCalledOnce()
   })
 
+  it('serializes overlapping manual refreshes without letting a poll replace either snapshot', async () => {
+    const first = deferredStatus(), second = deferredStatus()
+    const firstResult = { ...status(true, false), cached: 1 }
+    const secondResult = { ...status(true, false), cached: 2 }
+    const onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockResolvedValueOnce(status(false, true))
+    await act(async () => root.render(<Harness enabled onInspectionCompleted={onCompleted} />))
+    let firstRefresh!: Promise<void>, secondRefresh!: Promise<void>
+    await act(async () => {
+      firstRefresh = latest!.refreshQuotaInspectionStatus()
+      secondRefresh = latest!.refreshQuotaInspectionStatus()
+    })
+    const firstSignal = vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[1][0]!
+    await act(async () => vi.advanceTimersByTimeAsync(6_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+    expect(firstSignal.aborted).toBe(false)
+    await act(async () => { first.resolve(firstResult); await firstRefresh })
+    expect(latest!.quotaInspectionStatus).toEqual(firstResult)
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(3)
+    const secondSignal = vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[2][0]!
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(3)
+    expect(secondSignal.aborted).toBe(false)
+    await act(async () => { second.resolve(secondResult); await secondRefresh })
+    expect(latest!.quotaInspectionStatus).toEqual(secondResult)
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(4)
+    expect(onCompleted).toHaveBeenCalledOnce()
+  })
+
+  it.each(['error', 'unauthorized'] as const)('recovers polling after a slow manual %s', async (kind) => {
+    const slow = deferredStatus()
+    const onAuthRequired = vi.fn(), onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValueOnce(status(false, true))
+    await act(async () => root.render(<Harness enabled onAuthRequired={onAuthRequired} onInspectionCompleted={onCompleted} />))
+    let refresh!: Promise<void>
+    await act(async () => { refresh = latest!.refreshQuotaInspectionStatus() })
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[1][0]!.aborted).toBe(false)
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      slow.reject(kind === 'error' ? new Error('temporary outage') : new api.ApiError('unauthorized', 401))
+      await refresh
+    })
+    expect(latest!.quotaInspectionError).toBe(kind === 'error' ? 'temporary outage' : '')
+    expect(onAuthRequired).toHaveBeenCalledTimes(kind === 'unauthorized' ? 1 : 0)
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(3)
+    expect(onCompleted).toHaveBeenCalledOnce()
+    expect(latest!.quotaInspectionError).toBe('')
+  })
+
+  it.each(['reset', 'disable', 'unmount'] as const)('cancels manual and queued refreshes on %s without publishing old results', async (action) => {
+    const onAuthRequired = vi.fn(), onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockImplementationOnce((signal) => new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      }))
+      .mockResolvedValueOnce(status(false, false))
+    await act(async () => root.render(<Harness enabled onAuthRequired={onAuthRequired} onInspectionCompleted={onCompleted} />))
+    let first!: Promise<void>, queued!: Promise<void>
+    await act(async () => { first = latest!.refreshQuotaInspectionStatus(); queued = latest!.refreshQuotaInspectionStatus() })
+    const signal = vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[1][0]!
+    await act(async () => {
+      if (action === 'reset') latest!.resetQuotaInspection()
+      else if (action === 'disable') root.render(<Harness enabled={false} onAuthRequired={onAuthRequired} onInspectionCompleted={onCompleted} />)
+      else root.unmount()
+    })
+    await act(async () => { await Promise.all([first, queued]) })
+    expect(signal.aborted).toBe(true)
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+    expect(onAuthRequired).not.toHaveBeenCalled()
+    expect(onCompleted).not.toHaveBeenCalled()
+    if (action === 'reset') {
+      await act(async () => latest!.refreshQuotaInspectionStatus())
+      expect(latest!.quotaInspectionStatus).toEqual(status(false, false))
+    }
+    await act(async () => vi.advanceTimersByTimeAsync(6_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(action === 'reset' ? 3 : 2)
+  })
+
+  it('does not retire manual reads on either side of a new inspection POST', async () => {
+    const before = deferredStatus(), during = deferredStatus(), post = deferredStatus()
+    const onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockReturnValueOnce(before.promise)
+      .mockReturnValueOnce(during.promise)
+    vi.mocked(api.startUsageQuotaInspection).mockReturnValueOnce(post.promise)
+    await act(async () => root.render(<Harness enabled onInspectionCompleted={onCompleted} />))
+    let first!: Promise<void>, start!: Promise<void>, second!: Promise<void>
+    await act(async () => { first = latest!.refreshQuotaInspectionStatus(); start = latest!.startQuotaInspection() })
+    const firstSignal = vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[1][0]!
+    expect(latest!.quotaInspectionStarting).toBe(true)
+    expect(api.startUsageQuotaInspection).not.toHaveBeenCalled()
+    await act(async () => { before.resolve(status(true, false)); await first })
+    expect(firstSignal.aborted).toBe(false)
+    expect(api.startUsageQuotaInspection).toHaveBeenCalledOnce()
+    await act(async () => { second = latest!.refreshQuotaInspectionStatus() })
+    const secondSignal = vi.mocked(api.fetchUsageQuotaInspectionStatus).mock.calls[2][0]!
+    await act(async () => post.resolve(status(false, true)))
+    expect(secondSignal.aborted).toBe(false)
+    expect(onCompleted).not.toHaveBeenCalled()
+    await act(async () => { during.resolve(status(true, false)); await second; await start })
+    expect(latest!.quotaInspectionStatus).toEqual(status(false, true))
+    expect(latest!.quotaInspectionStarting).toBe(false)
+    expect(onCompleted).toHaveBeenCalledOnce()
+  })
+
   it('retires the prior status GET before a new inspection POST publishes its round', async () => {
     let resolveOldGet!: (value: UsageQuotaInspectionStatusResponse) => void
     const onCompleted = vi.fn()
@@ -193,6 +317,58 @@ describe('useQuotaInspection', () => {
     await act(async () => vi.advanceTimersByTimeAsync(3_000))
     expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(3)
     expect(onCompleted).toHaveBeenCalledOnce()
+  })
+
+  it('notifies completion once and stops polling when a manual refresh observes completion during a running round', async () => {
+    const manual = deferredStatus()
+    const onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockReturnValueOnce(manual.promise)
+    await act(async () => root.render(<Harness enabled onInspectionCompleted={onCompleted} />))
+    let refresh!: Promise<void>
+    await act(async () => { refresh = latest!.refreshQuotaInspectionStatus() })
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+    await act(async () => { manual.resolve(status(false, true)); await refresh })
+    expect(latest!.quotaInspectionStatus).toEqual(status(false, true))
+    expect(onCompleted).toHaveBeenCalledOnce()
+    await act(async () => vi.advanceTimersByTimeAsync(6_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not notify completion repeatedly for static completed refreshes or overlapping manual refreshes', async () => {
+    const first = deferredStatus(), second = deferredStatus()
+    const onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(true, false))
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockResolvedValueOnce(status(false, true))
+    await act(async () => root.render(<Harness enabled onInspectionCompleted={onCompleted} />))
+    let firstRefresh!: Promise<void>, secondRefresh!: Promise<void>
+    await act(async () => {
+      firstRefresh = latest!.refreshQuotaInspectionStatus()
+      secondRefresh = latest!.refreshQuotaInspectionStatus()
+    })
+    await act(async () => { first.resolve(status(false, true)); await firstRefresh })
+    expect(onCompleted).toHaveBeenCalledOnce()
+    await act(async () => { second.resolve(status(false, true)); await secondRefresh })
+    expect(onCompleted).toHaveBeenCalledOnce()
+    await act(async () => latest!.refreshQuotaInspectionStatus())
+    expect(onCompleted).toHaveBeenCalledOnce()
+    await act(async () => vi.advanceTimersByTimeAsync(6_000))
+    expect(api.fetchUsageQuotaInspectionStatus).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not notify completion when refreshing an already-completed inspection snapshot', async () => {
+    const onCompleted = vi.fn()
+    vi.mocked(api.fetchUsageQuotaInspectionStatus)
+      .mockResolvedValueOnce(status(false, true))
+      .mockResolvedValueOnce(status(false, true))
+    await act(async () => root.render(<Harness enabled onInspectionCompleted={onCompleted} />))
+    await act(async () => latest!.refreshQuotaInspectionStatus())
+    expect(onCompleted).not.toHaveBeenCalled()
   })
 
   it('does not publish a late inspection POST after the component unmounts', async () => {

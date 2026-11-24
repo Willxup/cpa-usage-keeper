@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
-import { runQuotaResetForAuthIndex } from '../useCredentialsTabData'
+import { runQuotaResetForAuthIndex } from '../useQuotaReset'
 
 describe('quota reset recovery', () => {
   it.each([false, true])('reports partial success and refreshes quota even if refresh fails: %s', async (refreshFails) => {

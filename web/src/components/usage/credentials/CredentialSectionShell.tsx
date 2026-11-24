@@ -1,137 +1,42 @@
 import type { CSSProperties, ReactNode } from 'react'
 import styles from './CredentialSections.module.scss'
 import { Select } from '@/components/ui/Select'
-import { formatCompactNumber } from '@/utils/usage'
 import { CREDENTIAL_PAGE_SIZE_OPTIONS } from './credentialViewModels'
+import type { CredentialViewMode } from './credentialListPreferences'
 
 type CredentialSectionStyle = CSSProperties
 
 interface CredentialSectionShellProps {
   title: string
-  subtitle: string
+  viewMode: CredentialViewMode
+  contentClassName: string
+  titleHelp?: ReactNode
   titleExtra?: ReactNode
   actions?: ReactNode
   style?: CredentialSectionStyle
   children: ReactNode
 }
 
-interface CredentialCardShellProps {
-  identityId: string
-  icon?: ReactNode
-  title: ReactNode
-  badges?: ReactNode
-  status?: ReactNode
-  metrics: ReactNode
-  metricsTitle?: string
-  health: ReactNode
-  quota?: ReactNode
-  footerLeft?: ReactNode
-  actions?: ReactNode
-}
-
-export function CredentialSectionShell({ title, subtitle, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ title, viewMode, contentClassName, titleHelp, titleExtra, actions, style, children }: CredentialSectionShellProps) {
+  const heading = <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
   return (
-    <section className={`${styles.credentialSectionCard} keeper-card-surface`} style={style}>
+    <section className={`${styles.credentialSectionCard} keeper-card-surface`} data-view-mode={viewMode} style={style}>
       <div className={styles.credentialSectionHeader}>
         <div className={styles.credentialSectionTitleBlock}>
           <div className={`${styles.credentialSectionTitleRow} keeper-card-title-track`}>
-            <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
+            {titleHelp ? <div className={styles.credentialSectionHeading}>{heading}{titleHelp}</div> : heading}
             {titleExtra}
           </div>
-          <p className={`${styles.credentialSectionSubtitle} keeper-card-subtitle`}>{subtitle}</p>
         </div>
         {actions && <div className={styles.credentialSectionActions}>{actions}</div>}
       </div>
-      <div className={styles.credentialRows}>{children}</div>
+      <div className={`${styles.credentialRows} ${contentClassName}`} data-view-mode={viewMode}>{children}</div>
     </section>
   )
 }
 
-export function CredentialCardGrid({ children }: { children: ReactNode }) {
-  return <div className={styles.credentialCardGrid}>{children}</div>
-}
-
-export function CredentialCardShell({ identityId, icon, title, badges, status, metrics, metricsTitle, health, quota, footerLeft, actions }: CredentialCardShellProps) {
-  // 两类身份共用卡片骨架；详情入口与编辑等操作独立，卡片留白不绑定点击。
-  return (
-    <article className={styles.credentialCard} data-credential-card="true" data-credential-identity={identityId}>
-      <div className={styles.credentialCardHeader}>
-        <span className={styles.credentialCardBrand} aria-hidden="true">{icon}</span>
-        <div className={styles.credentialCardIdentity}>
-          <h4 className={styles.credentialCardTitle}>{title}</h4>
-          {badges && <div className={styles.credentialIdentityBadges}>{badges}</div>}
-        </div>
-        {status && <div className={styles.credentialCardStatus}>{status}</div>}
-      </div>
-      <div className={styles.credentialCardMetrics} title={metricsTitle} role="group" aria-label={metricsTitle}>{metrics}</div>
-      {health}
-      {quota && <div className={styles.credentialCardQuota}>{quota}</div>}
-      <div className={styles.credentialCardFooter}>
-        {footerLeft}
-        <div className={styles.credentialCardActions}>
-          {actions}
-        </div>
-      </div>
-    </article>
-  )
-}
-
-export function CredentialBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) {
-  return <span className={`${styles.credentialBadge} ${styles[`credentialBadge${capitalize(tone)}`]}`.trim()}>{children}</span>
-}
-
 export function CredentialPriorityBadge({ children }: { children: ReactNode }) {
   return <span className={styles.credentialPriorityBadge}>{children}</span>
-}
-
-export function MetricPill({ label, value }: { label?: string; value: ReactNode }) {
-  return (
-    <span className={styles.credentialCardMetric}>
-      {label && <span className={styles.credentialCardMetricLabel}>{label}</span>}
-      <span className={styles.credentialMetricValueCell}>{value}</span>
-    </span>
-  )
-}
-
-export function RequestMetric({ total, success, failure }: { total: number; success: number; failure: number }) {
-  return (
-    <span className={styles.credentialRequestMetric}>
-      <strong>{formatCredentialNumber(total)}</strong>
-      <span className={styles.credentialRequestBreakdown}>
-        (<span className={styles.credentialMetricValueSuccess}>{formatCredentialNumber(success)}</span>/<span className={styles.credentialMetricValueDanger}>{formatCredentialNumber(failure)}</span>)
-      </span>
-    </span>
-  )
-}
-
-export function TonePercent({ value, tone }: { value: number | null; tone: 'success' | 'warning' | 'danger' | 'neutral' }) {
-  return <span className={credentialToneClassName('credentialMetricValue', tone)}>{formatCredentialPercent(value)}</span>
-}
-
-export function successRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (value === null) {
-    return 'neutral'
-  }
-  if (value >= 95) {
-    return 'success'
-  }
-  if (value >= 80) {
-    return 'warning'
-  }
-  return 'danger'
-}
-
-export function cacheReadRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (value === null) {
-    return 'neutral'
-  }
-  if (value >= 50) {
-    return 'success'
-  }
-  if (value >= 20) {
-    return 'warning'
-  }
-  return 'neutral'
 }
 
 const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => ({
@@ -140,7 +45,8 @@ const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((op
 }))
 
 export function CredentialsPagination({
-  leadingControls,
+  className,
+  controlsClassName,
   page,
   total,
   totalPages,
@@ -155,7 +61,8 @@ export function CredentialsPagination({
   onPageSizeChange,
   onSortChange,
 }: {
-  leadingControls?: ReactNode
+  className?: string
+  controlsClassName?: string
   page: number
   total?: number
   totalPages: number
@@ -177,9 +84,14 @@ export function CredentialsPagination({
   const selectedSortLabel = sortOptions?.find((option) => option.value === sortValue)?.label
 
   return (
-    <div className={styles.credentialPagination}>
-      <div className={styles.credentialPaginationControls}>
-        {leadingControls}
+    <div className={`${styles.credentialPagination} ${className ?? ''}`.trim()} onFocusCapture={(event) => {
+      // 局部滚动条的边缘按钮需完整可见；Select 的 portal 焦点不属于此滚动容器。
+      const bar = event.currentTarget
+      if (bar.contains(event.target) && bar.scrollWidth > bar.clientWidth) {
+        event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+    }}>
+      <div className={`${styles.credentialPaginationControls} ${controlsClassName ?? ''}`.trim()}>
         {sortOptions && sortOptions.length > 0 && sortLabel && onSortChange && (
           <div className={styles.credentialPageSizeControl}>
             <span>{sortLabel}</span>
@@ -221,23 +133,4 @@ export function CredentialsPagination({
       </div>
     </div>
   )
-}
-
-export function formatCredentialNumber(value: number): string {
-  return formatCompactNumber(value)
-}
-
-export function formatCredentialPercent(value: number | null): string {
-  if (value === null) {
-    return '—'
-  }
-  return `${value.toFixed(2)}%`
-}
-
-export function credentialToneClassName(prefix: string, tone: string): string {
-  return styles[`${prefix}${capitalize(tone)}`] ?? ''
-}
-
-export function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
 }
