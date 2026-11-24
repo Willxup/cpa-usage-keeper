@@ -3776,6 +3776,11 @@
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 
+  @media (max-width: 520px) {
+    flex-flow: column nowrap;
+    align-items: flex-start;
+  }
+
   > span {
     white-space: nowrap;
   }
