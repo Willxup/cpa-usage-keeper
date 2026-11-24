@@ -8,7 +8,7 @@ import { Bar, Doughnut, Scatter } from '../charts/UsageChart';
 import { ChartSurface } from '@/components/ui';
 import type { AnalysisCompositionItem, AnalysisCostSummary, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { createCompositionLabelsPlugin } from './compositionLabels';
 import { compositionGeometryPlugin } from './compositionGeometry';
 import { AnalysisRankingList, getAnalysisRankingColor, useAnalysisHighlight, type AnalysisRankingItem } from './analysisRanking';

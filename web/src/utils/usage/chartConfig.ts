@@ -30,8 +30,7 @@ export const USAGE_CHART_TOKEN_COLORS = {
   cost: '#eab308',
 };
 
-// Realtime 的新增结果图表使用更饱和的渐变；Analysis 的 Token Usage Over Time
-// 与既有通用图表继续使用上面的旧色板，避免新增图表的视觉调整相互影响。
+// 当前与 USAGE_CHART_TOKEN_COLORS 保持一致；保留独立导出以解耦 Realtime 与 Analysis 各自的调色演进。
 export const USAGE_CHART_REALTIME_COLORS = {
   input: { base: '#3b82f6', light: '#93c5fd' },
   output: { base: '#6366f1', light: '#a5b4fc' },
