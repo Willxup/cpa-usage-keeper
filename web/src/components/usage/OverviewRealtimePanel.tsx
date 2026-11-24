@@ -443,13 +443,15 @@ function RealtimeHeaderMetrics({ metrics, metricsTooltip }: { metrics: RealtimeM
           key={metric.label}
           className={`${styles.overviewRealtimeMetric} ${metric.tone === 'up' ? styles.overviewRealtimeMetricUp : metric.tone === 'down' ? styles.overviewRealtimeMetricDown : metric.tone === 'flat' ? styles.overviewRealtimeMetricFlat : ''}`.trim()}
           title={metricsTooltip}
-          aria-label={metricsTooltip ? `${metric.label} ${metric.value} ${metricsTooltip}` : undefined}
         >
           <dt className={styles.overviewRealtimeMetricLabel}>
             {metric.accentColor && <span className={styles.overviewRealtimeMetricDot} style={{ backgroundColor: metric.accentColor }} aria-hidden="true" />}
             {metric.label}
           </dt>
-          <dd className={styles.overviewRealtimeMetricValue}>{metric.value}</dd>
+          <dd className={styles.overviewRealtimeMetricValue}>
+            {metric.value}
+            {metricsTooltip && <span className={styles.overviewRealtimeScreenReaderOnly}>{` ${metricsTooltip}`}</span>}
+          </dd>
         </div>
       ))}
     </dl>

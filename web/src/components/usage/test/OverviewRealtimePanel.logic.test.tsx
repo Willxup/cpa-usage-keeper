@@ -194,10 +194,11 @@ describe('OverviewRealtimePanel', () => {
     expect(Array.from(latencyLabels, (dt) => dt.querySelector<HTMLElement>(`.${styles.overviewRealtimeMetricDot}`)?.style.backgroundColor)).toEqual(isDark ? ['#7dd3fc', '#fda4af', undefined] : ['#38bdf8', '#fb7185', undefined]);
     expect(Array.from(latency.querySelectorAll('dd'), (dd) => dd.textContent)).toEqual(['230ms', '940ms', '2']);
     expect(Array.from(cache.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual(['usage_stats.overview_realtime_latest', 'usage_stats.overview_realtime_average', 'usage_stats.overview_realtime_trend']);
-    expect(Array.from(cache.querySelectorAll('dd'), (dd) => dd.textContent)).toEqual(['50.00%', '37.50%', '+100.00%']);
+    expect(Array.from(cache.querySelectorAll('dd'), (dd) => dd.firstChild?.textContent)).toEqual(['50.00%', '37.50%', '+100.00%']);
     const trend = cache.querySelector(`.${styles.overviewRealtimeMetricUp}`)!;
     expect(trend.getAttribute('title')).toBe('usage_stats.overview_realtime_rolling_metric_hint');
-    expect(trend.getAttribute('aria-label')).toBe('usage_stats.overview_realtime_trend +100.00% usage_stats.overview_realtime_rolling_metric_hint');
+    expect(trend.hasAttribute('aria-label')).toBe(false);
+    expect(trend.querySelector(`dd .${styles.overviewRealtimeScreenReaderOnly}`)?.textContent).toBe(' usage_stats.overview_realtime_rolling_metric_hint');
   });
 
   it('aligns throughput series by bucket when one response series has a missing point', () => {
