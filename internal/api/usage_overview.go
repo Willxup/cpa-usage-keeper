@@ -132,12 +132,14 @@ type usageOverviewRealtimeBase struct {
 }
 
 type usageOverviewRealtimeUsageTopItem struct {
-	Key      string   `json:"key"`
-	Label    string   `json:"label"`
-	Tokens   int64    `json:"tokens"`
-	Requests int64    `json:"requests"`
-	Cost     *float64 `json:"cost,omitempty"`
-	Share    float64  `json:"share"`
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	Tokens          int64    `json:"tokens"`
+	InputTokens     int64    `json:"input_tokens"`
+	CacheReadTokens int64    `json:"cache_read_tokens"`
+	Requests        int64    `json:"requests"`
+	Cost            *float64 `json:"cost,omitempty"`
+	Share           float64  `json:"share"`
 }
 
 type usageOverviewRequestLevelPoint struct {
@@ -599,12 +601,14 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, r
 			label = helper.RedactSensitiveValue(label)
 		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      key,
-			Label:    label,
-			Tokens:   item.Tokens,
-			Requests: item.Requests,
-			Cost:     item.CostUSD,
-			Share:    item.Share,
+			Key:             key,
+			Label:           label,
+			Tokens:          item.Tokens,
+			InputTokens:     item.InputTokens,
+			CacheReadTokens: item.CacheReadTokens,
+			Requests:        item.Requests,
+			Cost:            item.CostUSD,
+			Share:           item.Share,
 		})
 	}
 	return result
@@ -617,6 +621,7 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 			// 合成余项不是 API Key，保留它的稳定标识和聚合值。
 			result = append(result, usageOverviewRealtimeUsageTopItem{
 				Key: item.Key, Label: item.Label, Tokens: item.Tokens,
+				InputTokens: item.InputTokens, CacheReadTokens: item.CacheReadTokens,
 				Requests: item.Requests, Cost: item.CostUSD, Share: item.Share,
 			})
 			continue
@@ -626,12 +631,14 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
 		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      key,
-			Label:    analysisAPIKeyLabel(item.Key, apiKeyInfos),
-			Tokens:   item.Tokens,
-			Requests: item.Requests,
-			Cost:     item.CostUSD,
-			Share:    item.Share,
+			Key:             key,
+			Label:           analysisAPIKeyLabel(item.Key, apiKeyInfos),
+			Tokens:          item.Tokens,
+			InputTokens:     item.InputTokens,
+			CacheReadTokens: item.CacheReadTokens,
+			Requests:        item.Requests,
+			Cost:            item.CostUSD,
+			Share:           item.Share,
 		})
 	}
 	return result

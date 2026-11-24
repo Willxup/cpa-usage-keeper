@@ -460,12 +460,14 @@ func mapRealtimeUsageTopItems(items []repodto.RealtimeUsageTopItemRecord) []serv
 	result := make([]servicedto.RealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, servicedto.RealtimeUsageTopItem{
-			Key:      item.Key,
-			Label:    item.Label,
-			Tokens:   item.Tokens,
-			Requests: item.Requests,
-			CostUSD:  item.CostUSD,
-			Share:    item.Share,
+			Key:             item.Key,
+			Label:           item.Label,
+			Tokens:          item.Tokens,
+			InputTokens:     item.InputTokens,
+			CacheReadTokens: item.CacheReadTokens,
+			Requests:        item.Requests,
+			CostUSD:         item.CostUSD,
+			Share:           item.Share,
 		})
 	}
 	return result

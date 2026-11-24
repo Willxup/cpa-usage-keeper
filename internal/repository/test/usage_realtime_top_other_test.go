@@ -16,11 +16,12 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 	end := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	models := []string{"Other", "model-b", "model-c", "model-d", "model-e", "model-f", "model-g"}
 	tokens := []int64{700, 600, 500, 400, 300, 200, 100}
+	cacheRead := []int64{35, 30, 25, 20, 15, 80, 5}
 	for index, model := range models {
 		event := entities.UsageEvent{
 			EventKey: model, Timestamp: end.Add(-time.Minute), Model: model,
 			APIGroupKey: model, AuthType: "oauth", AuthIndex: model,
-			InputTokens: tokens[index], TotalTokens: tokens[index],
+			InputTokens: tokens[index] / 2, CacheReadTokens: cacheRead[index], TotalTokens: tokens[index],
 		}
 		cost, available := 0.0, false
 		event.CostUSD, event.CostAvailable = &cost, &available
@@ -49,23 +50,25 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 		if len(items) != 6 {
 			t.Fatalf("%s has %d rows, want Top 5 plus Other: %+v", dimension, len(items), items)
 		}
-		if items[0].Key != "Other" || items[0].Tokens != 700 {
+		if items[0].Key != "Other" || items[0].Tokens != 700 || items[0].InputTokens != 350 || items[0].CacheReadTokens != 35 {
 			t.Fatalf("%s real Other row lost: %+v", dimension, items)
 		}
 		other := items[5]
-		if other.Key != "__realtime_others__" || other.Tokens != 300 || other.Requests != 2 || other.CostUSD != nil || math.Abs(other.Share-300.0/2800.0*100) > 1e-9 {
+		if other.Key != "__realtime_others__" || other.Tokens != 300 || other.InputTokens != 150 || other.CacheReadTokens != 85 ||
+			other.Requests != 2 || other.CostUSD != nil || math.Abs(other.Share-300.0/2800.0*100) > 1e-9 {
 			t.Fatalf("%s Other totals are wrong: %+v", dimension, other)
 		}
-		var summedTokens int64
-		var summedRequests int64
+		var summedTokens, summedInputs, summedCacheReads, summedRequests int64
 		var summedShare float64
 		for _, item := range items {
 			summedTokens += item.Tokens
+			summedInputs += item.InputTokens
+			summedCacheReads += item.CacheReadTokens
 			summedRequests += item.Requests
 			summedShare += item.Share
 		}
-		if summedTokens != 2800 || summedRequests != 7 || math.Abs(summedShare-100) > 1e-9 {
-			t.Fatalf("%s does not cover all usage: tokens=%d requests=%d share=%f", dimension, summedTokens, summedRequests, summedShare)
+		if summedTokens != 2800 || summedInputs != 1400 || summedCacheReads != 210 || summedRequests != 7 || math.Abs(summedShare-100) > 1e-9 {
+			t.Fatalf("%s does not cover all usage: tokens=%d input=%d cache=%d requests=%d share=%f", dimension, summedTokens, summedInputs, summedCacheReads, summedRequests, summedShare)
 		}
 	}
 }

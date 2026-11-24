@@ -77,6 +77,7 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 		realtime: &servicedto.UsageOverviewRealtime{
 			Window:        "60m",
 			BucketSeconds: 120,
+			CurrentUsage:  servicedto.RealtimeCurrentUsage{Models: []servicedto.RealtimeUsageTopItem{{Key: "gpt-5", Tokens: 20, InputTokens: 12}}},
 			LatencyScatter: servicedto.RealtimeLatencyScatter{
 				Points:      []servicedto.RealtimeLatencyScatterPoint{{TTFTMS: 120, LatencyMS: 800}},
 				TotalPoints: 1, P95TTFTMS: 120, P95LatencyMS: 800, MaxTTFTMS: 120, MaxLatencyMS: 800,
@@ -118,6 +119,9 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 		t.Fatalf("expected key overview realtime current_usage object, got %s", realtimeResp.Body.String())
 	}
 	assertAllowedJSONKeys(t, currentUsage, "key overview realtime current_usage", realtimeResp.Body.String(), "models")
+	if !strings.Contains(realtimeResp.Body.String(), `"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"input_tokens":12,"cache_read_tokens":0`) {
+		t.Fatalf("expected model input tokens and explicit zero cache reads, got %v", currentUsage)
+	}
 	if strings.Contains(realtimeResp.Body.String(), `"api_keys":`) || strings.Contains(realtimeResp.Body.String(), `"credentials":`) || strings.Contains(realtimeResp.Body.String(), `"ai_providers":`) {
 		t.Fatalf("expected key overview realtime to omit internal current-usage dimensions, got %s", realtimeResp.Body.String())
 	}
@@ -234,7 +238,7 @@ func TestUsageOverviewRealtimeUsesCPAAPIKeyAliasLabels(t *testing.T) {
 		t.Fatalf("expected status 200, got %d %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	if !strings.Contains(body, `"api_keys":[{"key":"42","label":"Primary Key","tokens":20,"requests":1,"share":100}]`) {
+	if !strings.Contains(body, `"api_keys":[{"key":"42","label":"Primary Key","tokens":20,"input_tokens":0,"cache_read_tokens":0,"requests":1,"share":100}]`) {
 		t.Fatalf("expected realtime API key usage to use CPA API key id and alias label, got %s", body)
 	}
 	if strings.Contains(body, "sk-alpha123456") {
@@ -278,9 +282,9 @@ func TestUsageOverviewRealtimeKeepsLegacyAPIKeyIdentifiersDistinct(t *testing.T)
 func TestUsageOverviewRealtimeKeepsSyntheticOtherApartFromRealAPIKey(t *testing.T) {
 	items := make([]servicedto.RealtimeUsageTopItem, 0, 6)
 	for _, key := range []string{"__realtime_others__", "key-b", "key-c", "key-d", "key-e"} {
-		items = append(items, servicedto.RealtimeUsageTopItem{Key: key, Label: key, Tokens: 10, Requests: 1, Share: 10})
+		items = append(items, servicedto.RealtimeUsageTopItem{Key: key, Label: key, Tokens: 10, InputTokens: 7, CacheReadTokens: 2, Requests: 1, Share: 10})
 	}
-	items = append(items, servicedto.RealtimeUsageTopItem{Key: "__realtime_others__", Label: "Other", Tokens: 50, Requests: 5, Share: 50})
+	items = append(items, servicedto.RealtimeUsageTopItem{Key: "__realtime_others__", Label: "Other", Tokens: 50, InputTokens: 39, CacheReadTokens: 11, Requests: 5, Share: 50})
 	provider := &usageFilterStub{realtime: &servicedto.UsageOverviewRealtime{
 		CurrentUsage: servicedto.RealtimeCurrentUsage{APIKeys: items},
 	}}
@@ -292,9 +296,11 @@ func TestUsageOverviewRealtimeKeepsSyntheticOtherApartFromRealAPIKey(t *testing.
 	var payload struct {
 		CurrentUsage struct {
 			APIKeys []struct {
-				Key    string `json:"key"`
-				Label  string `json:"label"`
-				Tokens int64  `json:"tokens"`
+				Key             string `json:"key"`
+				Label           string `json:"label"`
+				Tokens          int64  `json:"tokens"`
+				InputTokens     int64  `json:"input_tokens"`
+				CacheReadTokens int64  `json:"cache_read_tokens"`
 			} `json:"api_keys"`
 		} `json:"current_usage"`
 	}
@@ -302,7 +308,8 @@ func TestUsageOverviewRealtimeKeepsSyntheticOtherApartFromRealAPIKey(t *testing.
 		t.Fatalf("decode realtime response: %v", err)
 	}
 	got := payload.CurrentUsage.APIKeys
-	if len(got) != 6 || !strings.HasPrefix(got[0].Key, "legacy:") || got[5].Key != "__realtime_others__" || got[5].Label != "Other" || got[5].Tokens != 50 {
+	if len(got) != 6 || !strings.HasPrefix(got[0].Key, "legacy:") || got[5].Key != "__realtime_others__" || got[5].Label != "Other" || got[5].Tokens != 50 ||
+		got[0].InputTokens != 7 || got[0].CacheReadTokens != 2 || got[5].InputTokens != 39 || got[5].CacheReadTokens != 11 {
 		t.Fatalf("synthetic Other and real API key not kept distinct: %+v", got)
 	}
 }
@@ -333,12 +340,14 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		},
 		CurrentUsage: servicedto.RealtimeCurrentUsage{
 			Models: []servicedto.RealtimeUsageTopItem{{
-				Key:      "gpt-5",
-				Label:    "gpt-5",
-				Tokens:   20,
-				Requests: 1,
-				CostUSD:  new(float64(0.123)),
-				Share:    100,
+				Key:             "gpt-5",
+				Label:           "gpt-5",
+				Tokens:          20,
+				InputTokens:     16,
+				CacheReadTokens: 3,
+				Requests:        1,
+				CostUSD:         new(float64(0.123)),
+				Share:           100,
 			}},
 			APIKeys: []servicedto.RealtimeUsageTopItem{{
 				Key:      "sk-alpha123456",
@@ -380,7 +389,7 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		`"window":"30m","timezone":"Asia/Shanghai","bucket_seconds":60,"window_start":"2026-04-22T11:00:00+08:00","window_end":"2026-04-22T11:30:00+08:00"`,
 		`"token_velocity":[{"bucket":"2026-04-22T11:00:00Z","tokens_per_minute":120,"tokens":20,"cost":0.123}]`,
 		`"latency_scatter":{"points":[{"ttft_ms":120,"latency_ms":820}],"total_points":1,"p95_ttft_ms":120,"p95_latency_ms":820,"max_ttft_ms":120,"max_latency_ms":820}`,
-		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"legacy:`,
+		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"input_tokens":16,"cache_read_tokens":3,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"legacy:`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
 		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_read_rate":25,"cache_read_tokens":5,"cache_creation_tokens":2,"input_tokens":20}]`,
 	} {

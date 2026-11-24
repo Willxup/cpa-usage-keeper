@@ -158,10 +158,10 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
-		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-2 * time.Minute), InputTokens: 40, TotalTokens: 100}, 5.75, true),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-2 * time.Minute), InputTokens: 40, CacheReadTokens: 15, TotalTokens: 100}, 5.75, true),
 		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "apikey", Provider: "AI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-time.Minute), InputTokens: 20, TotalTokens: 50}, 2.25, true),
 		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-30 * time.Second), Failed: true, InputTokens: 200, TotalTokens: 200}, 99, true),
-		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-15 * time.Second), TotalTokens: 0}, 88, true),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-15 * time.Second), InputTokens: 4, CacheReadTokens: 2, TotalTokens: 0}, 88, true),
 	})
 	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
 		t.Fatalf("drop usage_events returned error: %v", err)
@@ -177,6 +177,7 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 	}
 	if len(realtime.CurrentUsage.Models) != 1 ||
 		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
+		realtime.CurrentUsage.Models[0].InputTokens != 60 || realtime.CurrentUsage.Models[0].CacheReadTokens != 15 ||
 		realtime.CurrentUsage.Models[0].Tokens != 150 || realtime.CurrentUsage.Models[0].Requests != 4 {
 		t.Fatalf("expected realtime service to use recent cache, got %+v", realtime.CurrentUsage.Models)
 	}
