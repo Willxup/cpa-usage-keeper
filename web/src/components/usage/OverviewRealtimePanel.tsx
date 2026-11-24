@@ -711,7 +711,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 options={dimensionOptions}
                 onChange={setActiveDimension}
               />
-              <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} />
+              <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} isDark={isDark} />
             </RealtimeCard>
           </div>
 

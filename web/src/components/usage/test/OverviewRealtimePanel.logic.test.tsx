@@ -243,7 +243,7 @@ describe('OverviewRealtimePanel', () => {
     expect(chartCapture.scatterCalls[0].data.datasets[0].data).toEqual([]);
   });
 
-  it('renders token share metadata as labeled compact chips', () => {
+  it('renders token share metadata as inline metrics', () => {
     const html = renderToStaticMarkup(
       <OverviewRealtimePanel
         realtime={realtime}
@@ -256,9 +256,11 @@ describe('OverviewRealtimePanel', () => {
     );
 
     expect(html).toContain('usage_stats.overview_realtime_tokens_label');
-    expect(html).toContain('usage_stats.overview_realtime_requests_label');
+    expect(html).toContain('data-metric="cache"');
     expect(html).toContain('usage_stats.overview_realtime_cost_label');
-    expect(html).toContain('overviewRealtimeUsageMetaPill');
+    expect(html).toContain('overviewRealtimeRibbonMetrics');
+    expect(html).not.toContain('usage_stats.overview_realtime_requests_label');
+    expect(html).not.toContain('overviewRealtimeUsageMetaPill');
   });
 
   it('renders request-paired scatter points with logarithmic axes, p95 lines and hover labels', () => {

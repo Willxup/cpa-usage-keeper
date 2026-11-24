@@ -165,6 +165,8 @@ export interface RealtimeUsageTopItem {
   key: string
   label: string
   tokens: number
+  input_tokens?: number
+  cache_read_tokens?: number
   requests: number
   cost?: number | null
   share: number
