@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
+import { SwitchControl } from '@/components/ui/SwitchControl'
 import { fetchQuotaAutoRefreshSettings, updateQuotaAutoRefreshSettings } from '@/lib/api'
 import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings } from '@/lib/types'
 import styles from './QuotaAutoRefreshSettings.module.scss'
@@ -234,13 +235,13 @@ export function QuotaAutoRefreshSettingsForm({
     >
       <div className={styles.credentialAutoRefreshSettingsPanel}>
         <div className={styles.credentialAutoRefreshSettingsRow}>
-          <label className={`${shared.credentialActiveOnlySwitch} ${controlsDisabled ? shared.credentialActiveOnlySwitchDisabled : ''}`.trim()}>
-            <span className={shared.credentialActiveOnlyLabel}>{t('usage_stats.credentials_auto_refresh_enabled')}</span>
-            <input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} disabled={controlsDisabled} />
-            <span className={shared.credentialActiveOnlyTrack} aria-hidden="true">
-              <span className={shared.credentialActiveOnlyThumb} />
-            </span>
-          </label>
+          <SwitchControl
+            checked={enabled}
+            disabled={controlsDisabled}
+            label={t('usage_stats.credentials_auto_refresh_enabled')}
+            variant="pill"
+            onChange={onEnabledChange}
+          />
           <button
             type="button"
             className={styles.credentialAutoRefreshSaveButton}

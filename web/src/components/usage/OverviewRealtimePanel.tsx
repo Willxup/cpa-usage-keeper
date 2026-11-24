@@ -20,7 +20,7 @@ import {
   formatFixedTwoDecimals,
   formatPerMinuteValue,
 } from '@/utils/usage';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LoadingSpinner, MetricChip, PillSwitcher, SectionToolbar } from '@/components/ui';
 import styles from '@/pages/UsagePage.module.scss';
 
 type RealtimeDimensionKey = 'models' | 'api_keys' | 'credentials' | 'ai_providers';
@@ -73,9 +73,24 @@ const THROUGHPUT_Y_TICK_COUNT = 6;
 const THROUGHPUT_Y_INTERVAL_COUNT = THROUGHPUT_Y_TICK_COUNT - 1;
 const THROUGHPUT_LEGEND_BOTTOM_GAP = 10;
 
+const hexWithAlpha = (hex: string, alphaHex: string) => `${hex}${alphaHex}`;
+
+const toThroughputAreaFill = (
+  context: { chart: { ctx: CanvasRenderingContext2D; chartArea?: { top: number; bottom: number } } },
+  hexColor: string,
+) => {
+  const { chart } = context;
+  if (!chart.chartArea) return hexWithAlpha(hexColor, '24');
+  const gradient = chart.ctx.createLinearGradient(0, chart.chartArea.top, 0, chart.chartArea.bottom);
+  gradient.addColorStop(0, hexWithAlpha(hexColor, '38'));
+  gradient.addColorStop(0.72, hexWithAlpha(hexColor, '0f'));
+  gradient.addColorStop(1, hexWithAlpha(hexColor, '00'));
+  return gradient;
+};
+
 const CHART_COLORS = {
-  token: '#3b82f6',
-  request: '#f97316',
+  token: '#8b5cf6',
+  request: '#0ea5e9',
 } as const;
 
 const REALTIME_DURATION_UNITS = { d: 'd', h: 'h', m: 'm', s: 's', ms: 'ms' } as const;
@@ -305,8 +320,11 @@ function buildThroughputOptions(
         bodyColor: tooltipText,
         borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
         borderWidth: 1,
+        cornerRadius: 8,
         padding: 10,
+        boxPadding: 4,
         displayColors: true,
+        usePointStyle: true,
         callbacks: {
           label: (context) => {
             const label = context.dataset.label ? `${context.dataset.label}: ` : '';
@@ -372,7 +390,7 @@ function buildThroughputOptions(
     },
     elements: {
       line: { tension: 0.35, borderWidth: isMobile ? 1.6 : 2 },
-      point: { radius: 0, hoverRadius: 3 },
+      point: { radius: 0, hoverRadius: 4.5, hoverBorderWidth: 2 },
     },
   };
 }
@@ -383,7 +401,9 @@ function buildThroughputData(
   requestLabel: string,
   tokenValues: Array<number | null>,
   requestValues: Array<number | null>,
+  isDark = false,
 ): ChartData<'line', Array<number | null>, string> {
+  const hoverBorder = isDark ? 'rgba(17, 24, 39, 0.94)' : '#ffffff';
   return {
     labels,
     datasets: [
@@ -392,7 +412,11 @@ function buildThroughputData(
         data: tokenValues,
         yAxisID: 'tokens',
         borderColor: CHART_COLORS.token,
-        backgroundColor: `${CHART_COLORS.token}24`,
+        backgroundColor: (context) => toThroughputAreaFill(context, CHART_COLORS.token),
+        // 面积图使用透明渐变填充，需显式指定实心点背景色以避免悬停 Tooltip 色标发白空心。
+        pointBackgroundColor: CHART_COLORS.token,
+        pointHoverBackgroundColor: CHART_COLORS.token,
+        pointHoverBorderColor: hoverBorder,
         fill: true,
       },
       {
@@ -401,6 +425,8 @@ function buildThroughputData(
         yAxisID: 'requests',
         borderColor: CHART_COLORS.request,
         backgroundColor: CHART_COLORS.request,
+        pointHoverBackgroundColor: CHART_COLORS.request,
+        pointHoverBorderColor: hoverBorder,
         borderDash: [6, 4],
         fill: false,
       },
@@ -412,15 +438,18 @@ function RealtimeMetricPills({ metrics, metricsTooltip, labelPrefix }: { metrics
   return (
     <div className={styles.overviewRealtimeMetrics}>
       {metrics.map((metric) => (
-        <span
+        <MetricChip
           key={metric.label}
+          variant="stat"
+          tone={metric.tone ?? 'default'}
+          label={metric.label}
+          value={metric.value}
           className={`${styles.overviewRealtimeMetric} ${metric.tone === 'up' ? styles.overviewRealtimeMetricUp : metric.tone === 'down' ? styles.overviewRealtimeMetricDown : metric.tone === 'flat' ? styles.overviewRealtimeMetricFlat : ''}`.trim()}
+          labelClassName={styles.overviewRealtimeMetricLabel}
+          valueClassName={styles.overviewRealtimeMetricValue}
           title={metricsTooltip}
           aria-label={metricsTooltip ? `${labelPrefix ? `${labelPrefix} ` : ''}${metric.label} ${metric.value} ${metricsTooltip}` : undefined}
-        >
-          <span className={styles.overviewRealtimeMetricLabel}>{metric.label}</span>
-          <span className={styles.overviewRealtimeMetricValue}>{metric.value}</span>
-        </span>
+        />
       ))}
     </div>
   );
@@ -560,7 +589,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const requestShortLabel = t('usage_stats.rpm');
 
   const throughputOptions = useMemo(() => buildThroughputOptions(isDark, isMobile, tokenRateLabel, requestRateLabel, requestValues), [isDark, isMobile, requestRateLabel, requestValues, tokenRateLabel]);
-  const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues), [labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
+  const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues, isDark), [isDark, labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
   const latencyLabels = useMemo(() => ({
     ttft: t('usage_stats.ttft'),
     latency: t('usage_stats.latency'),
@@ -596,28 +625,36 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
     return next.filter((dimension) => visible.has(dimension.key));
   }, [data.current_usage.ai_providers, data.current_usage.api_keys, data.current_usage.credentials, data.current_usage.models, visibleDimensions]);
   const visibleDimension = dimensions.find((dimension) => dimension.key === activeDimension) ?? dimensions[0];
+  const windowOptions = useMemo(
+    () => REALTIME_WINDOWS.map((option) => ({ value: option, label: option })),
+    [],
+  );
+  const dimensionOptions = useMemo(
+    () => dimensions.map((dimension) => ({ value: dimension.key, label: t(dimension.labelKey) })),
+    [dimensions, t],
+  );
 
   return (
     <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={realtime} refreshSignal={chartRefreshSignal}>
     <div className={styles.overviewRealtimeSection}>
-      <div className={styles.overviewRealtimeToolbar}>
-        <div className={styles.overviewRealtimeHeading}>
-          <h2 className={styles.overviewRealtimeTitle}>{t('usage_stats.overview_realtime_section_title')}</h2>
-        </div>
-        <div className={styles.overviewRealtimeWindowSwitcher} role="group" aria-label={t('usage_stats.overview_realtime_window')}>
-          {REALTIME_WINDOWS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={`${styles.overviewRealtimeWindowButton} ${window === option ? styles.overviewRealtimeWindowButtonActive : ''}`.trim()}
-              onClick={() => onWindowChange(option)}
-              aria-pressed={window === option}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionToolbar
+        title={t('usage_stats.overview_realtime_section_title')}
+        className={styles.overviewRealtimeToolbar}
+        headingClassName={styles.overviewRealtimeHeading}
+        titleClassName={styles.overviewRealtimeTitle}
+        actionsClassName={styles.overviewRealtimeActions}
+        actions={(
+          <PillSwitcher
+            ariaLabel={t('usage_stats.overview_realtime_window')}
+            className={styles.overviewRealtimeWindowSwitcher}
+            optionClassName={styles.overviewRealtimeWindowButton}
+            activeOptionClassName={styles.overviewRealtimeWindowButtonActive}
+            value={window}
+            options={windowOptions}
+            onChange={onWindowChange}
+          />
+        )}
+      />
 
       {showErrorOnly ? (
         <div className={styles.errorBox}>{error}</div>
@@ -664,19 +701,16 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             </RealtimeCard>
 
             <RealtimeCard title={t('usage_stats.overview_realtime_current_usage')} className={styles.overviewRealtimeCurrentUsageCard}>
-              <div className={styles.overviewRealtimeDimensionTabs}>
-                {dimensions.map((dimension) => (
-                  <button
-                    key={dimension.key}
-                    type="button"
-                    className={`${styles.overviewRealtimeDimensionTab} ${visibleDimension?.key === dimension.key ? styles.overviewRealtimeDimensionTabActive : ''}`.trim()}
-                    onClick={() => setActiveDimension(dimension.key)}
-                    aria-pressed={visibleDimension?.key === dimension.key}
-                  >
-                    {t(dimension.labelKey)}
-                  </button>
-                ))}
-              </div>
+              <PillSwitcher
+                variant="compact"
+                ariaLabel={t('usage_stats.overview_realtime_current_usage')}
+                className={styles.overviewRealtimeDimensionTabs}
+                optionClassName={styles.overviewRealtimeDimensionTab}
+                activeOptionClassName={styles.overviewRealtimeDimensionTabActive}
+                value={visibleDimension?.key}
+                options={dimensionOptions}
+                onChange={setActiveDimension}
+              />
               <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} />
             </RealtimeCard>
           </div>

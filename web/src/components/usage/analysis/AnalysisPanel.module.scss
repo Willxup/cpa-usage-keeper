@@ -119,31 +119,81 @@
 
 .pairedChartCard {
   --paired-chart-height: 300px;
-  height: 780px;
+  height: 740px;
   display: grid;
-  grid-template-rows: 68px 38px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
 
-  .cardHeader { margin-bottom: 0; }
-  .analysisChartSurface { padding: 12px; }
-  .emptyState { grid-row: 3 / -1; }
-
-  @include mobile {
-    --paired-chart-height: 240px;
-    height: 640px;
-    grid-template-rows: 80px 38px auto minmax(0, 1fr);
-    gap: 10px;
-    .analysisChartSurface { padding: 8px; }
+  .cardHeader {
+    margin-bottom: 0;
+    min-height: var(--paired-header-height, 36px);
   }
-}
+  .cardTitleLine {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    min-height: 36px;
+  }
+  // 存在维度标签时用桌面双列轨道保持标题与标签同行，缺价提示独立折到下方左对齐。
+  .cardTitleLineWithActions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
 
-.topModelsCard {
-  grid-template-rows: 68px auto minmax(0, 1fr);
+    > h2 {
+      grid-column: 1;
+      grid-row: 1;
+      white-space: nowrap;
+    }
 
+    .compositionTabs {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: end;
+    }
+
+    .costHeaderHint {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      justify-self: start;
+      flex: 1 0 100%;
+      max-width: 100%;
+      text-align: left;
+    }
+
+    @include mobile {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+
+      > h2 {
+        order: 1;
+        white-space: normal;
+      }
+
+      .compositionTabs {
+        order: 2;
+      }
+
+      .costHeaderHint {
+        order: 3;
+      }
+    }
+  }
+  .costHeaderHint {
+    align-self: center;
+    margin-top: 0;
+  }
+  .analysisChartSurface { padding: 12px; }
   .emptyState { grid-row: 2 / -1; }
 
   @include mobile {
-    grid-template-rows: 80px auto minmax(0, 1fr);
+    --paired-chart-height: 240px;
+    height: 600px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 10px;
+    .analysisChartSurface { padding: 8px; }
   }
 }
 
@@ -157,14 +207,6 @@
     max-height: 100%;
     touch-action: pan-x pan-y !important;
   }
-}
-
-.pairedChartToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
 }
 
 .rankingList {
@@ -439,32 +481,60 @@
 }
 
 .compositionTabs {
-  display: flex;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
-  gap: 6px;
+  -webkit-overflow-scrolling: touch;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
   scrollbar-width: none;
 }
 
 .compositionTab {
   flex-shrink: 0;
-  border: 1px solid var(--border-color);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--bg-secondary);
+  background: transparent;
   color: var(--text-secondary);
-  min-height: 34px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 800;
+  min-height: 28px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  // 在 padding: 3px 的横向可滚动胶囊内收紧焦点环偏移，避免被容器裁切。
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 0;
+  }
 }
 
+// white 主题下 --bg-primary 与 --bg-secondary 同色，用显式柔和描边与轻投影区分激活态。
 .compositionTabActive {
-  border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color));
-  background: color-mix(in srgb, var(--bg-primary) 84%, var(--bg-secondary));
+  background: var(--bg-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border-color));
   color: var(--text-primary);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 8px 18px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compositionTab {
+    transition: none;
+  }
 }
 
 .donutCanvasBox { width: 100%; }

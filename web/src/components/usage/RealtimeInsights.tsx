@@ -4,15 +4,22 @@ import '@/lib/chartjs';
 import { Chart, Doughnut } from './charts/UsageChart';
 import { Chart as ChartJS, type ChartData, type ChartOptions, type Plugin } from 'chart.js';
 import type { RealtimeCacheLevelPoint, RealtimeInsights, RealtimeWindowSummary } from '@/lib/types';
-import { Card } from '@/components/ui/Card';
+import { Card, ChartSurface } from '@/components/ui';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REALTIME_COLORS as REALTIME_COLORS, USAGE_CHART_TOKEN_COLORS as COLORS } from '@/utils/usage/chartConfig';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REALTIME_COLORS as REALTIME_COLORS } from '@/utils/usage/chartConfig';
 import usageStyles from '@/pages/UsagePage.module.scss';
 import styles from './RealtimeInsights.module.scss';
 
-const FAILURE_COLOR = { base: '#b91c1c', light: '#ef4444' };
-const CACHE_RATE_COLOR = '#14b8a6';
+const OUTCOME_SUCCESS_COLOR = { base: '#10b981', light: '#6ee7b7' };
+const FAILURE_COLOR = { base: '#f43f5e', light: '#fda4af' };
+const CACHE_RATE_COLOR = '#2563eb';
 const FAILURE_RATE_COLOR = '#f97316';
+const WINDOW_CARD_COLORS = {
+  requests: '#2563eb',
+  tokens: '#8b5cf6',
+  cacheReach: '#d97706',
+  cost: '#16a34a',
+} as const;
 const ratio = (value: number, denominator: number) => denominator > 0 ? value / denominator * 100 : null;
 const percent = (value: number | null, fractionDigits = 1) => value === null ? '—' : `${value.toFixed(fractionDigits)}%`;
 type Translate = (key: string) => string;
@@ -36,7 +43,7 @@ const cacheShareCenterPlugin: Plugin<'doughnut', CacheShareCenterOptions> = {
     ctx.textAlign='center';
     ctx.textBaseline='middle';
     ctx.fillStyle=options.primary;
-    ctx.font=`600 ${chart.width < 190 ? 18 : 20}px ${ChartJS.defaults.font.family}`;
+    ctx.font=`700 ${chart.width < 190 ? 18 : 20}px ${ChartJS.defaults.font.family}`;
     ctx.fillText(options.value,x,y-7,chart.width*.58);
     ctx.fillStyle=options.secondary;
     ctx.font=`11px ${ChartJS.defaults.font.family}`;
@@ -46,12 +53,13 @@ const cacheShareCenterPlugin: Plugin<'doughnut', CacheShareCenterOptions> = {
 };
 const TOKEN_MIX_PLUGINS = [cacheShareCenterPlugin];
 
-export function buildRealtimeCacheData(points: RealtimeCacheLevelPoint[], labels: string[], t: Translate): ChartData<'bar' | 'line', Array<number | null>, string> {
+export function buildRealtimeCacheData(points: RealtimeCacheLevelPoint[], labels: string[], t: Translate, isDark = false): ChartData<'bar' | 'line', Array<number | null>, string> {
+  const hoverBorder = isDark ? 'rgba(17, 24, 39, 0.94)' : '#ffffff';
   return { labels, datasets: [
-    { type: 'bar', label: t('usage_stats.insights_uncached'), data: points.map(p => Math.max(0, p.input_tokens - p.cache_read_tokens - p.cache_creation_tokens)), backgroundColor: context => toUsageChartGradientFill(context, COLORS.input), borderColor: COLORS.input.base, stack: 'input', order: 2 },
-    { type: 'bar', label: t('usage_stats.comparison_cache_read'), data: points.map(p => p.cache_read_tokens), backgroundColor: context => toUsageChartGradientFill(context, COLORS.cacheRead), borderColor: COLORS.cacheRead.base, stack: 'input', order: 2 },
-    { type: 'bar', label: t('usage_stats.comparison_cache_write'), data: points.map(p => p.cache_creation_tokens), backgroundColor: context => toUsageChartGradientFill(context, COLORS.cacheWrite), borderColor: COLORS.cacheWrite.base, stack: 'input', order: 2 },
-    { type: 'line', label: t('usage_stats.comparison_cache'), data: points.map(p => p.cache_read_rate ?? 0), borderColor: CACHE_RATE_COLOR, backgroundColor: CACHE_RATE_COLOR, yAxisID: 'rate', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .3, order: 1 },
+    { type: 'bar', label: t('usage_stats.insights_uncached'), data: points.map(p => Math.max(0, p.input_tokens - p.cache_read_tokens - p.cache_creation_tokens)), backgroundColor: context => toUsageChartGradientFill(context, REALTIME_COLORS.input), borderColor: REALTIME_COLORS.input.base, stack: 'input', order: 2 },
+    { type: 'bar', label: t('usage_stats.comparison_cache_read'), data: points.map(p => p.cache_read_tokens), backgroundColor: context => toUsageChartGradientFill(context, REALTIME_COLORS.cacheRead), borderColor: REALTIME_COLORS.cacheRead.base, stack: 'input', order: 2 },
+    { type: 'bar', label: t('usage_stats.comparison_cache_write'), data: points.map(p => p.cache_creation_tokens), backgroundColor: context => toUsageChartGradientFill(context, REALTIME_COLORS.cacheWrite), borderColor: REALTIME_COLORS.cacheWrite.base, stack: 'input', order: 2 },
+    { type: 'line', label: t('usage_stats.comparison_cache'), data: points.map(p => p.cache_read_rate ?? 0), borderColor: CACHE_RATE_COLOR, backgroundColor: CACHE_RATE_COLOR, pointHoverBackgroundColor: CACHE_RATE_COLOR, pointHoverBorderColor: hoverBorder, pointHoverBorderWidth: 2, yAxisID: 'rate', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4.5, tension: .32, order: 1 },
   ] };
 }
 
@@ -60,7 +68,7 @@ function mixedOptions(isDark: boolean, isMobile: boolean, axisTitle: string, rat
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
-    datasets: { bar: { borderWidth: 0, borderRadius: 2, borderSkipped: false, barPercentage: .82, categoryPercentage: .78, maxBarThickness: 38 } },
+    datasets: { bar: { borderWidth: 0, borderRadius: 3, borderSkipped: false, barPercentage: .82, categoryPercentage: .78, maxBarThickness: 38 } },
     plugins: {
       legend: { position: 'bottom', labels: { color: theme.textSecondary, usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 8, boxHeight: 8, padding: 14, font: { size: isMobile ? 10 : 11 } } },
       tooltip: {
@@ -79,10 +87,10 @@ function mixedOptions(isDark: boolean, isMobile: boolean, axisTitle: string, rat
 export function RealtimeWindowCards({ summary: s, window }: { summary: RealtimeWindowSummary; window: string }) {
   const { t } = useTranslation();
   const cards = [
-    { label: 'requests', value: s.requests.toLocaleString(), color: COLORS.input.base },
-    { label: 'tokens', value: formatCompactNumber(s.total_tokens), color: COLORS.reasoning.base },
-    { label: 'cache_reach', value: percent(ratio(s.cached_requests, s.token_requests), 2), color: COLORS.cacheRead.base },
-    { label: 'cost', value: s.cost === null ? '—' : formatUsd(s.cost), color: COLORS.output.base },
+    { label: 'requests', value: s.requests.toLocaleString(), color: WINDOW_CARD_COLORS.requests },
+    { label: 'tokens', value: formatCompactNumber(s.total_tokens), color: WINDOW_CARD_COLORS.tokens },
+    { label: 'cache_reach', value: percent(ratio(s.cached_requests, s.token_requests), 2), color: WINDOW_CARD_COLORS.cacheReach },
+    { label: 'cost', value: s.cost === null ? '—' : formatUsd(s.cost), color: WINDOW_CARD_COLORS.cost },
   ];
   return <div className={styles.summaryGrid} data-realtime-summary>
     {cards.map(card => <div key={card.label} className={`${usageStyles.statCard} ${styles.summaryCard}`} style={{'--accent':card.color, '--accent-soft':`${card.color}18`, '--accent-border':`${card.color}55`} as CSSProperties}>
@@ -94,19 +102,20 @@ export function RealtimeWindowCards({ summary: s, window }: { summary: RealtimeW
 
 export function RealtimeCacheChart({ points, labels, isDark, isMobile }: { points: RealtimeCacheLevelPoint[]; labels: string[]; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
-  const data = useMemo(() => buildRealtimeCacheData(points, labels, t), [points, labels, t]);
+  const data = useMemo(() => buildRealtimeCacheData(points, labels, t, isDark), [isDark, points, labels, t]);
   const options = useMemo(() => mixedOptions(isDark, isMobile, t('usage_stats.insights_rolling_input'), t('usage_stats.comparison_cache'), 100), [isDark, isMobile, t]);
-  return <div className={`${styles.chartSurface} ${styles.cacheChart}`}><Chart type="bar" data={data} options={options} role="img" aria-label={t('usage_stats.insights_cache_chart')} /></div>;
+  return <ChartSurface className={`${styles.chartSurface} ${styles.cacheChart}`}><Chart type="bar" data={data} options={options} role="img" aria-label={t('usage_stats.insights_cache_chart')} /></ChartSurface>;
 }
 
 export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { insights: RealtimeInsights; labels: string[]; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const { summary: s, outcomes } = insights;
+  const outcomeHoverBorder = isDark ? 'rgba(17, 24, 39, 0.94)' : '#ffffff';
   const outcomeData = useMemo<ChartData<'bar' | 'line', Array<number | null>, string>>(() => ({ labels, datasets: [
-    { type: 'bar', label: t('usage_stats.insights_successful'), data: outcomes.map(p => p.requests - p.failures), backgroundColor: context => toUsageChartGradientFill(context, REALTIME_COLORS.output), borderColor: REALTIME_COLORS.output.base, stack: 'requests', order: 2 },
+    { type: 'bar', label: t('usage_stats.insights_successful'), data: outcomes.map(p => p.requests - p.failures), backgroundColor: context => toUsageChartGradientFill(context, OUTCOME_SUCCESS_COLOR), borderColor: OUTCOME_SUCCESS_COLOR.base, stack: 'requests', order: 2 },
     { type: 'bar', label: t('usage_stats.comparison_failures'), data: outcomes.map(p => p.failures), backgroundColor: context => toUsageChartGradientFill(context, FAILURE_COLOR), borderColor: FAILURE_COLOR.base, stack: 'requests', order: 2 },
-    { type: 'line', label: t('usage_stats.comparison_failure_rate'), data: outcomes.map(p => ratio(p.failures, p.requests)), yAxisID: 'rate', borderColor: FAILURE_RATE_COLOR, backgroundColor: FAILURE_RATE_COLOR, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, borderDash: [5, 4], tension: .3, order: 1 },
-  ] }), [outcomes, labels, t]);
+    { type: 'line', label: t('usage_stats.comparison_failure_rate'), data: outcomes.map(p => ratio(p.failures, p.requests)), yAxisID: 'rate', borderColor: FAILURE_RATE_COLOR, backgroundColor: FAILURE_RATE_COLOR, pointHoverBackgroundColor: FAILURE_RATE_COLOR, pointHoverBorderColor: outcomeHoverBorder, pointHoverBorderWidth: 2, pointRadius: 0, pointHoverRadius: 4.5, borderWidth: 2, borderDash: [5, 4], tension: .32, order: 1 },
+  ] }), [outcomeHoverBorder, outcomes, labels, t]);
   const outcomeOptions = useMemo(() => mixedOptions(isDark, isMobile, t('usage_stats.insights_requests_per_bucket'), t('usage_stats.comparison_failure_rate')), [isDark, isMobile, t]);
   // Reasoning 可能已包含在 Output；保留独立数值，不重复堆叠进构成图。
   const mix = useMemo(() => [
@@ -137,11 +146,11 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
   },[cacheShare,cacheShareLabel,isDark,mixTotal]);
   return <div className={styles.diagnosticsGrid} data-realtime-diagnostics>
     <Card title={t('usage_stats.insights_outcomes')}>
-      <div className={styles.chartSurface}><div className={styles.chart}><Chart type="bar" data={outcomeData} options={outcomeOptions} role="img" aria-label={t('usage_stats.insights_outcomes')} /></div></div>
+      <ChartSurface className={styles.chartSurface}><div className={styles.chart}><Chart type="bar" data={outcomeData} options={outcomeOptions} role="img" aria-label={t('usage_stats.insights_outcomes')} /></div></ChartSurface>
       <div className={styles.outcomeSummary}><span>{t('usage_stats.insights_successful')} <strong>{(s.requests - s.failures).toLocaleString()}</strong></span><span>{t('usage_stats.comparison_failures')} <strong>{s.failures.toLocaleString()}</strong></span><span>{t('usage_stats.comparison_failure_rate')} <strong>{percent(ratio(s.failures, s.requests))}</strong></span></div>
     </Card>
     <Card title={t('usage_stats.insights_mix')}>
-      <div className={`${styles.chartSurface} ${styles.mix}`}>
+      <ChartSurface className={`${styles.chartSurface} ${styles.mix}`}>
         <div className={styles.doughnut}>
           {mixTotal > 0 ? <Doughnut data={mixData} options={mixOptions} plugins={TOKEN_MIX_PLUGINS} role="img" aria-label={`${t('usage_stats.insights_mix')}: ${cacheShareLabel} ${cacheShare}`} /> : <div className={styles.emptyRing}><span>—</span></div>}
         </div>
@@ -152,7 +161,7 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
             <i style={{width:`${ratio(item.value,mixTotal) ?? 0}%`,background:`linear-gradient(90deg, ${item.color.light}, ${item.color.base})`}} />
           </dd>
         </div>)}</dl>
-      </div>
+      </ChartSurface>
       <div className={styles.outcomeSummary}><span>{t('usage_stats.comparison_reasoning')} <strong>{formatCompactNumber(s.reasoning_tokens)}</strong></span><span>{t('usage_stats.insights_token_requests')} <strong>{s.token_requests.toLocaleString()}</strong></span></div>
     </Card>
   </div>;

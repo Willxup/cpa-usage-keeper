@@ -13,30 +13,29 @@ export interface UsageChartGradientColor {
 }
 
 export const USAGE_CHART_COMPOSITION_COLORS: UsageChartGradientColor[] = [
-  { base: '#1d4ed8', light: '#60a5fa' },
-  { base: '#ca8a04', light: '#facc15' },
-  { base: '#15803d', light: '#22c55e' },
-  { base: '#7e22ce', light: '#c084fc' },
-  { base: '#b91c1c', light: '#ef4444' },
-  { base: '#0891b2', light: '#67e8f9' },
+  { base: '#3b82f6', light: '#60a5fa' },
+  { base: '#0d9488', light: '#2dd4bf' },
+  { base: '#8b5cf6', light: '#a78bfa' },
+  { base: '#f59e0b', light: '#fbbf24' },
+  { base: '#06b6d4', light: '#22d3ee' },
+  { base: '#f43f5e', light: '#fb7185' },
 ];
 export const USAGE_CHART_TOKEN_COLORS = {
-  input: { base: '#2563eb', light: '#93c5fd' },
-  output: { base: '#16a34a', light: '#86efac' },
-  cacheRead: { base: '#d97706', light: '#fde68a' },
-  cacheWrite: { base: '#e11d48', light: '#fda4af' },
+  input: { base: '#3b82f6', light: '#93c5fd' },
+  output: { base: '#6366f1', light: '#a5b4fc' },
+  cacheRead: { base: '#0d9488', light: '#5eead4' },
+  cacheWrite: { base: '#f59e0b', light: '#fcd34d' },
   reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
-  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
-  cost: '#14b8a6',
+  requests: '#f97316',
+  cost: '#eab308',
 };
 
-// Realtime 的新增结果图表使用更饱和的渐变；Analysis 的 Token Usage Over Time
-// 与既有通用图表继续使用上面的旧色板，避免新增图表的视觉调整相互影响。
+// 当前与 USAGE_CHART_TOKEN_COLORS 保持一致；保留独立导出以解耦 Realtime 与 Analysis 各自的调色演进。
 export const USAGE_CHART_REALTIME_COLORS = {
-  input: { base: '#2563eb', light: '#60a5fa' },
-  output: { base: '#16a34a', light: '#22c55e' },
-  cacheRead: { base: '#d97706', light: '#f59e0b' },
-  cacheWrite: { base: '#e11d48', light: '#fb7185' },
+  input: { base: '#3b82f6', light: '#93c5fd' },
+  output: { base: '#6366f1', light: '#a5b4fc' },
+  cacheRead: { base: '#0d9488', light: '#5eead4' },
+  cacheWrite: { base: '#f59e0b', light: '#fcd34d' },
 } as const;
 
 // 共用 Analysis 柱形图的纵向渐变，保证不同业务图表的柱体质感一致。

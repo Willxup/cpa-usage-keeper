@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PillSwitcher, SectionToolbar } from '@/components/ui';
 import type { UsageActivityResponse, UsageActivityWindow } from '@/lib/types';
 import {
   createActivityDateTimeFormatter,
@@ -49,29 +50,37 @@ export function RecentActivityPanel({
       ? t('auth.session_expired')
       : error;
 
+  const windowOptions = useMemo(
+    () => ACTIVITY_WINDOWS.map((option) => ({ value: option.value, label: t(option.labelKey) })),
+    [t],
+  );
+
   return (
     <section className={styles.recentActivitySection}>
-      <div className={styles.recentActivityToolbar}>
-        <div className={styles.recentActivityHeading}>
-          <h2 className={styles.recentActivityTitle}>{t('usage_stats.recent_activity_title')}</h2>
-        </div>
-        <div className={styles.recentActivityToolbarActions}>
-          {sharedWindowLabel && <span className={styles.recentActivityRange}>{sharedWindowLabel}</span>}
-          <div className={styles.recentActivityWindowSwitcher} role="group" aria-label={t('usage_stats.recent_activity_window')}>
-            {ACTIVITY_WINDOWS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`${styles.recentActivityWindowButton} ${window === option.value ? styles.recentActivityWindowButtonActive : ''}`.trim()}
-                onClick={() => (!windowIsCurrent || window !== option.value) && onWindowChange(option.value)}
-                aria-pressed={window === option.value}
-              >
-                {t(option.labelKey)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      <SectionToolbar
+        title={t('usage_stats.recent_activity_title')}
+        className={styles.recentActivityToolbar}
+        headingClassName={styles.recentActivityHeading}
+        titleClassName={styles.recentActivityTitle}
+        actionsClassName={styles.recentActivityToolbarActions}
+        metaClassName={styles.recentActivityRange}
+        meta={sharedWindowLabel || undefined}
+        actions={(
+          <PillSwitcher
+            ariaLabel={t('usage_stats.recent_activity_window')}
+            className={styles.recentActivityWindowSwitcher}
+            optionClassName={styles.recentActivityWindowButton}
+            activeOptionClassName={styles.recentActivityWindowButtonActive}
+            value={window}
+            options={windowOptions}
+            onChange={(nextWindow) => {
+              if (!windowIsCurrent || window !== nextWindow) {
+                onWindowChange(nextWindow);
+              }
+            }}
+          />
+        )}
+      />
       {displayError && <div className={styles.errorBox} role="alert">{displayError}</div>}
       <OverviewActivityCards activity={activity} loading={loading} requestIdentity={requestIdentity} />
     </section>

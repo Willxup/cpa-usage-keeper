@@ -3279,6 +3279,13 @@
   flex-wrap: wrap;
 }
 
+// 实时窗口按内容占宽，由标题栏在空间不足时自然换行。
+@include mobile {
+  .overviewRealtimeToolbar > .overviewRealtimeActions {
+    width: auto;
+  }
+}
+
 .overviewRealtimeHeading {
   min-width: 0;
   display: flex;
@@ -3473,11 +3480,11 @@
 }
 
 .overviewRealtimePairedMetricTokenLabel {
-  color: #3b82f6;
+  color: #8b5cf6;
 }
 
 .overviewRealtimePairedMetricRequestLabel {
-  color: #f97316;
+  color: #0ea5e9;
 }
 
 .overviewRealtimePairedMetricDivider {
@@ -3487,6 +3494,7 @@
 .overviewRealtimePairedMetricValue {
   color: var(--text-primary);
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .overviewRealtimePairedMetricValueUp {

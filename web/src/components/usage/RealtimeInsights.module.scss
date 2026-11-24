@@ -15,13 +15,13 @@
 .doughnut { width: 100%; max-width: 230px; aspect-ratio: 1; min-width: 0; position: relative; justify-self: center; }
 .mixLegend { min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
 .mixItem { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: baseline; gap: 6px 8px; font-size: 11px; }
-.mixItem dt { color: var(--text-secondary); min-width: 0; }
-.mixItem dt i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+.mixItem dt { display: inline-flex; align-items: center; color: var(--text-secondary); min-width: 0; }
+.mixItem dt i { display: inline-block; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
 .mixItem dd { margin: 0; font-variant-numeric: tabular-nums; }
-.mixItem dd strong { font-weight: 600; color: var(--text-primary); }
+.mixItem dd strong { font-weight: 700; color: var(--text-primary); }
 .mixItem dd > span { margin-left: 6px; color: var(--text-secondary); }
-.mixTrack { grid-column: 1 / -1; height: 4px; overflow: hidden; border-radius: 3px; background: var(--bg-tertiary); }
-.mixTrack i { display: block; height: 100%; border-radius: inherit; }
+.mixTrack { grid-column: 1 / -1; height: 5px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
+.mixTrack i { display: block; height: 100%; border-radius: inherit; transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1); }
 .emptyRing { width: 100%; height: 100%; border: 28px solid var(--border-color); border-radius: 50%; box-sizing: border-box; display: grid; place-items: center; color: var(--text-secondary); }
 @media (max-width: 1050px) { .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .diagnosticsGrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 540px) {
@@ -33,4 +33,4 @@
 @media (max-width: 370px) { .mix { grid-template-columns: minmax(0, 1fr); } .doughnut { max-width: 185px; } .mixItem { grid-template-columns: minmax(0, 1fr) auto; } }
 
 
-@media (prefers-reduced-motion: reduce) { .summaryGrid > .summaryCard { transition: none; } .summaryGrid > .summaryCard:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .summaryGrid > .summaryCard, .mixTrack i { transition: none; } .summaryGrid > .summaryCard:hover { transform: none; } }

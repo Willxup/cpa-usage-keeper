@@ -1,6 +1,7 @@
 import { useState, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MainActionButton } from '@/components/ui/MainActionButton'
+import { SwitchControl } from '@/components/ui/SwitchControl'
 import { IconRefreshCw, IconSearch } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 import cardStyles from './cards/CredentialCards.module.scss'
@@ -91,13 +92,15 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         )}
         titleExtra={(
           <div className={styles.credentialsTitleControls}>
-            <div className={styles.credentialFilterGroup}><label className={styles.credentialActiveOnlySwitch}>
-              <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_active_only')}</span>
-              <input ref={editFallbackRef} type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
-              <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
-                <span className={styles.credentialActiveOnlyThumb} />
-              </span>
-            </label></div>
+            <div className={styles.credentialFilterGroup}>
+              <SwitchControl
+                ref={editFallbackRef}
+                checked={activeOnly}
+                label={t('usage_stats.credentials_active_only')}
+                variant="pill"
+                onChange={onActiveOnlyChange}
+              />
+            </div>
             <span className={styles.credentialFilterDivider} aria-hidden="true" />
             <CredentialViewModeSwitch mode={viewMode} onChange={onViewModeChange} />
             {viewMode === 'list' && <>
