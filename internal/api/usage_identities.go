@@ -251,6 +251,99 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 	})
 }
 
+func registerKeyCredentialsRoutes(router gin.IRoutes, usageIdentityProvider service.UsageIdentityProvider) {
+	registerUsageIdentityModelsRouteAtPath(router, "/key-credentials/:id/models", usageIdentityProvider, true)
+
+	router.GET("/key-credentials/page", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if usageIdentityProvider == nil {
+			c.JSON(http.StatusOK, usageIdentitiesPageResponse{Identities: []usageIdentityResponse{}, Page: 1, PageSize: 10, TypeCounts: []usageIdentityTypeCount{}})
+			return
+		}
+
+		request, ok := parseUsageIdentitiesPageRequest(c)
+		if !ok {
+			return
+		}
+		authType := entities.UsageIdentityAuthTypeCredential
+		request.AuthType = &authType
+		result, err := usageIdentityProvider.ListActiveUsageIdentitiesPage(c.Request.Context(), request)
+		if err != nil {
+			writeInternalError(c, "list key credentials page failed", err)
+			return
+		}
+
+		response := make([]usageIdentityResponse, 0, len(result.Items))
+		for index, item := range result.Items {
+			var health *service.UsageCredentialHealthSnapshot
+			if index < len(result.CredentialHealth) {
+				health = &result.CredentialHealth[index]
+			}
+			response = append(response, mapKeyViewerUsageIdentityResponseWithHealth(item, health))
+		}
+		typeCounts := make([]usageIdentityTypeCount, 0, len(result.TypeCounts))
+		for _, item := range result.TypeCounts {
+			typeCounts = append(typeCounts, usageIdentityTypeCount{Type: item.Type, Count: item.Count})
+		}
+		c.JSON(http.StatusOK, usageIdentitiesPageResponse{
+			Identities: response,
+			TotalCount: result.Total,
+			Page:       request.Page,
+			PageSize:   request.PageSize,
+			TotalPages: totalPages(result.Total, request.PageSize),
+			TypeCounts: typeCounts,
+		})
+	})
+
+	router.GET("/key-credentials/:id", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		reader, ok := usageIdentityProvider.(service.UsageIdentityReader)
+		if !ok {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "usage identity detail is not configured"})
+			return
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
+			return
+		}
+		detail, err := reader.GetUsageIdentity(c.Request.Context(), id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+				return
+			}
+			writeInternalError(c, "get key credential failed", err)
+			return
+		}
+		if detail.Identity.AuthType != entities.UsageIdentityAuthTypeCredential {
+			c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+			return
+		}
+		c.JSON(http.StatusOK, mapKeyViewerUsageIdentityResponseWithHealth(detail.Identity, &detail.CredentialHealth))
+	})
+}
+
+func mapKeyViewerUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *service.UsageCredentialHealthSnapshot) usageIdentityResponse {
+	resp := mapUsageIdentityResponseWithHealth(item, health)
+	masked := helper.UsageIdentityMaskedDisplayName(item)
+	resp.Name = masked
+	resp.DisplayName = masked
+	resp.FileName = nil
+	resp.FilePath = nil
+	resp.Note = nil
+	if resp.Alias != nil && strings.Contains(*resp.Alias, "@") {
+		resp.Alias = nil
+	}
+	return resp
+}
+
 func parseUsageIdentitiesPageRequest(c *gin.Context) (service.ListUsageIdentitiesRequest, bool) {
 	// page/page_size 做宽松兜底，auth_type 做严格校验，避免前端分区拿到混合数据。
 	page := positiveQueryInt(c, "page", 1)

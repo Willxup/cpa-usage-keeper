@@ -328,6 +328,146 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 }
 
+func sanitizeKeyViewerCheckResponse(src *quota.CheckResponse) *quota.CheckResponse {
+	if src == nil {
+		return nil
+	}
+	copied := *src
+	copied.RateLimitResetCreditsAvailableCount = nil
+	copied.ClaudeResetGrants = nil
+	return &copied
+}
+
+func registerKeyQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
+	router.GET("/key-quota/history/:auth_index", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		request := quota.CodexQuotaHistoryRequest{AuthIndex: authIndex}
+		if rawRole, ok := c.GetQuery("window_role"); ok {
+			role := strings.TrimSpace(rawRole)
+			request.WindowRole = &role
+		}
+		response, err := provider.GetCodexQuotaHistory(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "quota history request is invalid"})
+			case errors.Is(err, quota.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "quota auth identity not found"})
+			default:
+				writeInternalError(c, "quota history lookup failed", err)
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	router.POST("/key-quota/cache", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		var request quotaRequest
+		if err := c.ShouldBindJSON(&request); err != nil || len(request.AuthIndexes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
+			return
+		}
+		response, err := provider.GetCachedQuota(c.Request.Context(), quota.CacheRequest{AuthIndexes: request.AuthIndexes})
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
+			default:
+				writeInternalError(c, "quota cache lookup failed", err)
+			}
+			return
+		}
+		sanitized := quota.CacheResponse{Items: make([]quota.CachedQuotaItem, len(response.Items))}
+		for i, item := range response.Items {
+			item.FileName = nil
+			item.Quota = sanitizeKeyViewerCheckResponse(item.Quota)
+			item.UpstreamResponses = nil
+			sanitized.Items[i] = item
+		}
+		c.JSON(http.StatusOK, sanitized)
+	})
+
+	router.POST("/key-quota/refresh", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		var request quotaRequest
+		if err := c.ShouldBindJSON(&request); err != nil || len(request.AuthIndexes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
+			return
+		}
+		response, err := provider.Refresh(c.Request.Context(), quota.RefreshRequest{
+			AuthIndexes: request.AuthIndexes,
+			Source:      quota.RefreshSourceManual,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
+			default:
+				writeInternalError(c, "quota refresh failed", err)
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	router.GET("/key-quota/refresh/:auth_index", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		response, err := provider.GetRefreshTaskByAuthIndex(c.Request.Context(), authIndex)
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrTaskNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "quota refresh task not found"})
+			default:
+				writeInternalError(c, "quota refresh task lookup failed", err)
+			}
+			return
+		}
+		response.FileName = nil
+		response.Quota = sanitizeKeyViewerCheckResponse(response.Quota)
+		response.UpstreamResponses = nil
+		c.JSON(http.StatusOK, response)
+	})
+}
+
 func quotaProviderErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):

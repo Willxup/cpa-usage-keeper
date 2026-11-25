@@ -23,6 +23,7 @@ interface CredentialModelUsageProps {
   identityId: string
   onAuthRequired?: () => void
   enabled?: boolean
+  viewer?: 'admin' | 'key'
 }
 
 export function CredentialModelUsage(props: CredentialModelUsageProps) {
@@ -30,7 +31,7 @@ export function CredentialModelUsage(props: CredentialModelUsageProps) {
   return <ModelUsage key={props.identityId} {...props} />
 }
 
-function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialModelUsageProps) {
+function ModelUsage({ identityId, onAuthRequired, enabled = true, viewer = 'admin' }: CredentialModelUsageProps) {
   const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 768px)')
   const [selection, setSelection] = useState<{ range: UsageIdentityModelsRange; revision: number }>({ range: '7d', revision: 0 })
@@ -60,7 +61,7 @@ function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialMo
     scroller.addEventListener('scroll', release, { passive: true })
     return () => scroller.removeEventListener('scroll', release)
   }, [enabled, minimumHeight, requiredScrollHeight])
-  const { data, loading, error, retry } = useCredentialModelUsage(identityId, range, onAuthRequired, enabled, preserveScrollPosition, selection.revision)
+  const { data, loading, error, retry } = useCredentialModelUsage(identityId, range, onAuthRequired, enabled, preserveScrollPosition, selection.revision, viewer)
   const models = data ? [...data.models].sort((a, b) => b.total_tokens - a.total_tokens) : []
   const totalName = t('usage_stats.credentials_models_total')
   return (

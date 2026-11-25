@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, fetchUsageIdentitiesPage, resetUsageIdentityStats, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, fetchKeyCredentialsPage, fetchUsageIdentitiesPage, resetUsageIdentityStats, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity, UsageIdentityTypeCount } from '@/lib/types'
 import { stripAppBasePath } from '@/lib/usageNavigation'
 import { credentialProviderFilterTypes, resolveCredentialProviderFilterFromSearch, type CredentialProviderFilterKey } from './credentialProviderFilters'
 import { loadCredentialListPreferences, persistCredentialListPreferences, type CredentialViewMode } from './credentialListPreferences'
 
 interface UseCredentialPagesOptions {
+  viewer?: 'admin' | 'key'
   enabledCredentials: boolean
   enabledAiProviders: boolean
   onAuthRequired?: () => void
@@ -40,7 +41,7 @@ const getInitialListPreferences = () => {
   if (typeof window !== 'undefined') {
     const path = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__)
     // 只覆盖当前路由的初始筛选，不调用会持久化的 setter，也不污染另一分区。
-    if (path === '/credentials') {
+    if (path === '/credentials' || path === '/key-credentials') {
       credential.providerFilter = resolveCredentialProviderFilterFromSearch('credentials', window.location.search) ?? credential.providerFilter
     } else if (path === '/ai-provider') {
       aiProvider.providerFilter = resolveCredentialProviderFilterFromSearch('ai-provider', window.location.search) ?? aiProvider.providerFilter
@@ -89,7 +90,7 @@ export interface CredentialPagesState {
   refresh: () => Promise<void>
 }
 
-export function useCredentialPages({ enabledCredentials, enabledAiProviders, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
+export function useCredentialPages({ viewer = 'admin', enabledCredentials, enabledAiProviders, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
   const [credentialIdentities, setCredentialIdentities] = useState<UsageIdentity[]>([])
   const [aiProviderIdentities, setAiProviderIdentities] = useState<UsageIdentity[]>([])
   const [credentialTypeCounts, setCredentialTypeCounts] = useState<UsageIdentityTypeCount[]>([])
@@ -191,7 +192,8 @@ export function useCredentialPages({ enabledCredentials, enabledAiProviders, onA
     setCredentialsLoading(true)
     setCredentialsError('')
     try {
-      const response = await fetchUsageIdentitiesPage(controller.signal, { authType: 1, activeOnly: credentialActiveOnly ? true : undefined, types: credentialProviderFilterTypes('credentials', credentialProviderFilter), sort: credentialSort, page: credentialPage, pageSize: credentialPageSize })
+      const loadPage = viewer === 'key' ? fetchKeyCredentialsPage : fetchUsageIdentitiesPage
+      const response = await loadPage(controller.signal, { authType: 1, activeOnly: credentialActiveOnly ? true : undefined, types: credentialProviderFilterTypes('credentials', credentialProviderFilter), sort: credentialSort, page: credentialPage, pageSize: credentialPageSize })
       if (credentialsRequestControllerRef.current !== controller) {
         return
       }
@@ -220,7 +222,7 @@ export function useCredentialPages({ enabledCredentials, enabledAiProviders, onA
         credentialsRequestControllerRef.current = null
       }
     }
-  }, [credentialActiveOnly, credentialPage, credentialPageSize, credentialProviderFilter, credentialSort, onAuthRequired])
+  }, [credentialActiveOnly, credentialPage, credentialPageSize, credentialProviderFilter, credentialSort, onAuthRequired, viewer])
 
   const refreshAiProviders = useCallback(async () => {
     aiProvidersRequestControllerRef.current?.abort()

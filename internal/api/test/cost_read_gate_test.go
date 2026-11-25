@@ -60,6 +60,13 @@ func TestCostReadRoutesRespectAuthAndExactFeeScope(t *testing.T) {
 		{"viewer comparisons", http.MethodGet, "/key-overview/comparisons", viewer},
 		{"viewer realtime", http.MethodGet, "/key-overview/realtime", viewer},
 		{"viewer analysis", http.MethodGet, "/key-analysis", viewer},
+		{"viewer events", http.MethodGet, "/key-events", viewer},
+		{"viewer events CSV export", http.MethodGet, "/key-events/export?format=csv", viewer},
+		{"viewer credential models", http.MethodGet, "/key-credentials/1/models", viewer},
+		{"viewer quota history", http.MethodGet, "/key-quota/history/auth-1", viewer},
+		{"viewer quota cache", http.MethodPost, "/key-quota/cache", viewer},
+		{"viewer quota refresh", http.MethodPost, "/key-quota/refresh", viewer},
+		{"viewer quota refresh result", http.MethodGet, "/key-quota/refresh/auth-1", viewer},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := serveCostReadGateRequest(router, test.method, basePath+"/api/v1"+test.path, test.cookie)

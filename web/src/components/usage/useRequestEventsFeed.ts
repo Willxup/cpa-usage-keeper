@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, fetchUsageEvents, isCostsBusy, openUsageEventsLive, type FetchUsageEventsOptions } from '@/lib/api';
+import { ApiError, fetchKeyEvents, fetchUsageEvents, isCostsBusy, openKeyEventsLive, openUsageEventsLive, type FetchUsageEventsOptions } from '@/lib/api';
 import type { UsageEvent, UsageRangeRequest } from '@/lib/types';
 import { readRequestEventsSSE, type RequestEventsSSEFrame } from './requestEventsSSE';
 
@@ -14,6 +14,7 @@ type FeedState = {
   atTop: boolean; bounds: Bounds | null; mayHaveMore: boolean; token: object;
 };
 type FeedOptions = {
+  viewer?: 'admin' | 'key';
   enabled: boolean;
   request: UsageRangeRequest;
   options: FetchUsageEventsOptions;
@@ -98,8 +99,8 @@ function wantsStream(state: FeedState): boolean {
   return state.mode === 'refreshing' || (state.mode !== 'reading' && state.atTop);
 }
 
-export function useRequestEventsFeed({ enabled, request, options, onAuthRequired, onRangeBoundsConflict }: FeedOptions) {
-  const scope = JSON.stringify([request, options]);
+export function useRequestEventsFeed({ viewer = 'admin', enabled, request, options, onAuthRequired, onRangeBoundsConflict }: FeedOptions) {
+  const scope = JSON.stringify([viewer, request, options]);
   const [state, setState] = useState(() => emptyState(scope));
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   const callbacksRef = useRef({ onAuthRequired, onRangeBoundsConflict });
@@ -232,7 +233,8 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     void (async () => {
       try {
         touch();
-        const response = await openUsageEventsLive(request, options, controller.signal);
+        const openLive = viewer === 'key' ? openKeyEventsLive : openUsageEventsLive;
+        const response = await openLive(request, options, controller.signal);
         if (disposed) return;
         await readRequestEventsSSE(response.body!, receive, touch);
         if (!disposed && !controller.signal.aborted) throw new Error('Live stream disconnected');
@@ -311,7 +313,8 @@ export function useRequestEventsFeed({ enabled, request, options, onAuthRequired
     historyRef.current = controller;
     setState((current) => ({ ...current, loadingMore: true, error: '' }));
     try {
-      const response = await fetchUsageEvents(request, controller.signal, { ...options, cursor: state.historyCursor });
+      const fetchEvents = viewer === 'key' ? fetchKeyEvents : fetchUsageEvents;
+      const response = await fetchEvents(request, controller.signal, { ...options, cursor: state.historyCursor });
       if (historyRef.current !== controller) return;
       setState((current) => current.scope === scope && current.mode === 'reading' ? {
         ...current, events: appendHistory(current.events, response.events), autoLoadMore: true,

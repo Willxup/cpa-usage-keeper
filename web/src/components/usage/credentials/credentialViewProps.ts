@@ -6,8 +6,9 @@ export interface CredentialViewProps {
   rows: CredentialRow[]
   timeZone?: string
   quotaUsageMode: QuotaUsageMode
+  readOnly?: boolean
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
-  onResetQuotaForAuthIndex: (authIndex: string, grantId?: string, organizationId?: string) => Promise<UsageQuotaResetResponse | void>
+  onResetQuotaForAuthIndex?: (authIndex: string, grantId?: string, organizationId?: string) => Promise<UsageQuotaResetResponse | void>
   onEdit?: (row: CredentialRow) => void
   onOpenDetails?: (row: CredentialRow) => void
   statusPendingIdentityIds?: ReadonlySet<string>

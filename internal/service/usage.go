@@ -819,15 +819,20 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 	}, s.pricing.Snapshot())
 }
 
-// Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。
+// Request Event Log 的 model 筛选项只应用调用方传入的时间窗口与可选 API Key；管理员独立筛选项接口传空 filter。
 func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
 	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
 		EndTime:      filter.EndTime,
 		EndExclusive: filter.EndExclusive,
+		APIGroupKey:  apiGroupKey,
 	})
 	if err != nil {
 		return nil, err

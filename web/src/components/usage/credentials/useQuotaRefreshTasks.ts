@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
+import { ApiError, fetchKeyQuotaRefreshTask, fetchUsageQuotaRefreshTask, refreshKeyQuotas, refreshUsageQuotas } from '@/lib/api'
 import i18n from '@/i18n'
 import type { UsageQuotaCheckResponse, UsageQuotaRefreshResponse } from '@/lib/types'
 
@@ -15,6 +15,7 @@ export interface PendingRefreshTask {
 }
 
 interface UseQuotaRefreshTasksOptions {
+  viewer?: 'admin' | 'key'
   enabled: boolean
   currentAuthIndexes: string[]
   quotaStateByAuthIndex: Record<string, QuotaState>
@@ -31,7 +32,7 @@ export interface QuotaRefreshTasksState {
   resetQuotaRefreshTasks: () => void
 }
 
-export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateByAuthIndex, applyRefreshUpdates, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
+export function useQuotaRefreshTasks({ viewer = 'admin', enabled, currentAuthIndexes, quotaStateByAuthIndex, applyRefreshUpdates, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
   const [pendingRefreshTasks, setPendingRefreshTasks] = useState<PendingRefreshTask[]>([])
   const [batchRefreshSubmitting, setBatchRefreshSubmitting] = useState(false)
   const [quotaRefreshError, setQuotaRefreshError] = useState('')
@@ -77,7 +78,8 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
 
       await Promise.all(pendingRefreshTasks.map(async (task) => {
         try {
-          const response = await fetchUsageQuotaRefreshTask(task.authIndex, controller.signal)
+          const loadTask = viewer === 'key' ? fetchKeyQuotaRefreshTask : fetchUsageQuotaRefreshTask
+          const response = await loadTask(task.authIndex, controller.signal)
           if (!isCurrent()) {
             return
           }
@@ -133,7 +135,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, onAuthRequired, pendingRefreshTasks, applyRefreshUpdates])
+  }, [enabled, onAuthRequired, pendingRefreshTasks, applyRefreshUpdates, viewer])
 
   const startQuotaRefresh = useCallback(async (authIndexes: string[], source: PendingRefreshTask['source']) => {
     if (authIndexes.length === 0) {
@@ -145,7 +147,8 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
       setBatchRefreshSubmitting(true)
     }
     try {
-      const response = await refreshUsageQuotas(authIndexes)
+      const submitRefresh = viewer === 'key' ? refreshKeyQuotas : refreshUsageQuotas
+      const response = await submitRefresh(authIndexes)
       if (requestGenerationRef.current !== generation) return
       const submission = buildQuotaRefreshSubmissionUpdate(response, source)
       // 后端返回的是每个 auth_index 对应的独立 task，前端按 auth_index 去重保存。
@@ -169,7 +172,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateBy
         setBatchRefreshSubmitting(false)
       }
     }
-  }, [onAuthRequired, applyRefreshUpdates])
+  }, [onAuthRequired, applyRefreshUpdates, viewer])
 
   const refreshQuotaForCurrentCredentialPage = useCallback(async () => {
     // 批量刷新只提交当前页且未在工作的条目，单行刷新中的任务不会重复入队。

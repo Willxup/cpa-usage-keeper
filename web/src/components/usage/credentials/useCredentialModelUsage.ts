@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ApiError, fetchUsageIdentityModels, isCostsBusy } from '@/lib/api'
+import { ApiError, fetchKeyCredentialModels, fetchUsageIdentityModels, isCostsBusy } from '@/lib/api'
 import type { UsageIdentityModelsRange, UsageIdentityModelsResponse } from '@/lib/types'
 
 type ModelUsageResult = {
@@ -8,12 +8,12 @@ type ModelUsageResult = {
   error: 'costs_busy' | 'load_failed' | null
 }
 
-export function useCredentialModelUsage(identityId: string, range: UsageIdentityModelsRange, onAuthRequired?: () => void, enabled = true, beforeReplace?: () => void, rangeRevision = 0) {
+export function useCredentialModelUsage(identityId: string, range: UsageIdentityModelsRange, onAuthRequired?: () => void, enabled = true, beforeReplace?: () => void, rangeRevision = 0, viewer: 'admin' | 'key' = 'admin') {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<ModelUsageResult | null>(null)
   const onAuthRequiredRef = useRef(onAuthRequired)
   const activeKeyRef = useRef<string | null>(null)
-  const key = JSON.stringify([identityId, range, rangeRevision, attempt])
+  const key = JSON.stringify([viewer, identityId, range, rangeRevision, attempt])
 
   useEffect(() => { onAuthRequiredRef.current = onAuthRequired }, [onAuthRequired])
   useLayoutEffect(() => {
@@ -25,7 +25,8 @@ export function useCredentialModelUsage(identityId: string, range: UsageIdentity
     if (!enabled) return
     const controller = new AbortController()
     const isCurrent = () => !controller.signal.aborted && activeKeyRef.current === key
-    void fetchUsageIdentityModels(identityId, range, controller.signal).then(data => {
+    const loadModels = viewer === 'key' ? fetchKeyCredentialModels : fetchUsageIdentityModels
+    void loadModels(identityId, range, controller.signal).then(data => {
       if (!isCurrent()) return
       beforeReplace?.()
       setResult({ key, data, error: null })
@@ -44,7 +45,7 @@ export function useCredentialModelUsage(identityId: string, range: UsageIdentity
       if (authRequired) onAuthRequiredRef.current?.()
     })
     return () => controller.abort()
-  }, [identityId, range, key, enabled, beforeReplace])
+  }, [identityId, range, key, enabled, beforeReplace, viewer])
 
   const retry = useCallback(() => setAttempt(value => value + 1), [])
   const current = result?.key === key ? result : null

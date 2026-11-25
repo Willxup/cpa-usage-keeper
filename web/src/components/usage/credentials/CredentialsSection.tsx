@@ -34,19 +34,20 @@ interface CredentialsSectionProps {
   loading: boolean
   viewMode: CredentialViewMode
   onViewModeChange: (mode: CredentialViewMode) => void
+  readOnly?: boolean
   quotaRefreshing: boolean
   quotaRefreshError: string
-  quotaInspectionStatus: UsageQuotaInspectionStatusResponse | null
-  quotaInspectionLoading: boolean
-  quotaInspectionStarting: boolean
-  quotaInspectionError: string
+  quotaInspectionStatus?: UsageQuotaInspectionStatusResponse | null
+  quotaInspectionLoading?: boolean
+  quotaInspectionStarting?: boolean
+  quotaInspectionError?: string
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onActiveOnlyChange: (activeOnly: boolean) => void
   onSortChange: (sort: UsageIdentityPageSort) => void
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
-  onResetQuotaForAuthIndex: (authIndex: string, grantId?: string, organizationId?: string) => Promise<UsageQuotaResetResponse | void>
+  onResetQuotaForAuthIndex?: (authIndex: string, grantId?: string, organizationId?: string) => Promise<UsageQuotaResetResponse | void>
   /** 编辑行消失时，焦点留在当前列表的原生筛选控件，不改变页面容器。 */
   editFallbackRef?: Ref<HTMLInputElement>
   onEdit?: (row: CredentialRow) => void
@@ -55,12 +56,12 @@ interface CredentialsSectionProps {
   statusPendingIdentityIds?: ReadonlySet<string>
   onToggleStatus?: (identityId: string, authIndex: string, disabled: boolean) => void
   onSavePriority?: (identityId: string, authIndex: string, priority: number) => Promise<void>
-  onRefreshInspectionStatus: () => Promise<void>
-  onStartInspection: () => Promise<void>
+  onRefreshInspectionStatus?: () => Promise<void>
+  onStartInspection?: () => Promise<void>
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function CredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, viewMode, onViewModeChange, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: CredentialsSectionProps) {
+export function CredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, viewMode, onViewModeChange, readOnly = false, quotaRefreshing, quotaRefreshError, quotaInspectionStatus = null, quotaInspectionLoading = false, quotaInspectionStarting = false, quotaInspectionError = '', onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: CredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -70,8 +71,10 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
     persistCredentialListContentMode(mode)
   }
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
+  const inspectionEnabled = Boolean(onStartInspection && onRefreshInspectionStatus)
   const inspectionTone = inspectionIndicatorTone(quotaInspectionStatus)
   const openInspection = () => {
+    if (!onRefreshInspectionStatus) return
     setInspectionOpen(true)
     void onRefreshInspectionStatus()
   }
@@ -115,16 +118,18 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         )}
         actions={(
           <div className={styles.credentialSectionActionButtons}>
-            <MainActionButton
-              type="button"
-              className={styles.credentialInspectionButton}
-              onClick={openInspection}
-              aria-pressed={inspectionTone !== 'idle'}
-            >
-              <IconSearch size={12} />
-              <span>{t('usage_stats.credentials_inspection_open')}</span>
-              {inspectionTone !== 'idle' && <span className={`${styles.credentialInspectionDot} ${styles[`credentialInspectionDot${capitalize(inspectionTone)}`]}`.trim()} aria-hidden="true" />}
-            </MainActionButton>
+            {inspectionEnabled && (
+              <MainActionButton
+                type="button"
+                className={styles.credentialInspectionButton}
+                onClick={openInspection}
+                aria-pressed={inspectionTone !== 'idle'}
+              >
+                <IconSearch size={12} />
+                <span>{t('usage_stats.credentials_inspection_open')}</span>
+                {inspectionTone !== 'idle' && <span className={`${styles.credentialInspectionDot} ${styles[`credentialInspectionDot${capitalize(inspectionTone)}`]}`.trim()} aria-hidden="true" />}
+              </MainActionButton>
+            )}
             <MainActionButton
               type="button"
               onClick={() => void onRefreshQuota()}
@@ -142,14 +147,14 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
       {loading && rows.length === 0 && <div className={styles.credentialEmptyState}>{t('common.loading')}</div>}
       {!loading && rows.length === 0 && <div className={styles.credentialEmptyState}>{t('usage_stats.credentials_empty')}</div>}
       {viewMode === 'cards'
-        ? <CredentialCardsView rows={rows} timeZone={timeZone} quotaUsageMode={quotaUsageMode}
-            onRefreshQuotaForAuthIndex={onRefreshQuotaForAuthIndex} onResetQuotaForAuthIndex={onResetQuotaForAuthIndex}
-            onEdit={onEdit} onOpenDetails={onOpenDetails} statusPendingIdentityIds={statusPendingIdentityIds}
-            onToggleStatus={onToggleStatus} onSavePriority={onSavePriority} />
-        : <CredentialListView rows={rows} timeZone={timeZone} quotaUsageMode={quotaUsageMode} contentMode={listContentMode}
-            onRefreshQuotaForAuthIndex={onRefreshQuotaForAuthIndex} onResetQuotaForAuthIndex={onResetQuotaForAuthIndex}
-            onEdit={onEdit} onOpenDetails={onOpenDetails} statusPendingIdentityIds={statusPendingIdentityIds}
-            onToggleStatus={onToggleStatus} onSavePriority={onSavePriority} />}
+        ? <CredentialCardsView rows={rows} timeZone={timeZone} quotaUsageMode={quotaUsageMode} readOnly={readOnly}
+            onRefreshQuotaForAuthIndex={onRefreshQuotaForAuthIndex} onResetQuotaForAuthIndex={readOnly ? undefined : onResetQuotaForAuthIndex}
+            onEdit={readOnly ? undefined : onEdit} onOpenDetails={onOpenDetails} statusPendingIdentityIds={statusPendingIdentityIds}
+            onToggleStatus={readOnly ? undefined : onToggleStatus} onSavePriority={readOnly ? undefined : onSavePriority} />
+        : <CredentialListView rows={rows} timeZone={timeZone} quotaUsageMode={quotaUsageMode} contentMode={listContentMode} readOnly={readOnly}
+            onRefreshQuotaForAuthIndex={onRefreshQuotaForAuthIndex} onResetQuotaForAuthIndex={readOnly ? undefined : onResetQuotaForAuthIndex}
+            onEdit={readOnly ? undefined : onEdit} onOpenDetails={onOpenDetails} statusPendingIdentityIds={statusPendingIdentityIds}
+            onToggleStatus={readOnly ? undefined : onToggleStatus} onSavePriority={readOnly ? undefined : onSavePriority} />}
       <CredentialsPagination
         className={viewMode === 'cards' ? cardStyles.cardPagination : undefined}
         controlsClassName={viewMode === 'cards' ? cardStyles.cardPaginationControls : undefined}
@@ -173,17 +178,19 @@ export function CredentialsSection({ rows, timeZone, total, page, totalPages, pa
         onSortChange={(nextSort) => onSortChange(nextSort as UsageIdentityPageSort)}
       />
       </CredentialSectionShell>
-      <QuotaInspectionModal
-        open={inspectionOpen}
-        status={quotaInspectionStatus}
-        loading={quotaInspectionLoading}
-        starting={quotaInspectionStarting}
-        error={quotaInspectionError}
-        onClose={() => setInspectionOpen(false)}
-        onStart={onStartInspection}
-        onRefreshStatus={onRefreshInspectionStatus}
-        onAfterInvalidAccountAction={onAfterInvalidAccountAction}
-      />
+      {inspectionEnabled && onStartInspection && onRefreshInspectionStatus && (
+        <QuotaInspectionModal
+          open={inspectionOpen}
+          status={quotaInspectionStatus}
+          loading={quotaInspectionLoading}
+          starting={quotaInspectionStarting}
+          error={quotaInspectionError}
+          onClose={() => setInspectionOpen(false)}
+          onStart={onStartInspection}
+          onRefreshStatus={onRefreshInspectionStatus}
+          onAfterInvalidAccountAction={onAfterInvalidAccountAction}
+        />
+      )}
     </>
   )
 }

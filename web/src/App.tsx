@@ -8,6 +8,8 @@ import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { AppFooter } from './components/AppFooter';
 import { isKeyViewerPath, type KeyViewerPath } from './features/key-viewer';
 import { KeyAnalysisPage } from './pages/KeyAnalysisPage';
+import { KeyCredentialsPage } from './pages/KeyCredentialsPage';
+import { KeyEventsPage } from './pages/KeyEventsPage';
 import { KeyOverviewPage } from './pages/KeyOverviewPage';
 import { LoginBackdrop, LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
@@ -204,7 +206,11 @@ function App() {
   } else if (authRole === 'api_key_viewer') {
     page = keyViewerPath === '/key-analysis'
       ? <KeyAnalysisPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
-      : <KeyOverviewPage page={keyViewerPath === '/key-realtime' ? 'realtime' : 'overview'} apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
+      : keyViewerPath === '/key-events'
+        ? <KeyEventsPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
+        : keyViewerPath === '/key-credentials'
+          ? <KeyCredentialsPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
+          : <KeyOverviewPage page={keyViewerPath === '/key-realtime' ? 'realtime' : 'overview'} apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
   } else {
     page = <UsagePage onAuthRequired={clearSession} />;
   }

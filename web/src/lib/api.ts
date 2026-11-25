@@ -366,6 +366,165 @@ const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   return params
 }
 
+export async function fetchKeyStatus(signal?: AbortSignal): Promise<{ timezone: string }> {
+  const response = await apiFetch(apiPath('/key-status'), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key status: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyEventModelFilterOptions(signal?: AbortSignal): Promise<UsageEventModelFilterOptionsResponse> {
+  const response = await apiFetch(apiPath('/key-events/filters/models'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key usage event model filters: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyEventSourceFilterOptions(signal?: AbortSignal): Promise<UsageEventSourceFilterOptionsResponse> {
+  const response = await apiFetch(apiPath('/key-events/filters/sources'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key usage event source filters: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function openKeyEventsLive(request: UsageRangeRequest, options: FetchUsageEventsOptions, signal: AbortSignal): Promise<Response> {
+  const params = buildUsageEventsParams(request, { ...options, apiKeyId: undefined })
+  const response = await apiFetch(`${apiPath('/key-events/live')}?${params.toString()}`, { signal, cache: 'no-store', headers: { Accept: 'text/event-stream' } })
+  if (response.status === 429) {
+    const value = response.headers.get('Retry-After') ?? ''
+    const seconds = Number(value)
+    const delay = Number.isFinite(seconds) && value.trim() ? seconds * 1000 : Date.parse(value) - Date.now()
+    const error = new ApiError('Live connection capacity is full', 429)
+    error.retryAfterMs = Number.isFinite(delay) ? Math.max(delay, 1000) : 5000
+    throw error
+  }
+  if (!response.ok) await parseApiError(response, `Failed to connect to live key usage events: ${response.status}`)
+  if (!response.body || !response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {
+    throw new ApiError('Live usage events are not supported by this server', 501)
+  }
+  return response
+}
+
+export async function fetchKeyEvents(request: UsageRangeRequest | undefined, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
+  const params = buildUsageEventsParams(request, options ? { ...options, apiKeyId: undefined } : undefined)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/key-events')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key usage events: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function exportKeyEvents(request: UsageRangeRequest, format: UsageEventsExportFormat, options?: FetchUsageEventsOptions): Promise<UsageEventsExportFile> {
+  const params = buildUsageEventsParams(request, options ? { ...options, apiKeyId: undefined } : undefined, false)
+  params.set('format', format)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/key-events/export')}${query ? `?${query}` : ''}`)
+  if (!response.ok) {
+    await parseApiError(response, `Failed to export key usage events: ${response.status}`)
+  }
+  return {
+    blob: await response.blob(),
+    filename: parseAttachmentFilename(response.headers.get('Content-Disposition'), `usage-events.${format}`),
+  }
+}
+
+export async function fetchKeyCredentialsPage(signal?: AbortSignal, options?: FetchUsageIdentitiesPageOptions): Promise<UsageIdentitiesPageResponse> {
+  const params = new URLSearchParams()
+  if (typeof options?.activeOnly === 'boolean') {
+    params.set('active_only', String(options.activeOnly))
+  }
+  if (options?.sort) {
+    params.set('sort', options.sort)
+  }
+  for (const type of options?.types ?? []) {
+    if (type !== '') {
+      params.append('type', type)
+    }
+  }
+  if (typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
+    params.set('page', String(Math.floor(options.page)))
+  }
+  if (typeof options?.pageSize === 'number' && Number.isFinite(options.pageSize) && options.pageSize > 0) {
+    params.set('page_size', String(Math.floor(options.pageSize)))
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/key-credentials/page')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key credentials page: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyCredential(id: string, signal?: AbortSignal): Promise<UsageIdentity> {
+  const response = await apiFetch(apiPath(`/key-credentials/${encodeURIComponent(id)}`), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key credential: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyCredentialModels(id: string, range: UsageIdentityModelsRange, signal?: AbortSignal): Promise<UsageIdentityModelsResponse> {
+  const params = new URLSearchParams({ range })
+  const response = await apiFetch(apiPath(`/key-credentials/${encodeURIComponent(id)}/models?${params}`), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key credential model usage: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyQuotaCache(authIndexes: string[], signal?: AbortSignal): Promise<UsageQuotaCacheResponse> {
+  const response = await apiFetch(apiPath('/key-quota/cache'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth_indexes: authIndexes }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load cached key quotas: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function refreshKeyQuotas(authIndexes: string[], signal?: AbortSignal): Promise<UsageQuotaRefreshResponse> {
+  const response = await apiFetch(apiPath('/key-quota/refresh'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth_indexes: authIndexes }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to refresh key quotas: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyQuotaRefreshTask(authIndex: string, signal?: AbortSignal): Promise<UsageQuotaRefreshTaskResponse> {
+  const response = await apiFetch(apiPath(`/key-quota/refresh/${encodeURIComponent(authIndex)}`), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key quota refresh task: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchKeyCodexQuotaHistory(
+  authIndex: string,
+  options: FetchCodexQuotaHistoryOptions = {},
+  signal?: AbortSignal,
+): Promise<CodexQuotaHistoryResponse> {
+  const params = new URLSearchParams()
+  if (options.windowRole) params.set('window_role', options.windowRole)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath(`/key-quota/history/${encodeURIComponent(authIndex)}`)}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key quota history: ${response.status}`)
+  }
+  return response.json()
+}
+
 export async function fetchKeyOverview(request: UsageRangeRequest, signal?: AbortSignal): Promise<UsageOverviewResponse> {
   const params = buildUsageRangeParams(request)
   const response = await apiFetch(`${apiPath('/key-overview')}?${params.toString()}`, { signal })
