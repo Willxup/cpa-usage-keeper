@@ -3403,50 +3403,56 @@
 .overviewRealtimeCardHeader {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 10px 16px;
   min-width: 0;
-
-  @include mobile {
-    flex-direction: column;
-  }
 }
 
-.overviewRealtimeMetrics {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
+.overviewRealtimeMetrics,
 .overviewRealtimePairedMetrics {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.overviewRealtimeMetric,
+.overviewRealtimePairedMetric {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
 
-  @include mobile {
-    width: 100%;
-    justify-content: flex-start;
-  }
+  &:first-child { padding-left: 0; }
+  &:last-child { padding-right: 0; }
+}
+
+.overviewRealtimeMetric {
+  gap: 2px;
+  padding: 0 12px;
 }
 
 .overviewRealtimePairedMetric {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  padding: 4px 9px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  gap: 3px;
+  padding: 0 14px;
+}
+
+.overviewRealtimeMetric + .overviewRealtimeMetric::before,
+.overviewRealtimePairedMetric + .overviewRealtimePairedMetric::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 22px;
+  background: var(--border-color);
+}
+
+.overviewRealtimePairedMetric + .overviewRealtimePairedMetric::before {
+  height: 24px;
 }
 
 .overviewRealtimeScreenReaderOnly {
@@ -3462,87 +3468,124 @@
   white-space: nowrap;
 }
 
-.overviewRealtimePairedMetricLabel {
-  color: var(--text-tertiary);
+.overviewRealtimeMetricLabel,
+.overviewRealtimePairedMetricLabel,
+.overviewRealtimePairedMetricTokenLabel,
+.overviewRealtimePairedMetricRequestLabel {
+  color: #7a746d;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  :global([data-theme='dark']) & { color: var(--text-tertiary); }
+}
+
+.overviewRealtimeMetricLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.overviewRealtimeMetricDot,
+.overviewRealtimePairedMetricDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.overviewRealtimePairedMetricTokenDot { background: #8b5cf6; }
+.overviewRealtimePairedMetricRequestDot { background: #0ea5e9; }
+
+.overviewRealtimePairedMetricValues {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
 }
 
 .overviewRealtimePairedMetricSeries {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
 }
 
 .overviewRealtimePairedMetricTokenLabel,
 .overviewRealtimePairedMetricRequestLabel {
-  font-size: 9px;
-  font-weight: 850;
-  letter-spacing: 0.025em;
+  letter-spacing: 0.02em;
 }
 
-.overviewRealtimePairedMetricTokenLabel {
-  color: #8b5cf6;
-}
-
-.overviewRealtimePairedMetricRequestLabel {
-  color: #0ea5e9;
-}
-
-.overviewRealtimePairedMetricDivider {
-  color: var(--text-tertiary);
-}
-
+.overviewRealtimeMetricValue,
 .overviewRealtimePairedMetricValue {
   color: var(--text-primary);
-  font-weight: 800;
+  font-weight: 750;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
+.overviewRealtimeMetricValue {
+  margin: 0;
+  font-size: 14px;
+}
+
+.overviewRealtimePairedMetricValue { font-size: 13px; }
+
+.overviewRealtimeMetricUp .overviewRealtimeMetricValue,
 .overviewRealtimePairedMetricValueUp {
-  color: #16a34a;
+  color: #147a3a;
+
+  :global([data-theme='dark']) & { color: #22c55e; }
 }
 
+.overviewRealtimeMetricDown .overviewRealtimeMetricValue,
 .overviewRealtimePairedMetricValueDown {
   color: #dc2626;
+
+  :global([data-theme='dark']) & { color: #f87171; }
 }
 
+.overviewRealtimeMetricFlat .overviewRealtimeMetricValue,
 .overviewRealtimePairedMetricValueFlat {
   color: var(--text-secondary);
 }
 
-.overviewRealtimeMetric {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 4px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+@mixin realtime-stacked-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+
+  .overviewRealtimeMetrics,
+  .overviewRealtimePairedMetrics {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
-.overviewRealtimeMetricLabel {
-  color: var(--text-tertiary);
+@media (max-width: 1180px) {
+  .overviewRealtimeResponseUsageRow .overviewRealtimeCardHeader { @include realtime-stacked-header; }
 }
 
-.overviewRealtimeMetricValue {
-  color: var(--text-primary);
+@media (max-width: 960px) {
+  .overviewRealtimeCardHeader { @include realtime-stacked-header; }
 }
 
-.overviewRealtimeMetricUp .overviewRealtimeMetricValue {
-  color: #16a34a;
+// 指标换行后由间距区分，不让新行从竖线开始。
+@media (max-width: 720px) {
+  .overviewRealtimePairedMetrics { flex-wrap: wrap; gap: 10px 18px; }
+  .overviewRealtimePairedMetric {
+    padding: 0;
+    & + &::before { display: none; }
+  }
 }
 
-.overviewRealtimeMetricDown .overviewRealtimeMetricValue {
-  color: #dc2626;
-}
-
-.overviewRealtimeMetricFlat .overviewRealtimeMetricValue {
-  color: var(--text-secondary);
+@media (max-width: 480px) {
+  .overviewRealtimeMetrics { flex-wrap: wrap; gap: 10px 18px; }
+  .overviewRealtimeMetric {
+    padding: 0;
+    & + &::before { display: none; }
+  }
 }
 
 .overviewRealtimeChartFrame {
@@ -3637,7 +3680,7 @@
 
 .overviewRealtimeRibbon {
   display: grid;
-  grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 35%) minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
   min-height: 260px;
@@ -3669,10 +3712,6 @@
   font-weight: 750;
 }
 
-.overviewRealtimeRibbonFlow {
-  opacity: 0.42;
-}
-
 .overviewRealtimeRibbonRows {
   display: flex;
   flex-direction: column;
@@ -3684,11 +3723,11 @@
   flex: 1 0 auto;
   flex-direction: column;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  min-height: 70px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--border-color);
+  min-height: 62px;
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
 
   &:last-child {
     border-bottom: 0;
@@ -3720,7 +3759,6 @@
 }
 
 .overviewRealtimeRibbonShare {
-  color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.5;
@@ -3729,16 +3767,37 @@
   font-variant-numeric: tabular-nums;
 }
 
-.overviewRealtimeUsageMeta.overviewRealtimeRibbonMeta {
-  gap: 5px;
+.overviewRealtimeRibbonMetrics {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   margin-left: 15px;
+  color: #7a746d;
+  font-size: 10px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+
+  :global([data-theme='dark']) & { color: var(--text-tertiary); }
+
+  @media (max-width: 520px) {
+    flex-flow: column nowrap;
+    align-items: flex-start;
+  }
 
   > span {
-    gap: 4px;
-    min-height: 21px;
-    padding: 4px 6px;
-    font-size: 11px;
+    white-space: nowrap;
   }
+
+  strong {
+    margin-left: 3px;
+    color: var(--text-secondary);
+    font-weight: 650;
+  }
+}
+
+.overviewRealtimeRibbonCache strong {
+  color: var(--text-primary);
 }
 
 .overviewRealtimeUsageItem {

@@ -41,6 +41,7 @@ it('keeps request buckets non-overlapping and excludes reasoning from token comp
   expect(data.datasets.map(d=>d.data)).toEqual([[3,0],[1,0],[25,null]]);
   const mix = charts.doughnut[0].data as {datasets: Array<{data: number[]}>};
   expect(mix.datasets[0].data).toEqual([300,400,100,200]);
+  expect(html).toContain('linear-gradient(90deg, #3b82f6, #93c5fd)');
   expect(html).toContain('Reasoning');
   expect(html).toContain('80');
 });

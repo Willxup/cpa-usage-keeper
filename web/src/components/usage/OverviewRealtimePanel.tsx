@@ -20,7 +20,7 @@ import {
   formatFixedTwoDecimals,
   formatPerMinuteValue,
 } from '@/utils/usage';
-import { LoadingSpinner, MetricChip, PillSwitcher, SectionToolbar } from '@/components/ui';
+import { LoadingSpinner, PillSwitcher, SectionToolbar } from '@/components/ui';
 import styles from '@/pages/UsagePage.module.scss';
 
 type RealtimeDimensionKey = 'models' | 'api_keys' | 'credentials' | 'ai_providers';
@@ -35,6 +35,7 @@ interface RealtimeMetric {
   label: string;
   value: string;
   tone?: 'up' | 'down' | 'flat';
+  accentColor?: string;
 }
 
 interface RealtimeMetricPair {
@@ -434,24 +435,26 @@ function buildThroughputData(
   };
 }
 
-function RealtimeMetricPills({ metrics, metricsTooltip, labelPrefix }: { metrics: RealtimeMetric[]; metricsTooltip?: string; labelPrefix?: string }) {
+function RealtimeHeaderMetrics({ metrics, metricsTooltip }: { metrics: RealtimeMetric[]; metricsTooltip?: string }) {
   return (
-    <div className={styles.overviewRealtimeMetrics}>
+    <dl className={styles.overviewRealtimeMetrics}>
       {metrics.map((metric) => (
-        <MetricChip
+        <div
           key={metric.label}
-          variant="stat"
-          tone={metric.tone ?? 'default'}
-          label={metric.label}
-          value={metric.value}
           className={`${styles.overviewRealtimeMetric} ${metric.tone === 'up' ? styles.overviewRealtimeMetricUp : metric.tone === 'down' ? styles.overviewRealtimeMetricDown : metric.tone === 'flat' ? styles.overviewRealtimeMetricFlat : ''}`.trim()}
-          labelClassName={styles.overviewRealtimeMetricLabel}
-          valueClassName={styles.overviewRealtimeMetricValue}
           title={metricsTooltip}
-          aria-label={metricsTooltip ? `${labelPrefix ? `${labelPrefix} ` : ''}${metric.label} ${metric.value} ${metricsTooltip}` : undefined}
-        />
+        >
+          <dt className={styles.overviewRealtimeMetricLabel}>
+            {metric.accentColor && <span className={styles.overviewRealtimeMetricDot} style={{ backgroundColor: metric.accentColor }} aria-hidden="true" />}
+            {metric.label}
+          </dt>
+          <dd className={styles.overviewRealtimeMetricValue}>
+            {metric.value}
+            {metricsTooltip && <span className={styles.overviewRealtimeScreenReaderOnly}>{` ${metricsTooltip}`}</span>}
+          </dd>
+        </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
@@ -482,7 +485,7 @@ function RealtimePairedMetrics({
   return (
     <div className={styles.overviewRealtimePairedMetrics}>
       {metrics.map((metric) => (
-        <span
+        <div
           key={metric.label}
           className={styles.overviewRealtimePairedMetric}
           title={metricsTooltip}
@@ -491,16 +494,19 @@ function RealtimePairedMetrics({
             {`${metric.label} ${tokenLabel} ${metric.tokenValue} ${requestLabel} ${metric.requestValue}${metricsTooltip ? ` ${metricsTooltip}` : ''}`}
           </span>
           <span className={styles.overviewRealtimePairedMetricLabel} aria-hidden="true">{metric.label}</span>
-          <span className={styles.overviewRealtimePairedMetricSeries} aria-hidden="true">
-            <span className={styles.overviewRealtimePairedMetricTokenLabel}>{tokenShortLabel}</span>
-            <span className={`${styles.overviewRealtimePairedMetricValue} ${toneClass(metric.tokenTone)}`.trim()}>{metric.tokenValue}</span>
+          <span className={styles.overviewRealtimePairedMetricValues} aria-hidden="true">
+            <span className={styles.overviewRealtimePairedMetricSeries}>
+              <span className={`${styles.overviewRealtimePairedMetricDot} ${styles.overviewRealtimePairedMetricTokenDot}`} />
+              <span className={styles.overviewRealtimePairedMetricTokenLabel}>{tokenShortLabel}</span>
+              <strong className={`${styles.overviewRealtimePairedMetricValue} ${toneClass(metric.tokenTone)}`.trim()}>{metric.tokenValue}</strong>
+            </span>
+            <span className={styles.overviewRealtimePairedMetricSeries}>
+              <span className={`${styles.overviewRealtimePairedMetricDot} ${styles.overviewRealtimePairedMetricRequestDot}`} />
+              <span className={styles.overviewRealtimePairedMetricRequestLabel}>{requestShortLabel}</span>
+              <strong className={`${styles.overviewRealtimePairedMetricValue} ${toneClass(metric.requestTone)}`.trim()}>{metric.requestValue}</strong>
+            </span>
           </span>
-          <span className={styles.overviewRealtimePairedMetricDivider} aria-hidden="true">·</span>
-          <span className={styles.overviewRealtimePairedMetricSeries} aria-hidden="true">
-            <span className={styles.overviewRealtimePairedMetricRequestLabel}>{requestShortLabel}</span>
-            <span className={`${styles.overviewRealtimePairedMetricValue} ${toneClass(metric.requestTone)}`.trim()}>{metric.requestValue}</span>
-          </span>
-        </span>
+        </div>
       ))}
     </div>
   );
@@ -536,7 +542,7 @@ function RealtimeCard({
           <h3 className="keeper-card-title">{title}</h3>
         </div>
         {headerContent ?? (metrics && metrics.length > 0 ? (
-          <RealtimeMetricPills metrics={metrics} metricsTooltip={metricsTooltip} />
+          <RealtimeHeaderMetrics metrics={metrics} metricsTooltip={metricsTooltip} />
         ) : null)}
       </div>
       {children}
@@ -598,8 +604,8 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
     samples: t('usage_stats.analysis_latency_samples'),
   }), [t]);
   const latencyMetrics = [
-    { label: latencyLabels.p95TTFT, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_ttft_ms) : '--' },
-    { label: latencyLabels.p95Latency, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_latency_ms) : '--' },
+    { label: latencyLabels.p95TTFT, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_ttft_ms) : '--', accentColor: isDark ? '#7dd3fc' : '#38bdf8' },
+    { label: latencyLabels.p95Latency, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_latency_ms) : '--', accentColor: isDark ? '#fda4af' : '#fb7185' },
     { label: t('usage_stats.analysis_latency_samples_count'), value: formatCompactNumber(latencyScatter.total_points) },
   ];
   const throughputMetrics = useMemo<RealtimeMetricPair[]>(() => {
@@ -711,7 +717,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 options={dimensionOptions}
                 onChange={setActiveDimension}
               />
-              <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} />
+              <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} isDark={isDark} />
             </RealtimeCard>
           </div>
 

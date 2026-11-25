@@ -158,7 +158,7 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
           <dt><i style={{background:`linear-gradient(180deg, ${item.color.light}, ${item.color.base})`}} />{item.label}</dt>
           <dd><strong>{formatCompactNumber(item.value)}</strong><span>{percent(ratio(item.value,mixTotal))}</span></dd>
           <dd className={styles.mixTrack} aria-hidden="true">
-            <i style={{width:`${ratio(item.value,mixTotal) ?? 0}%`,background:`linear-gradient(90deg, ${item.color.light}, ${item.color.base})`}} />
+            <i style={{width:`${ratio(item.value,mixTotal) ?? 0}%`,background:`linear-gradient(90deg, ${item.color.base}, ${item.color.light})`}} />
           </dd>
         </div>)}</dl>
       </ChartSurface>

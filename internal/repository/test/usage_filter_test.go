@@ -951,7 +951,7 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, CacheReadTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, TTFTMS: &ttftZero},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900, TTFTMS: &ttftFailed},
-		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
+		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, CacheReadTokens: 7, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
 		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "credential-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
 	}))
 	if err := db.Create([]entities.UsageIdentity{
@@ -1022,24 +1022,24 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 
 	if len(realtime.CurrentUsage.Models) != 2 ||
 		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
-		realtime.CurrentUsage.Models[0].Tokens != 220 ||
+		realtime.CurrentUsage.Models[0].Tokens != 220 || realtime.CurrentUsage.Models[0].InputTokens != 160 || realtime.CurrentUsage.Models[0].CacheReadTokens != 25 ||
 		math.Abs(realtime.CurrentUsage.Models[0].Share-(220.0/270.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected realtime model usage: %+v", realtime.CurrentUsage.Models)
 	}
 	if len(realtime.CurrentUsage.APIKeys) != 1 ||
 		realtime.CurrentUsage.APIKeys[0].Key != "provider-a" ||
 		realtime.CurrentUsage.APIKeys[0].Requests != 5 ||
-		realtime.CurrentUsage.APIKeys[0].Tokens != 270 {
+		realtime.CurrentUsage.APIKeys[0].Tokens != 270 || realtime.CurrentUsage.APIKeys[0].InputTokens != 260 || realtime.CurrentUsage.APIKeys[0].CacheReadTokens != 32 {
 		t.Fatalf("unexpected realtime api key usage: %+v", realtime.CurrentUsage.APIKeys)
 	}
 	if len(realtime.CurrentUsage.Credentials) != 1 ||
 		realtime.CurrentUsage.Credentials[0].Label != "Claude Account" ||
-		realtime.CurrentUsage.Credentials[0].Tokens != 220 {
+		realtime.CurrentUsage.Credentials[0].Tokens != 220 || realtime.CurrentUsage.Credentials[0].InputTokens != 160 || realtime.CurrentUsage.Credentials[0].CacheReadTokens != 25 {
 		t.Fatalf("unexpected realtime credential usage: %+v", realtime.CurrentUsage.Credentials)
 	}
 	if len(realtime.CurrentUsage.AIProviders) != 1 ||
 		realtime.CurrentUsage.AIProviders[0].Label != "OpenAI Provider" ||
-		realtime.CurrentUsage.AIProviders[0].Tokens != 50 {
+		realtime.CurrentUsage.AIProviders[0].Tokens != 50 || realtime.CurrentUsage.AIProviders[0].InputTokens != 100 || realtime.CurrentUsage.AIProviders[0].CacheReadTokens != 7 {
 		t.Fatalf("unexpected realtime ai provider usage: %+v", realtime.CurrentUsage.AIProviders)
 	}
 }
