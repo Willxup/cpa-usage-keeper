@@ -6,6 +6,8 @@ import { USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
 import styles from '@/pages/UsagePage.module.scss';
 
 const OTHER_COLOR = { base: '#94a3b8', light: '#cbd5e1' };
+const LIGHT_SHARE_TEXT_COLORS = ['#235ee7', '#0f766e', '#7c3aed', '#a84d08', '#0e7490', '#be123c'] as const;
+const OTHER_LIGHT_SHARE_TEXT_COLOR = '#5b697c';
 const OTHER_KEY = '__realtime_others__';
 
 interface RibbonGeometry {
@@ -70,9 +72,12 @@ export function RealtimeTokenShareRibbons({ items, loading, isDark = false }: {
 
   const ribbons = items.map((item, index) => {
     const isOther = index === 5 && items.length === 6 && item.key === OTHER_KEY;
-    const color = isOther ? OTHER_COLOR : USAGE_CHART_COMPOSITION_COLORS[index % USAGE_CHART_COMPOSITION_COLORS.length];
+    const paletteIndex = index % USAGE_CHART_COMPOSITION_COLORS.length;
+    const color = isOther ? OTHER_COLOR : USAGE_CHART_COMPOSITION_COLORS[paletteIndex];
     const share = Number.isFinite(item.share) ? Math.max(0, Math.min(100, item.share)) : 0;
-    return { item, isOther, share, color, accent: isDark ? color.light : color.base };
+    const accent = isDark ? color.light : color.base;
+    const shareColor = isDark ? color.light : (isOther ? OTHER_LIGHT_SHARE_TEXT_COLOR : LIGHT_SHARE_TEXT_COLORS[paletteIndex]);
+    return { item, isOther, share, color, accent, shareColor };
   });
   // 源条和每个目标端共用一个缩放比例，最大份额也只能落在自己那一行内。
   const measured = geometry?.rows.length === items.length ? geometry : null;
@@ -122,7 +127,7 @@ export function RealtimeTokenShareRibbons({ items, loading, isDark = false }: {
         )}
       </div>
       <div className={styles.overviewRealtimeRibbonRows}>
-        {ribbons.map(({ item, isOther, share, accent }, index) => {
+        {ribbons.map(({ item, isOther, share, accent, shareColor }, index) => {
           const cacheRate = item.input_tokens == null || item.cache_read_tokens == null ? null : calculateCacheReadRate({
             inputTokens: item.input_tokens, cacheReadTokens: item.cache_read_tokens,
           });
@@ -131,7 +136,7 @@ export function RealtimeTokenShareRibbons({ items, loading, isDark = false }: {
               <div className={styles.overviewRealtimeRibbonTopline}>
                 <span className={styles.overviewRealtimeRibbonDot} style={{ backgroundColor: accent }} aria-hidden="true" />
                 <span className={styles.overviewRealtimeRibbonName}>{isOther ? t('usage_stats.comparison_others') : item.label}</span>
-                <strong className={styles.overviewRealtimeRibbonShare} style={{ color: accent }}>{formatFixedTwoDecimals(share)}%</strong>
+                <strong className={styles.overviewRealtimeRibbonShare} style={{ color: shareColor }}>{formatFixedTwoDecimals(share)}%</strong>
               </div>
               <div className={styles.overviewRealtimeRibbonMetrics}>
                 <span>{t('usage_stats.overview_realtime_tokens_label')} <strong>{formatCompactNumber(item.tokens)}</strong></span>

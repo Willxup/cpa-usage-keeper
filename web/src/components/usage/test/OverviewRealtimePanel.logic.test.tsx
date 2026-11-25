@@ -308,6 +308,9 @@ describe('OverviewRealtimePanel', () => {
       'usage_stats.ttft: 120ms', 'usage_stats.latency: 520ms',
     ]);
     expect(scatter.plugins?.map((plugin) => plugin.id)).toContain('analysis-latency-diagnostics');
+    expect((scatter.options.plugins as { analysisLatencyDiagnostics?: { colors?: Record<string, string> } }).analysisLatencyDiagnostics?.colors).toMatchObject({
+      p95TTFT: '#38bdf8', p95Latency: '#fb7185', p95TTFTText: '#0369a1', p95LatencyText: '#be123c',
+    });
   });
 
   it('uses full-window maxima for scatter bounds even when plotted points are sampled', () => {
@@ -320,8 +323,9 @@ describe('OverviewRealtimePanel', () => {
     const scatter = chartCapture.scatterCalls[0];
     expect((scatter.options.scales?.x as { max?: number }).max).toBeGreaterThan(5000);
     expect((scatter.options.scales?.y as { max?: number }).max).toBeGreaterThan(30000);
-    expect((scatter.options.plugins as { analysisLatencyDiagnostics?: { p95TTFTMS: number; p95LatencyMS: number } }).analysisLatencyDiagnostics).toMatchObject({
+    expect((scatter.options.plugins as { analysisLatencyDiagnostics?: { p95TTFTMS: number; p95LatencyMS: number; colors?: Record<string, string> } }).analysisLatencyDiagnostics).toMatchObject({
       p95TTFTMS: 2000, p95LatencyMS: 8000,
+      colors: { p95TTFT: '#7dd3fc', p95Latency: '#fda4af', p95TTFTText: '#7dd3fc', p95LatencyText: '#fda4af' },
     });
   });
 

@@ -55,12 +55,14 @@ describe('RealtimeTokenShareRibbons', () => {
     await act(async () => root.render(<RealtimeTokenShareRibbons loading={false} items={items} isDark={isDark} />));
     const base = ['#3b82f6', '#0d9488', '#8b5cf6', '#f59e0b', '#06b6d4', '#94a3b8'];
     const light = ['#60a5fa', '#2dd4bf', '#a78bfa', '#fbbf24', '#22d3ee', '#cbd5e1'];
+    const lightShareText = ['#235ee7', '#0f766e', '#7c3aed', '#a84d08', '#0e7490', '#5b697c'];
     const groups = container.querySelectorAll('[data-ribbon-path]');
     const gradients = container.querySelectorAll('svg > defs > *');
     expect(groups).toHaveLength(items.length);
     expect(gradients).toHaveLength(groups.length);
     groups.forEach((group, index) => {
       const accent = isDark ? light[index] : base[index];
+      const shareColor = isDark ? light[index] : lightShareText[index];
       const gradient = gradients[index];
       const stops = gradient.querySelectorAll('stop');
       expect(gradient.getAttribute('gradientUnits')).toBe('userSpaceOnUse');
@@ -70,7 +72,7 @@ describe('RealtimeTokenShareRibbons', () => {
       expect(Array.from(group.querySelectorAll('rect'), (rect) => rect.getAttribute('fill'))).toEqual([accent, accent]);
       const topline = container.querySelector(`[data-ribbon-row="${index}"]`)!.firstElementChild!;
       expect(topline.querySelector<HTMLElement>('[aria-hidden]')!.style.backgroundColor).toBe(accent);
-      expect(topline.querySelector('strong')?.style.color).toBe(accent);
+      expect(topline.querySelector('strong')?.style.color).toBe(shareColor);
     });
   });
 });
