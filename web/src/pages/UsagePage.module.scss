@@ -3472,11 +3472,13 @@
 .overviewRealtimePairedMetricLabel,
 .overviewRealtimePairedMetricTokenLabel,
 .overviewRealtimePairedMetricRequestLabel {
-  color: var(--text-tertiary);
+  color: #7a746d;
   font-size: 10px;
   font-weight: 650;
   line-height: 1.2;
   white-space: nowrap;
+
+  :global([data-theme='dark']) & { color: var(--text-tertiary); }
 }
 
 .overviewRealtimeMetricLabel {
@@ -3532,7 +3534,7 @@
 
 .overviewRealtimeMetricUp .overviewRealtimeMetricValue,
 .overviewRealtimePairedMetricValueUp {
-  color: #16a34a;
+  color: #147a3a;
 
   :global([data-theme='dark']) & { color: #22c55e; }
 }
@@ -3771,10 +3773,12 @@
   flex-wrap: wrap;
   gap: 4px 12px;
   margin-left: 15px;
-  color: var(--text-tertiary);
+  color: #7a746d;
   font-size: 10px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
+
+  :global([data-theme='dark']) & { color: var(--text-tertiary); }
 
   @media (max-width: 520px) {
     flex-flow: column nowrap;
