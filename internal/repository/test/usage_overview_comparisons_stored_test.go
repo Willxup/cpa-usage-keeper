@@ -81,7 +81,7 @@ func TestOverviewComparisonBoundaryStoredFeesMatchCacheAndDatabase(t *testing.T)
 	}
 }
 
-// 完整日桶不扫描热表；不同旧别名归到真实 model，部分 NULL 会阻止费用输出。
+// 完整日桶不扫描热表；不同请求档位归到同一真实模型，部分 NULL 仍阻止费用输出。
 func TestOverviewComparisonDailyStoredFeeRequiresCompleteRows(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db := openTestDatabase(t)
@@ -89,8 +89,8 @@ func TestOverviewComparisonDailyStoredFeeRequiresCompleteRows(t *testing.T) {
 	end := start.AddDate(0, 0, 1)
 	zeroUnavailable := int64(0)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", ModelAlias: "old-a", AuthIndex: "auth-a", RequestCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(2.75), UnavailableCostCount: &zeroUnavailable},
-		{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", ModelAlias: "old-b", AuthIndex: "auth-a", RequestCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(3.5), UnavailableCostCount: &zeroUnavailable},
+		{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", ServiceTier: "default", AuthIndex: "auth-a", RequestCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(2.75), UnavailableCostCount: &zeroUnavailable},
+		{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", ServiceTier: "priority", AuthIndex: "auth-a", RequestCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: overviewCostPtr(3.5), UnavailableCostCount: &zeroUnavailable},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed daily comparison rows: %v", err)
@@ -106,7 +106,7 @@ func TestOverviewComparisonDailyStoredFeeRequiresCompleteRows(t *testing.T) {
 	if len(result.Comparisons.Models) != 1 || !finiteStoredOverviewTestCost(result.Comparisons.Models["model-a"].CostUSD, 6.25) || result.Comparisons.Models["model-a"].Requests != 2 {
 		t.Fatalf("daily stored fee or real model grouping changed: %+v", result.Comparisons.Models)
 	}
-	if err := db.Create(&entities.UsageOverviewDailyStat{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", ModelAlias: "pending", AuthIndex: "auth-a", RequestCount: 1}).Error; err != nil {
+	if err := db.Create(&entities.UsageOverviewDailyStat{BucketStart: start, APIGroupKey: "old-key", Model: "model-a", AuthIndex: "auth-a", RequestCount: 1}).Error; err != nil {
 		t.Fatalf("seed partially unbackfilled daily row: %v", err)
 	}
 	if _, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil); err == nil || !strings.Contains(err.Error(), "unbackfilled cost") {

@@ -11,18 +11,14 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 )
 
-// BucketKey 是 Overview 小时和自然日共用的最终十维唯一键。
+// BucketKey 是 Overview 小时和自然日共用的六维唯一键，ServiceTier 固定为请求档位。
 type BucketKey struct {
-	BucketStart         time.Time
-	APIGroupKey         string
-	Model               string
-	AuthIndex           string
-	ModelAlias          string
-	ServiceTier         string
-	ResponseServiceTier string
-	ReasoningEffort     string
-	Endpoint            string
-	ExecutorType        string
+	BucketStart     time.Time
+	APIGroupKey     string
+	Model           string
+	AuthIndex       string
+	ServiceTier     string
+	ReasoningEffort string
 }
 
 // BuildRows 使用最终唯一键把已计价事件聚合成 hourly 和 daily rows；费用未回填时拒绝推进普通水位。
@@ -51,9 +47,7 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 			zeroCost, zeroUnavailable := 0.0, int64(0)
 			hourly[hourKey] = &entities.UsageOverviewHourlyStat{
 				BucketStart: hourKey.BucketStart, APIGroupKey: hourKey.APIGroupKey, Model: hourKey.Model,
-				AuthIndex: hourKey.AuthIndex, ModelAlias: hourKey.ModelAlias, ServiceTier: hourKey.ServiceTier,
-				ResponseServiceTier: hourKey.ResponseServiceTier, ReasoningEffort: hourKey.ReasoningEffort,
-				Endpoint: hourKey.Endpoint, ExecutorType: hourKey.ExecutorType,
+				AuthIndex: hourKey.AuthIndex, ServiceTier: hourKey.ServiceTier, ReasoningEffort: hourKey.ReasoningEffort,
 				CostUSD: &zeroCost, UnavailableCostCount: &zeroUnavailable,
 			}
 		}
@@ -61,9 +55,7 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 			zeroCost, zeroUnavailable := 0.0, int64(0)
 			daily[dayKey] = &entities.UsageOverviewDailyStat{
 				BucketStart: dayKey.BucketStart, APIGroupKey: dayKey.APIGroupKey, Model: dayKey.Model,
-				AuthIndex: dayKey.AuthIndex, ModelAlias: dayKey.ModelAlias, ServiceTier: dayKey.ServiceTier,
-				ResponseServiceTier: dayKey.ResponseServiceTier, ReasoningEffort: dayKey.ReasoningEffort,
-				Endpoint: dayKey.Endpoint, ExecutorType: dayKey.ExecutorType,
+				AuthIndex: dayKey.AuthIndex, ServiceTier: dayKey.ServiceTier, ReasoningEffort: dayKey.ReasoningEffort,
 				CostUSD: &zeroCost, UnavailableCostCount: &zeroUnavailable,
 			}
 		}
@@ -110,17 +102,11 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 // 小时按绝对整小时截断，自然日按部署时区零点生成；不会修改原事件。
 func BucketKeysForEvent(event entities.UsageEvent) (BucketKey, BucketKey) {
 	dimensions := BucketKey{
-		APIGroupKey:         normalizeRequiredDimension(event.APIGroupKey),
-		Model:               normalizeRequiredDimension(event.Model),
-		AuthIndex:           normalizeOptionalDimension(event.AuthIndex),
-		ServiceTier:         normalizeOptionalDimension(event.ServiceTier),
-		ResponseServiceTier: normalizeOptionalDimension(event.ResponseServiceTier),
-		ReasoningEffort:     normalizeOptionalDimension(event.ReasoningEffort),
-		Endpoint:            normalizeOptionalDimension(event.Endpoint),
-		ExecutorType:        normalizeOptionalDimension(event.ExecutorType),
-	}
-	if event.ModelAlias != nil {
-		dimensions.ModelAlias = normalizeOptionalDimension(*event.ModelAlias)
+		APIGroupKey:     normalizeRequiredDimension(event.APIGroupKey),
+		Model:           normalizeRequiredDimension(event.Model),
+		AuthIndex:       normalizeOptionalDimension(event.AuthIndex),
+		ServiceTier:     normalizeOptionalDimension(event.ServiceTier),
+		ReasoningEffort: normalizeOptionalDimension(event.ReasoningEffort),
 	}
 	timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
 	hourKey := dimensions
@@ -188,15 +174,15 @@ func addEventFee(cost *float64, unavailable *int64, event entities.UsageEvent) {
 
 func hourlyRowLess(left, right entities.UsageOverviewHourlyStat) bool {
 	return dimensionsLess(
-		BucketKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
-		BucketKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
+		BucketKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ServiceTier, left.ReasoningEffort},
+		BucketKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ServiceTier, right.ReasoningEffort},
 	)
 }
 
 func dailyRowLess(left, right entities.UsageOverviewDailyStat) bool {
 	return dimensionsLess(
-		BucketKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
-		BucketKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
+		BucketKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ServiceTier, left.ReasoningEffort},
+		BucketKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ServiceTier, right.ReasoningEffort},
 	)
 }
 
@@ -204,8 +190,8 @@ func dimensionsLess(left, right BucketKey) bool {
 	if !left.BucketStart.Equal(right.BucketStart) {
 		return left.BucketStart.Before(right.BucketStart)
 	}
-	leftValues := [...]string{left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType}
-	rightValues := [...]string{right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType}
+	leftValues := [...]string{left.APIGroupKey, left.Model, left.AuthIndex, left.ServiceTier, left.ReasoningEffort}
+	rightValues := [...]string{right.APIGroupKey, right.Model, right.AuthIndex, right.ServiceTier, right.ReasoningEffort}
 	for index := range leftValues {
 		if leftValues[index] != rightValues[index] {
 			return leftValues[index] < rightValues[index]

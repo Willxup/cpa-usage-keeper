@@ -5,16 +5,12 @@ import "time"
 // UsageOverviewHourlyStat 是 Overview 页面按小时预聚合的 usage 统计。
 type UsageOverviewHourlyStat struct {
 	ID                  int64     `gorm:"primaryKey"`
-	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:1;index:idx_usage_overview_hourly_stats_bucket_start;index:idx_usage_overview_hourly_stats_api_bucket,priority:2;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:3;index:idx_usage_overview_hourly_stats_auth_bucket,priority:2;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:2"`
+	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:1;index:idx_usage_overview_hourly_stats_bucket_start;index:idx_usage_overview_hourly_stats_api_bucket,priority:2;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:3;index:idx_usage_overview_hourly_stats_auth_bucket,priority:2"`
 	APIGroupKey         string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:2;index:idx_usage_overview_hourly_stats_api_bucket,priority:1;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:1"`
 	Model               string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:3;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:2"`
 	AuthIndex           string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:4;index:idx_usage_overview_hourly_stats_auth_bucket,priority:1"`
-	ModelAlias          string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:5;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:1"`
-	ServiceTier         string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:6"`
-	ResponseServiceTier string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:7"`
-	ReasoningEffort     string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:8"`
-	Endpoint            string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:9"`
-	ExecutorType        string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:10"`
+	ServiceTier         string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:5"`
+	ReasoningEffort     string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:6"`
 	RequestCount        int64     `gorm:"not null;default:0"`
 	SuccessCount        int64     `gorm:"not null;default:0"`
 	FailureCount        int64     `gorm:"not null;default:0"`
@@ -30,7 +26,7 @@ type UsageOverviewHourlyStat struct {
 	SpeedSampleCount       int64   `gorm:"not null;default:0"`
 	DecodeSpeedTPSSum      float64 `gorm:"column:decode_speed_tps_sum;type:real;not null;default:0"`
 	DecodeSpeedSampleCount int64   `gorm:"not null;default:0"`
-	// 结构升级后旧桶可为 NULL；首次迁移按现存事件重建，正常聚合必须写入明确金额与不可用计数。
+	// 六维合并不将未回填的 NULL 当作零；正常聚合必须写入明确金额与不可用计数。
 	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
 	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`
 	CreatedAt            time.Time `gorm:"serializer:storageTime;not null"`

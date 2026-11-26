@@ -12,12 +12,12 @@ import (
 func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
-	alias := "alias-a"
+	aliasA, aliasB := "alias-a", "alias-b"
 
-	// 两条事件落入同一 hourly/daily key，并显式覆盖全部旧 Token 字段和成功失败计数。
+	// 不同别名仍落入同一 hourly/daily key，显式覆盖全部旧 Token 字段和成功失败计数。
 	events := []entities.UsageEvent{
-		{EventKey: "overview-parity-1", APIGroupKey: "provider-a", Model: "model-a", ModelAlias: &alias, AuthIndex: "auth-a", Timestamp: now.Add(-time.Hour), Failed: false, InputTokens: 100, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 90, CacheReadTokens: 10, CacheCreationTokens: 3, TotalTokens: 138},
-		{EventKey: "overview-parity-2", APIGroupKey: "provider-a", Model: "model-a", ModelAlias: &alias, AuthIndex: "auth-a", Timestamp: now.Add(-30 * time.Minute), Failed: true, InputTokens: 200, OutputTokens: 30, ReasoningTokens: 6, CachedTokens: 80, CacheReadTokens: 20, CacheCreationTokens: 4, TotalTokens: 260},
+		{EventKey: "overview-parity-1", APIGroupKey: "provider-a", Model: "model-a", ModelAlias: &aliasA, AuthIndex: "auth-a", Timestamp: now.Add(-time.Hour), Failed: false, InputTokens: 100, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 90, CacheReadTokens: 10, CacheCreationTokens: 3, TotalTokens: 138},
+		{EventKey: "overview-parity-2", APIGroupKey: "provider-a", Model: "model-a", ModelAlias: &aliasB, AuthIndex: "auth-a", Timestamp: now.Add(-30 * time.Minute), Failed: true, InputTokens: 200, OutputTokens: 30, ReasoningTokens: 6, CachedTokens: 80, CacheReadTokens: 20, CacheCreationTokens: 4, TotalTokens: 260},
 	}
 	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("insert overview parity events: %v", err)
@@ -28,14 +28,14 @@ func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *tes
 	}
 
 	var hourly entities.UsageOverviewHourlyStat
-	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", "provider-a", "model-a", "auth-a", "alias-a").Take(&hourly).Error; err != nil {
+	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ?", "provider-a", "model-a", "auth-a").Take(&hourly).Error; err != nil {
 		t.Fatalf("load hourly parity row: %v", err)
 	}
 	assertUsageOverviewParityFields(t, "hourly", hourly.RequestCount, hourly.SuccessCount, hourly.FailureCount, hourly.InputTokens, hourly.OutputTokens, hourly.ReasoningTokens, hourly.CachedTokens, hourly.CacheReadTokens, hourly.CacheCreationTokens, hourly.TotalTokens)
 
 	// daily 必须与 hourly 对同一 fixture 得到完全相同的旧字段总计。
 	var daily entities.UsageOverviewDailyStat
-	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", "provider-a", "model-a", "auth-a", "alias-a").Take(&daily).Error; err != nil {
+	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ?", "provider-a", "model-a", "auth-a").Take(&daily).Error; err != nil {
 		t.Fatalf("load daily parity row: %v", err)
 	}
 	assertUsageOverviewParityFields(t, "daily", daily.RequestCount, daily.SuccessCount, daily.FailureCount, daily.InputTokens, daily.OutputTokens, daily.ReasoningTokens, daily.CachedTokens, daily.CacheReadTokens, daily.CacheCreationTokens, daily.TotalTokens)

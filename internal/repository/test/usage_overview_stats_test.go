@@ -23,14 +23,14 @@ func TestAggregateUsageOverviewStatsAggregatesIncrementallyAndIdempotently(t *te
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
 		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
 	}
-	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
-	assertUsageOverviewStat(t, db, "daily", usageOverviewAggregationDayBucket(2026, 5, 14), "api-a", "claude-sonnet", "", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
+	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
+	assertUsageOverviewStat(t, db, "daily", usageOverviewAggregationDayBucket(2026, 5, 14), "api-a", "claude-sonnet", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
 	assertUsageOverviewCheckpoint(t, db, 2)
 
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now.Add(time.Minute)); err != nil {
 		t.Fatalf("second AggregateUsageOverviewStats returned error: %v", err)
 	}
-	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
+	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", overviewStatValues{2, 1, 1, 17, 28, 3, 5, 7, 9, 53})
 
 	insertUsageOverviewAggregationEvents(t, db, []entities.UsageEvent{
 		usageOverviewAggregationEvent("event-3", "api-a", "claude-sonnet", time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC), false, 1, 2, 3, 4, 5, 6, 10),
@@ -38,12 +38,12 @@ func TestAggregateUsageOverviewStatsAggregatesIncrementallyAndIdempotently(t *te
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now.Add(2*time.Minute)); err != nil {
 		t.Fatalf("delta AggregateUsageOverviewStats returned error: %v", err)
 	}
-	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 13, 9, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", "", overviewStatValues{1, 1, 0, 1, 2, 3, 4, 5, 6, 10})
-	assertUsageOverviewStat(t, db, "daily", usageOverviewAggregationDayBucket(2026, 5, 13), "api-a", "claude-sonnet", "", "", overviewStatValues{1, 1, 0, 1, 2, 3, 4, 5, 6, 10})
+	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 13, 9, 0, 0, 0, time.UTC), "api-a", "claude-sonnet", "", overviewStatValues{1, 1, 0, 1, 2, 3, 4, 5, 6, 10})
+	assertUsageOverviewStat(t, db, "daily", usageOverviewAggregationDayBucket(2026, 5, 13), "api-a", "claude-sonnet", "", overviewStatValues{1, 1, 0, 1, 2, 3, 4, 5, 6, 10})
 	assertUsageOverviewCheckpoint(t, db, 3)
 }
 
-func TestAggregateUsageOverviewStatsSplitsHourlyAndDailyByAuthIndexAndModelAlias(t *testing.T) {
+func TestAggregateUsageOverviewStatsKeepsAuthIndexButDropsAlias(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
 	modelAlias := "alias-a"
@@ -70,12 +70,12 @@ func TestAggregateUsageOverviewStatsSplitsHourlyAndDailyByAuthIndexAndModelAlias
 
 	bucket := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
 	dayBucket := usageOverviewAggregationDayBucket(2026, 5, 14)
-	assertUsageOverviewStat(t, db, "hourly", bucket, "api-a", "claude-sonnet", "auth-a", "alias-a", overviewStatValues{1, 1, 0, 10, 20, 0, 0, 0, 0, 30})
-	assertUsageOverviewStat(t, db, "hourly", bucket, "api-a", "claude-sonnet", "auth-b", "alias-a", overviewStatValues{1, 1, 0, 1, 2, 0, 0, 0, 0, 3})
-	assertUsageOverviewStat(t, db, "hourly", bucket, "api-a", "claude-sonnet", "auth-a", "", overviewStatValues{1, 1, 0, 3, 4, 0, 0, 0, 0, 7})
-	assertUsageOverviewStat(t, db, "daily", dayBucket, "api-a", "claude-sonnet", "auth-a", "alias-a", overviewStatValues{1, 1, 0, 10, 20, 0, 0, 0, 0, 30})
+	assertUsageOverviewStat(t, db, "hourly", bucket, "api-a", "claude-sonnet", "auth-a", overviewStatValues{2, 2, 0, 13, 24, 0, 0, 0, 0, 37})
+	assertUsageOverviewStat(t, db, "hourly", bucket, "api-a", "claude-sonnet", "auth-b", overviewStatValues{1, 1, 0, 1, 2, 0, 0, 0, 0, 3})
+	assertUsageOverviewStat(t, db, "daily", dayBucket, "api-a", "claude-sonnet", "auth-a", overviewStatValues{2, 2, 0, 13, 24, 0, 0, 0, 0, 37})
+	assertUsageOverviewStat(t, db, "daily", dayBucket, "api-a", "claude-sonnet", "auth-b", overviewStatValues{1, 1, 0, 1, 2, 0, 0, 0, 0, 3})
 
-	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC), "unknown", "unknown", "", "", overviewStatValues{1, 0, 1, 1, 1, 0, 0, 0, 0, 2})
+	assertUsageOverviewStat(t, db, "hourly", time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC), "unknown", "unknown", "", overviewStatValues{1, 0, 1, 1, 1, 0, 0, 0, 0, 2})
 
 	// Overview 聚合拆分后不得顺带写 Activity；Activity 由自己的独立 checkpoint 处理。
 	var activityCount int64
@@ -125,11 +125,11 @@ type overviewStatValues struct {
 	CachedTokens, CacheReadTokens, CacheCreationTokens, TotalTokens int64
 }
 
-func assertUsageOverviewStat(t *testing.T, db *gorm.DB, grain string, bucketStart time.Time, apiGroupKey, model, authIndex, modelAlias string, want overviewStatValues) {
+func assertUsageOverviewStat(t *testing.T, db *gorm.DB, grain string, bucketStart time.Time, apiGroupKey, model, authIndex string, want overviewStatValues) {
 	t.Helper()
 	var got overviewStatValues
-	if err := db.Table("usage_overview_"+grain+"_stats").Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", timeutil.FormatStorageTime(bucketStart), apiGroupKey, model, authIndex, modelAlias).Take(&got).Error; err != nil {
-		t.Fatalf("load %s stat %s/%s/%s/%s/%s: %v", grain, bucketStart, apiGroupKey, model, authIndex, modelAlias, err)
+	if err := db.Table("usage_overview_"+grain+"_stats").Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ?", timeutil.FormatStorageTime(bucketStart), apiGroupKey, model, authIndex).Take(&got).Error; err != nil {
+		t.Fatalf("load %s stat %s/%s/%s/%s: %v", grain, bucketStart, apiGroupKey, model, authIndex, err)
 	}
 	if got != want {
 		t.Fatalf("unexpected %s values: got=%+v want=%+v", grain, got, want)

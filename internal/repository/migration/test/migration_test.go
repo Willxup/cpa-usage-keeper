@@ -100,6 +100,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20261023_usage_event_effective_service_tier",
 		"20261028_plugin_api_key_sources",
 		"20261029_usage_identity_siwc_fields",
+		"20261123_usage_overview_six_dimensions",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

@@ -64,7 +64,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	logs := captureRepositoryLogs(t)
 	db := openTestDatabase(t)
 
-	for _, version := range []string{"20260723_usage_overview_five_dimensions", "20260702_create_app_settings"} {
+	for _, version := range []string{"20260723_usage_overview_five_dimensions", "20260702_create_app_settings", "20261123_usage_overview_six_dimensions"} {
 		var count int64
 		if err := db.Table("schema_migrations").Where("version = ?", version).Count(&count).Error; err != nil {
 			t.Fatalf("count migration %s: %v", version, err)
@@ -91,8 +91,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"auth_sessions":               {"token_hash": true, "source": true, "token": false},
 		"usage_identities":            {"alias": true},
 		"model_price_settings":        {"price_multiplier": true},
-		"usage_overview_hourly_stats": {"service_tier": true, "response_service_tier": true, "reasoning_effort": true, "endpoint": true, "executor_type": true},
-		"usage_overview_daily_stats":  {"service_tier": true, "response_service_tier": true, "reasoning_effort": true, "endpoint": true, "executor_type": true},
+		"usage_overview_hourly_stats": {"service_tier": true, "reasoning_effort": true, "model_alias": false, "response_service_tier": false, "endpoint": false, "executor_type": false},
+		"usage_overview_daily_stats":  {"service_tier": true, "reasoning_effort": true, "model_alias": false, "response_service_tier": false, "endpoint": false, "executor_type": false},
 	} {
 		columnTypes, err := db.Migrator().ColumnTypes(table)
 		if err != nil {
@@ -119,15 +119,15 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_auth_type_auth_index_id",
 		"idx_usage_events_auth_index_timestamp_id",
 		"uniq_usage_overview_hourly_stats_dimensions",
+		"idx_usage_overview_hourly_stats_bucket_start",
 		"idx_usage_overview_hourly_stats_api_bucket",
 		"idx_usage_overview_hourly_stats_api_model_bucket",
 		"idx_usage_overview_hourly_stats_auth_bucket",
-		"idx_usage_overview_hourly_stats_model_alias_bucket",
 		"uniq_usage_overview_daily_stats_dimensions",
+		"idx_usage_overview_daily_stats_bucket_start",
 		"idx_usage_overview_daily_stats_api_bucket",
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
-		"idx_usage_overview_daily_stats_model_alias_bucket",
 		"uniq_usage_activity_stats_grain_start_api",
 		"idx_usage_activity_stats_api_grain_start",
 		"idx_usage_activity_stats_grain_end",
@@ -145,6 +145,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_provider",
 		"idx_usage_events_auth_type",
 		"idx_usage_events_auth_type_source_id",
+		"idx_usage_overview_hourly_stats_model_alias_bucket",
+		"idx_usage_overview_daily_stats_model_alias_bucket",
 	} {
 		if slices.Contains(indexNames, indexName) {
 			t.Fatalf("expected sqlite index %s not to exist", indexName)

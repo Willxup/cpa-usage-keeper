@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/overview"
-	"cpa-usage-keeper/internal/repository/overviewstore"
+	"cpa-usage-keeper/internal/repository/migration"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 )
@@ -18,6 +17,8 @@ const (
 	pricingMigrationPhaseOverviewRebuilding = "overview_rebuilding"
 	pricingMigrationPhaseDataComplete       = "data_complete"
 	pricingMigrationOverviewPageSize        = 1000
+	// 冻结 M5 的十维事件投影，不随六维运行时聚合或重算调整。
+	pricingLegacyOverviewEventColumns = "id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available"
 )
 
 // CompleteLegacyPricingData 在 M4 明细费用完成后，从固定 C 内现存冷热事件重建完整 Overview。
@@ -183,7 +184,7 @@ func validatePricingOverviewCursor(cursors *PricingMigrationOverviewCursors, fix
 func loadLegacyPricingOverviewPage(ctx context.Context, reader *gorm.DB, table string, afterID, bound int64) ([]entities.UsageEvent, error) {
 	var events []entities.UsageEvent
 	if err := reader.Clauses(dbresolver.Read).WithContext(ctx).Table(table).
-		Select(entities.UsageAggregationEventProjectionColumns).
+		Select(pricingLegacyOverviewEventColumns).
 		Where("id > ? AND id <= ?", afterID, bound).Order("id ASC").Limit(pricingMigrationOverviewPageSize).
 		Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("read %s overview event page: %w", table, err)
@@ -191,20 +192,15 @@ func loadLegacyPricingOverviewPage(ctx context.Context, reader *gorm.DB, table s
 	return events, nil
 }
 
-// applyLegacyPricingOverviewPage 复用正式聚合公式写入请求、Token、已存费用和两种速度，不改普通 checkpoint。
+// applyLegacyPricingOverviewPage 写入 20261009 的十维桶，不改普通 checkpoint。
 // hourly、daily 与本页恢复游标同事务提交；任一步失败整页回滚。
 func applyLegacyPricingOverviewPage(ctx context.Context, writer *gorm.DB, events []entities.UsageEvent, oldCursor, nextCursor string) error {
-	var hourly []entities.UsageOverviewHourlyStat
-	var daily []entities.UsageOverviewDailyStat
-	if len(events) > 0 {
-		var err error
-		hourly, daily, _, err = overview.BuildRows(events)
-		if err != nil {
-			return err
-		}
+	page, err := migration.BuildLegacyPricingOverviewPage(events)
+	if err != nil {
+		return err
 	}
 	return writer.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := overviewstore.ApplyRows(tx, hourly, daily, time.Now()); err != nil {
+		if err := page.Apply(tx, time.Now()); err != nil {
 			return err
 		}
 		result := tx.Model(&entities.PricingMigrationState{}).

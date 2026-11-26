@@ -44,7 +44,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	feeAuth, feeProvider, feeOther, feeLegacyOne, feeLegacyTwo := 2.5, 3.75, 4.25, 1.5, 1.75
 	available, unavailable := int64(0), int64(1)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: today, APIGroupKey: key.APIKey, Model: "my-model", ModelAlias: "display-model", AuthIndex: "auth-one", RequestCount: 1, SuccessCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeAuth, UnavailableCostCount: &available},
+		{BucketStart: today, APIGroupKey: key.APIKey, Model: "my-model", AuthIndex: "auth-one", RequestCount: 1, SuccessCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeAuth, UnavailableCostCount: &available},
 		{BucketStart: today, APIGroupKey: key.APIKey, Model: "my-model", AuthIndex: "provider-one", RequestCount: 1, SuccessCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeProvider, UnavailableCostCount: &available},
 		{BucketStart: today, APIGroupKey: "sk-other654321", Model: "other-model", AuthIndex: "missing-identity", RequestCount: 5, SuccessCount: 5, TotalTokens: 100, CostUSD: &feeOther, UnavailableCostCount: &unavailable},
 		{BucketStart: today, APIGroupKey: "sk-legacy-one-123456", Model: "legacy-model", RequestCount: 1, SuccessCount: 1, CostUSD: &feeLegacyOne, UnavailableCostCount: &available},

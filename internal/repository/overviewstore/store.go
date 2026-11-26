@@ -11,12 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
-const overviewDimensionsPredicate = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ? AND service_tier = ? AND response_service_tier = ? AND reasoning_effort = ? AND endpoint = ? AND executor_type = ?"
+const overviewDimensionsPredicate = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND service_tier = ? AND reasoning_effort = ?"
 
 // 旧费用桶必须已回填，且数据库加上本页有限增量后仍须是可保存的有限 REAL。
 const overviewReadyFeePredicate = "cost_usd IS NOT NULL AND unavailable_cost_count IS NOT NULL AND cost_usd + ? BETWEEN ? AND ?"
 
-// ApplyRows 用完整维度唯一键累加原统计、已存费用和速度；调用方持有 hourly、daily、checkpoint 的共同事务。
+// ApplyRows 用六维唯一键累加原统计、已存费用和速度；调用方持有 hourly、daily、checkpoint 的共同事务。
 func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, dailyRows []entities.UsageOverviewDailyStat, now time.Time) error {
 	// hourly 必须全部成功，调用方才会继续提交 daily 和 checkpoint。
 	for _, row := range hourlyRows {
@@ -33,7 +33,7 @@ func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, daily
 	return nil
 }
 
-// applyHourlyRow 在同一事务内按完整维度累加；旧 NULL 费用桶只能等迁移回填，不能当零更新。
+// applyHourlyRow 在同一事务内按六维累加；旧 NULL 费用桶只能等回填，不能当零更新。
 func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.Time) error {
 	if err := validateOverviewFeeDelta(row.CostUSD, row.UnavailableCostCount); err != nil {
 		return fmt.Errorf("hourly overview fee: %w", err)
@@ -53,7 +53,7 @@ func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.
 	row.CreatedAt = timeutil.NormalizeStorageTime(now)
 	row.UpdatedAt = timeutil.NormalizeStorageTime(now)
 	if insertErr := tx.Create(&row).Error; insertErr != nil {
-		// 并发创建相同 key 时只重试一次完整五维 UPDATE。
+		// 并发创建相同 key 时只重试一次六维 UPDATE。
 		retryResult := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(overviewDimensionsPredicate, args...).Where(overviewReadyFeePredicate, *row.CostUSD, -math.MaxFloat64, math.MaxFloat64).Updates(updates)
 		if retryResult.Error != nil {
 			return fmt.Errorf("insert usage overview hourly stat: %w; retry update: %v", insertErr, retryResult.Error)
@@ -97,17 +97,11 @@ func applyDailyRow(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Ti
 }
 
 func hourlyDimensionArgs(row entities.UsageOverviewHourlyStat) []any {
-	return []any{
-		timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias,
-		row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType,
-	}
+	return []any{timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ServiceTier, row.ReasoningEffort}
 }
 
 func dailyDimensionArgs(row entities.UsageOverviewDailyStat) []any {
-	return []any{
-		timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias,
-		row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType,
-	}
+	return []any{timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ServiceTier, row.ReasoningEffort}
 }
 
 // tokenStatUpdates 将原事实列与已存费用组成一次原子增量，避免只更新其中一类。

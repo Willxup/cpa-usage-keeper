@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/overview"
+	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
 	"github.com/mattn/go-sqlite3"
 	"gorm.io/gorm"
@@ -83,7 +83,7 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 		}
 	}
 	if err := reader.WithContext(ctx).Connection(func(db *gorm.DB) error {
-		// SQLite 分组使用 Go 的存储时间解析与 Overview 分桶，避免 SQL 日期函数丢失项目时区或纳秒精度。
+		// SQLite 分组使用冻结的旧 Overview 分桶，避免 SQL 日期函数丢失项目时区或纳秒精度。
 		// 函数与查询固定在同一只读连接；不注册全局 driver，也不改写原始时间。
 		conn, ok := db.Statement.ConnPool.(*sql.Conn)
 		if !ok {
@@ -99,10 +99,10 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 				if err != nil {
 					return "", err
 				}
-				hour, day := overview.BucketKeysForEvent(entities.UsageEvent{Timestamp: timestamp})
-				bucket := hour.BucketStart
+				hour, day := migration.LegacyPricingOverviewBucketStarts(timestamp)
+				bucket := hour
 				if daily {
-					bucket = day.BucketStart
+					bucket = day
 				}
 				return bucket.UTC().Format(time.RFC3339Nano), nil
 			}, true); err != nil {
@@ -305,6 +305,7 @@ func pricingLegacyCostGroupsSQL(table string) string {
 		"SELECT * FROM expected UNION ALL SELECT * FROM stored ORDER BY " + strings.Join(positions, ", ") + ", " + strconv.Itoa(len(keys)+8)
 }
 
+// M6 对账的是 20261009 十维桶，即使完成后还会执行运行时六维合并。
 var pricingOverviewDimensions = []string{
 	"api_group_key", "model", "auth_index", "model_alias",
 	"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type",

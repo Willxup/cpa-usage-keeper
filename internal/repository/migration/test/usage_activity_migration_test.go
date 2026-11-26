@@ -257,12 +257,15 @@ func createUsageActivityLegacySchema(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	if err := db.AutoMigrate(
 		&entities.UsageEvent{},
-		&entities.UsageOverviewHourlyStat{},
-		&entities.UsageOverviewDailyStat{},
 		&usageActivityLegacyHealthStat{},
 		&entities.UsageOverviewAggregationCheckpoint{},
 	); err != nil {
 		t.Fatalf("create legacy schema: %v", err)
+	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		if err := db.Table(table).AutoMigrate(&publishedTestOverviewStat{}); err != nil {
+			t.Fatalf("create legacy %s: %v", table, err)
+		}
 	}
 }
 
@@ -306,12 +309,12 @@ func seedUsageActivityOverviewSentinels(t *testing.T, db *gorm.DB, now time.Time
 	t.Helper()
 	hourStart := now.Truncate(time.Hour)
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	hourly := entities.UsageOverviewHourlyStat{
+	hourly := publishedTestOverviewStat{
 		BucketStart: hourStart, APIGroupKey: "sentinel", Model: "model", AuthIndex: "auth", ModelAlias: "alias",
 		RequestCount: 11, SuccessCount: 7, FailureCount: 4, InputTokens: 101, OutputTokens: 102,
 		ReasoningTokens: 103, CachedTokens: 104, CacheReadTokens: 105, CacheCreationTokens: 106, TotalTokens: 107,
 	}
-	daily := entities.UsageOverviewDailyStat{
+	daily := publishedTestOverviewStat{
 		BucketStart: dayStart, APIGroupKey: "sentinel", Model: "model", AuthIndex: "auth", ModelAlias: "alias",
 		RequestCount: 21, SuccessCount: 17, FailureCount: 4, InputTokens: 201, OutputTokens: 202,
 		ReasoningTokens: 203, CachedTokens: 204, CacheReadTokens: 205, CacheCreationTokens: 206, TotalTokens: 207,
@@ -319,10 +322,10 @@ func seedUsageActivityOverviewSentinels(t *testing.T, db *gorm.DB, now time.Time
 	checkpoint := entities.UsageOverviewAggregationCheckpoint{
 		Name: "overview", LastAggregatedUsageEventID: 4242, StatsUpdatedAt: &now,
 	}
-	if err := db.Create(&hourly).Error; err != nil {
+	if err := db.Table("usage_overview_hourly_stats").Create(&hourly).Error; err != nil {
 		t.Fatalf("seed hourly sentinel: %v", err)
 	}
-	if err := db.Create(&daily).Error; err != nil {
+	if err := db.Table("usage_overview_daily_stats").Create(&daily).Error; err != nil {
 		t.Fatalf("seed daily sentinel: %v", err)
 	}
 	if err := db.Create(&checkpoint).Error; err != nil {
@@ -362,21 +365,21 @@ func loadUsageActivityRows(t *testing.T, db *gorm.DB) []entities.UsageActivitySt
 	return rows
 }
 
-func loadUsageActivityHourlyRows(t *testing.T, db *gorm.DB) []entities.UsageOverviewHourlyStat {
+func loadUsageActivityHourlyRows(t *testing.T, db *gorm.DB) []publishedTestOverviewStat {
 	// 读取完整 hourly 行，不遗漏旧 cached_tokens 等兼容字段。
 	t.Helper()
-	var rows []entities.UsageOverviewHourlyStat
-	if err := db.Order("id asc").Find(&rows).Error; err != nil {
+	var rows []publishedTestOverviewStat
+	if err := db.Table("usage_overview_hourly_stats").Order("id asc").Find(&rows).Error; err != nil {
 		t.Fatalf("load hourly rows: %v", err)
 	}
 	return rows
 }
 
-func loadUsageActivityDailyRows(t *testing.T, db *gorm.DB) []entities.UsageOverviewDailyStat {
+func loadUsageActivityDailyRows(t *testing.T, db *gorm.DB) []publishedTestOverviewStat {
 	// 读取完整 daily 行，不遗漏旧 cached_tokens 等兼容字段。
 	t.Helper()
-	var rows []entities.UsageOverviewDailyStat
-	if err := db.Order("id asc").Find(&rows).Error; err != nil {
+	var rows []publishedTestOverviewStat
+	if err := db.Table("usage_overview_daily_stats").Order("id asc").Find(&rows).Error; err != nil {
 		t.Fatalf("load daily rows: %v", err)
 	}
 	return rows

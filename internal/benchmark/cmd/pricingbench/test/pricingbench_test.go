@@ -120,8 +120,10 @@ func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
 			if after, err := os.ReadFile(filepath.Join(root, "pricing-report.json")); err != nil || string(after) != string(encoded) {
 				t.Fatalf("reused run changed the completed report: %v", err)
 			}
-			backupPath := onePricingM1Backup(t, root)
-			backupDB := openPricingBenchTestDB(t, backupPath)
+			liveDB := openPricingBenchTestDB(t, filepath.Join(root, "pricing-old.db"))
+			m1, preMerge := pricingUpgradeBackups(t, root, liveDB)
+			backupDB := openPricingBenchTestDB(t, m1)
+			preMergeDB := openPricingBenchTestDB(t, preMerge)
 			assertPricingBenchColumn(t, backupDB, "usage_events", "cost_usd", false)
 			assertPricingBenchColumn(t, backupDB, "model_price_settings", "branches_json", false)
 			if scenario == "five-dim" {
@@ -133,9 +135,16 @@ func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
 			} else if report.ArchiveEvents == 0 {
 				t.Fatal("latest scenario omitted cold events")
 			}
-			liveDB := openPricingBenchTestDB(t, filepath.Join(root, "pricing-old.db"))
 			assertPricingBenchColumn(t, liveDB, "usage_events", "cost_usd", true)
+			const tenDimensions = "bucket_start,api_group_key,model,auth_index,model_alias,service_tier,response_service_tier,reasoning_effort,endpoint,executor_type"
+			const sixDimensions = "bucket_start,api_group_key,model,auth_index,service_tier,reasoning_effort"
 			for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+				if scenario == "latest" {
+					assertPricingBenchOverviewDimensions(t, backupDB, table, tenDimensions)
+				}
+				assertPricingBenchOverviewDimensions(t, preMergeDB, table, tenDimensions)
+				assertPricingBenchOverviewDimensions(t, liveDB, table, sixDimensions)
+				assertPricingBenchColumn(t, preMergeDB, table, "cost_usd", true)
 				for _, column := range []string{"speed_tps_sum", "speed_sample_count", "decode_speed_tps_sum", "decode_speed_sample_count"} {
 					assertPricingBenchColumn(t, backupDB, table, column, false)
 					assertPricingBenchColumn(t, liveDB, table, column, true)
@@ -153,8 +162,12 @@ func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
 	}
 }
 
-func onePricingM1Backup(t *testing.T, root string) string {
+// 分别验证旧价保护快照和六维切换前快照，不能以任意一个备份代替两份。
+func pricingUpgradeBackups(t *testing.T, root string, liveDB *sql.DB) (m1, preMerge string) {
 	t.Helper()
+	if err := liveDB.QueryRow("SELECT backup_path FROM pricing_migration_state WHERE id = 1").Scan(&m1); err != nil {
+		t.Fatal(err)
+	}
 	var files []string
 	err := filepath.WalkDir(filepath.Join(root, "backups"), func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -165,10 +178,25 @@ func onePricingM1Backup(t *testing.T, root string) string {
 		}
 		return nil
 	})
-	if err != nil || len(files) != 1 {
-		t.Fatalf("expected one M1 backup, got %v: %v", files, err)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("expected M1 and overview merge backups, got %v: %v", files, err)
 	}
-	return files[0]
+	for i, path := range files {
+		if path == m1 {
+			return m1, files[1-i]
+		}
+	}
+	t.Fatalf("recorded M1 backup %s not found in %v", m1, files)
+	return "", ""
+}
+
+func assertPricingBenchOverviewDimensions(t *testing.T, db *sql.DB, table, want string) {
+	t.Helper()
+	var got string
+	if err := db.QueryRow(`SELECT group_concat(name) FROM (SELECT name FROM pragma_index_info(?) ORDER BY seqno)`,
+		"uniq_"+table+"_dimensions").Scan(&got); err != nil || got != want {
+		t.Fatalf("%s index dimensions %q, want %q: %v", table, got, want, err)
+	}
 }
 
 func openPricingBenchTestDB(t *testing.T, path string) *sql.DB {

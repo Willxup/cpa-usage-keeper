@@ -34,7 +34,7 @@ func TestUsageServiceComparisonsKeepStoredFeesAcrossPricingMutations(t *testing.
 	available, unavailable := int64(0), int64(1)
 	// 两个同名来源按稳定身份分别计入；未知身份只进入模型和 Key，不伪造凭据归属。
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: day, APIGroupKey: key.APIKey, Model: "model-a", ModelAlias: "alias-a", AuthIndex: "auth-one", RequestCount: 2, SuccessCount: 2, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeAuth, UnavailableCostCount: &available},
+		{BucketStart: day, APIGroupKey: key.APIKey, Model: "model-a", AuthIndex: "auth-one", RequestCount: 2, SuccessCount: 2, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeAuth, UnavailableCostCount: &available},
 		{BucketStart: day, APIGroupKey: key.APIKey, Model: "model-a", AuthIndex: "provider-one", RequestCount: 1, SuccessCount: 1, InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &feeProvider, UnavailableCostCount: &available},
 		{BucketStart: day, APIGroupKey: "sk-comparison-deleted", Model: "model-unknown", AuthIndex: "missing-identity", RequestCount: 1, SuccessCount: 1, InputTokens: 100, TotalTokens: 100, CostUSD: &feeUnknown, UnavailableCostCount: &unavailable},
 	}

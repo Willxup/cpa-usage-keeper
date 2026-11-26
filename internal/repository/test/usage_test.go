@@ -307,7 +307,7 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-opus", AuthIndex: "provider-1", RequestCount: 3, InputTokens: 40, OutputTokens: 20, TotalTokens: 60},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-haiku", AuthIndex: "credential-deleted", RequestCount: 4, InputTokens: 50, OutputTokens: 10, TotalTokens: 60},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "gpt-4", AuthIndex: "missing-index", RequestCount: 5, InputTokens: 60, OutputTokens: 20, TotalTokens: 80},
-		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "shared-index", ModelAlias: "alias-a", RequestCount: 6, InputTokens: 70, OutputTokens: 20, TotalTokens: 90},
+		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "shared-index", RequestCount: 6, InputTokens: 70, OutputTokens: 20, TotalTokens: 90},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-deleted-key", Model: "claude-sonnet", AuthIndex: "provider-1", RequestCount: 7, InputTokens: 80, OutputTokens: 20, TotalTokens: 100},
 	}).Error; err != nil {
 		t.Fatalf("insert hourly stats: %v", err)
