@@ -29,7 +29,9 @@ type QuotaHistoryDirtyScanResult struct {
 	ScannedEvents     int
 	NextCursor        int64
 	DirtyCyclesMarked int
+	DirtyCycleIDs     []int64
 	HasMore           bool
+	DeferredForInbox  bool
 }
 
 // QuotaCycleUsageTotals 保存单个周期或下降段的完整 11 项持久化统计值。
@@ -63,8 +65,10 @@ type QuotaCycleComputedUsage struct {
 	DirtyVersion       int64
 	BeyondHotRetention bool
 	Active             bool
-	Usage              QuotaCycleUsageTotals
-	SegmentUsages      []QuotaSegmentComputedUsage
+	// NextFutureEventAt 记录已入库但时间戳不早于本次结算截点 now 的最早本周期事件时刻（如上游时钟偏快）。
+	NextFutureEventAt time.Time
+	Usage             QuotaCycleUsageTotals
+	SegmentUsages     []QuotaSegmentComputedUsage
 }
 
 type quotaHistoryDirtyEventRow struct {
@@ -82,6 +86,11 @@ type quotaHistoryProviderAuthKey struct {
 
 // AdvanceQuotaHistoryDirtyCursor 按 usage_events.id 增量扫描已提交 OAuth 事件，把命中的周期标脏并推进游标。
 func AdvanceQuotaHistoryDirtyCursor(ctx context.Context, db *gorm.DB, now time.Time, batchSize int) (QuotaHistoryDirtyScanResult, error) {
+	return AdvanceQuotaHistoryDirtyCursorWithDefer(ctx, db, now, batchSize, nil)
+}
+
+// AdvanceQuotaHistoryDirtyCursorWithDefer 在只读扫描与候选定位完成后、真正申请唯一 Writer 前允许为 CPA inbox 让路。
+func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, now time.Time, batchSize int, shouldDefer func(context.Context) (bool, error)) (QuotaHistoryDirtyScanResult, error) {
 	result := QuotaHistoryDirtyScanResult{}
 	if db == nil {
 		return result, fmt.Errorf("advance quota history dirty cursor: database is nil")
@@ -190,6 +199,20 @@ func AdvanceQuotaHistoryDirtyCursor(ctx context.Context, db *gorm.DB, now time.T
 		sort.Slice(affectedCycleIDs, func(i, j int) bool { return affectedCycleIDs[i] < affectedCycleIDs[j] })
 	}
 
+	if shouldDefer != nil {
+		deferred, deferErr := shouldDefer(ctx)
+		if deferErr != nil {
+			return result, deferErr
+		}
+		if deferred {
+			result.ScannedEvents = 0
+			result.NextCursor = cursor
+			result.HasMore = true
+			result.DeferredForInbox = true
+			return result, nil
+		}
+	}
+
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	formattedNow := timeutil.FormatStorageTime(normalizedNow)
 	err = db.WithContext(ctx).Clauses(dbresolver.Write).Transaction(func(tx *gorm.DB) error {
@@ -211,6 +234,7 @@ func AdvanceQuotaHistoryDirtyCursor(ctx context.Context, db *gorm.DB, now time.T
 		return result, err
 	}
 	result.DirtyCyclesMarked = len(affectedCycleIDs)
+	result.DirtyCycleIDs = affectedCycleIDs
 	return result, nil
 }
 
@@ -438,16 +462,43 @@ func ComputeQuotaCyclePersistedUsage(ctx context.Context, db *gorm.DB, cycle ent
 	if period.current {
 		queryEnd = now
 	}
-	if !queryStart.Before(queryEnd) {
+	readEnd := period.end
+	if !period.current {
+		readEnd = queryEnd
+	}
+	if !queryStart.Before(readEnd) {
+		return computed, nil
+	}
+	if !period.current && !queryStart.Before(queryEnd) {
 		return computed, nil
 	}
 
-	for _, read := range usageEventTimeReads(queryStart, queryEnd, false) {
-		if err := streamQuotaCyclePersistedUsageRead(ctx, db, cycle.Provider, cycle.AuthIndex, read, queryStart, queryEnd, maxEventID, &computed, transitionIndices); err != nil {
+	for _, read := range quotaCycleEventTimeReads(queryStart, readEnd) {
+		if err := streamQuotaCyclePersistedUsageRead(ctx, db, cycle.Provider, cycle.AuthIndex, read, queryStart, queryEnd, period.current, period.end, maxEventID, &computed, transitionIndices); err != nil {
 			return computed, err
 		}
 	}
 	return computed, nil
+}
+
+// quotaCycleEventTimeReads 在保留按时区段有界索引扫描的同时，把候选上下界扩展覆盖历史遗留的 UTC Z 文本格式；
+// 行级扫描随后由 Go 真实 instant (read.contains 与 [queryStart, queryEnd)) 精确裁剪，避免调整部署 TZ 后漏算历史 Z 事件。
+func quotaCycleEventTimeReads(start, end time.Time) []usageEventTimeRead {
+	reads := usageEventTimeReads(start, end, false)
+	const secondPrefix = "2006-01-02T15:04:05"
+	for index := range reads {
+		reads[index].suffix = ""
+		utcLower := reads[index].start.UTC().Format(secondPrefix)
+		utcUpper := reads[index].end.UTC().Truncate(time.Second).Add(time.Second).Format(secondPrefix)
+		if utcLower < reads[index].lower {
+			reads[index].lower = utcLower
+		}
+		if utcUpper > reads[index].upper {
+			reads[index].upper = utcUpper
+			reads[index].upperInclusive = false
+		}
+	}
+	return reads
 }
 
 func streamQuotaCyclePersistedUsageRead(
@@ -458,6 +509,8 @@ func streamQuotaCyclePersistedUsageRead(
 	read usageEventTimeRead,
 	queryStart time.Time,
 	queryEnd time.Time,
+	periodCurrent bool,
+	periodEnd time.Time,
 	maxEventID int64,
 	computed *QuotaCycleComputedUsage,
 	transitionIndices []int,
@@ -494,7 +547,15 @@ func streamQuotaCyclePersistedUsageRead(
 		if !read.contains(event.Timestamp) {
 			continue
 		}
-		if event.Timestamp.Before(queryStart) || !event.Timestamp.Before(queryEnd) {
+		if event.Timestamp.Before(queryStart) {
+			continue
+		}
+		if !event.Timestamp.Before(queryEnd) {
+			if periodCurrent && event.Timestamp.Before(periodEnd) {
+				if computed.NextFutureEventAt.IsZero() || event.Timestamp.Before(computed.NextFutureEventAt) {
+					computed.NextFutureEventAt = event.Timestamp
+				}
+			}
 			continue
 		}
 		if !storedCost.Valid || !storedAvailable.Valid || math.IsNaN(storedCost.Float64) || math.IsInf(storedCost.Float64, 0) {
@@ -610,6 +671,9 @@ func ApplyComputedQuotaCycleUsage(ctx context.Context, db *gorm.DB, computed Quo
 		}
 		if clearCostStale {
 			updates["cost_stale"] = false
+		} else if !computed.NextFutureEventAt.IsZero() {
+			// 已入库事件的时间戳不早于本次结算截点（如上游时钟略快），保留 dirty 等待时钟越过后补齐。
+			updates["dirty"] = true
 		} else {
 			// 日常任务不得清除 cost_stale；若计算期间有新脏代际到达则保留 dirty=true 等待下一轮。
 			updates["dirty"] = gorm.Expr("CASE WHEN dirty_version = ? THEN 0 ELSE 1 END", computed.DirtyVersion)

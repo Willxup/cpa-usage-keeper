@@ -503,6 +503,10 @@ func (s *Service) flushCodexQuotaHistory(state *codexQuotaHistoryRunnerState, pe
 			delete(state.Current, key)
 			delete(state.Stable, key)
 		}
+		// WriteCodexMainQuotaObservations 按 32 条子批提交；若后续子批失败，已提交的前序子批仍需唤醒汇总。
+		if len(pending) > 32 && s.quotaHistoryChangeNotifier != nil {
+			s.quotaHistoryChangeNotifier.NotifyQuotaHistoryChanged()
+		}
 		return
 	}
 

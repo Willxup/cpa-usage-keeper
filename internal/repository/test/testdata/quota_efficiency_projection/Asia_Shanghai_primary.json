@@ -40,16 +40,16 @@
       "ObservationCount": 6,
       "UsageReady": true,
       "Usage": {
-        "Requests": 3,
-        "SuccessfulRequests": 1,
-        "FailedRequests": 2,
-        "InputTokens": 154,
-        "OutputTokens": 98,
-        "ReasoningTokens": 42,
-        "CacheReadTokens": 70,
-        "CacheCreationTokens": 28,
-        "TotalTokens": 2121,
-        "TotalCostUSD": 0.65625,
+        "Requests": 6,
+        "SuccessfulRequests": 3,
+        "FailedRequests": 3,
+        "InputTokens": 242,
+        "OutputTokens": 154,
+        "ReasoningTokens": 66,
+        "CacheReadTokens": 110,
+        "CacheCreationTokens": 44,
+        "TotalTokens": 3333,
+        "TotalCostUSD": 1.03125,
         "CostAvailable": false
       },
       "Transitions": [
@@ -95,17 +95,17 @@
       "ObservationCount": 6,
       "UsageReady": true,
       "Usage": {
-        "Requests": 0,
-        "SuccessfulRequests": 0,
-        "FailedRequests": 0,
-        "InputTokens": 0,
-        "OutputTokens": 0,
-        "ReasoningTokens": 0,
-        "CacheReadTokens": 0,
-        "CacheCreationTokens": 0,
-        "TotalTokens": 0,
-        "TotalCostUSD": 0,
-        "CostAvailable": true
+        "Requests": 2,
+        "SuccessfulRequests": 1,
+        "FailedRequests": 1,
+        "InputTokens": 22,
+        "OutputTokens": 14,
+        "ReasoningTokens": 6,
+        "CacheReadTokens": 10,
+        "CacheCreationTokens": 4,
+        "TotalTokens": 303,
+        "TotalCostUSD": 0.09375,
+        "CostAvailable": false
       },
       "Transitions": [
         {
@@ -117,21 +117,21 @@
           "IntervalEndedAt": "2026-08-21T02:00:00.123456789+08:00",
           "UsageReady": true,
           "Usage": {
-            "Requests": 0,
+            "Requests": 1,
             "SuccessfulRequests": 0,
-            "FailedRequests": 0,
-            "InputTokens": 0,
-            "OutputTokens": 0,
-            "ReasoningTokens": 0,
-            "CacheReadTokens": 0,
-            "CacheCreationTokens": 0,
-            "TotalTokens": 0,
-            "TotalCostUSD": 0,
-            "CostAvailable": true
+            "FailedRequests": 1,
+            "InputTokens": 22,
+            "OutputTokens": 14,
+            "ReasoningTokens": 6,
+            "CacheReadTokens": 10,
+            "CacheCreationTokens": 4,
+            "TotalTokens": 202,
+            "TotalCostUSD": 0.0625,
+            "CostAvailable": false
           },
-          "TokensPerPoint": 0,
-          "CostPerPoint": 0,
-          "CostPerPointAvailable": true
+          "TokensPerPoint": 202,
+          "CostPerPoint": 0.0625,
+          "CostPerPointAvailable": false
         }
       ]
     }

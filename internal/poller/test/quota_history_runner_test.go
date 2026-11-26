@@ -3,6 +3,7 @@ package poller_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -554,6 +555,352 @@ func TestUsageAggregationRunnerQuotaHistoryPreservesConcurrentEventNotificationD
 			t.Fatalf("load cycle: %v", err)
 		}
 		return cycle.UsageReady && !cycle.Dirty && cycle.Requests == 2 && cycle.TotalTokens == 3000
+	})
+	stop()
+}
+
+func TestUsageAggregationRunnerQuotaHistorySettlesPostEntryAndClockSkewedEvents(t *testing.T) {
+	db := openUsageAggregationRunnerDatabase(t)
+	ctx := context.Background()
+	baseNow := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	resetAt := baseNow.Add(2 * time.Hour)
+
+	if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{{
+		Provider:         "codex",
+		AuthIndex:        "auth-skew-evt",
+		WindowRole:       "primary",
+		WindowSeconds:    5 * 3600,
+		ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+		ResetAt:          resetAt,
+		RemainingPercent: 90,
+		FirstObservedAt:  baseNow.Add(-time.Hour),
+		LastObservedAt:   baseNow.Add(-time.Hour),
+		ObservationCount: 1,
+	}}); err != nil {
+		t.Fatalf("write active observation: %v", err)
+	}
+
+	// 插入一条正常过去事件 + 一条时间戳偏快 80ms 的事件（模拟 CPA 时钟略快于本地结算截点）。
+	cost := 0.15
+	costAvailable := true
+	skewedAt := baseNow.Add(80 * time.Millisecond)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{
+			EventKey:      "skew-evt-1",
+			APIGroupKey:   "key-1",
+			Provider:      "codex",
+			AuthType:      "oauth",
+			AuthIndex:     "auth-skew-evt",
+			Model:         "gpt-5",
+			Timestamp:     baseNow.Add(-10 * time.Minute),
+			TotalTokens:   1000,
+			CostUSD:       &cost,
+			CostAvailable: &costAvailable,
+		},
+		{
+			EventKey:      "skew-evt-2",
+			APIGroupKey:   "key-1",
+			Provider:      "codex",
+			AuthType:      "oauth",
+			AuthIndex:     "auth-skew-evt",
+			Model:         "gpt-5",
+			Timestamp:     skewedAt,
+			TotalTokens:   2500,
+			CostUSD:       &cost,
+			CostAvailable: &costAvailable,
+		},
+	}); err != nil {
+		t.Fatalf("insert usage events: %v", err)
+	}
+
+	var offsetNanos atomic.Int64
+	runner := poller.NewUsageAggregationRunnerWithOptions(db, poller.UsageAggregationRunnerOptions{
+		DebounceInterval:           15 * time.Millisecond,
+		QuotaHistoryActiveThrottle: 20 * time.Second,
+		NowFunc: func() time.Time {
+			return baseNow.Add(time.Duration(offsetNanos.Load()))
+		},
+	})
+
+	// 首轮时钟停在 baseNow：游标已扫过 skew-evt-2，但周期仅结算到 baseNow（1 条请求），且必须保留 dirty=true 等待时钟追上。
+	for i := 0; i < 4; i++ {
+		if _, err := runner.RunOnce(ctx); err != nil {
+			t.Fatalf("RunOnce before skew time: %v", err)
+		}
+	}
+	var cycle entities.QuotaCycle
+	if err := db.Where("auth_index = ?", "auth-skew-evt").Take(&cycle).Error; err != nil {
+		t.Fatalf("load cycle before skew settles: %v", err)
+	}
+	if !cycle.UsageReady || !cycle.Dirty || cycle.Requests != 1 || cycle.TotalTokens != 1000 {
+		t.Fatalf("expected cycle to publish 1 request while retaining dirty=true for skewed event, got %+v", cycle)
+	}
+
+	// 启动后台 runner 并推进时钟越过 skewedAt：无需任何新事件到达，自动唤醒并补齐第 2 条请求。
+	stop := startUsageAggregationTestRunner(t, runner)
+	offsetNanos.Store(int64(100 * time.Millisecond))
+	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
+		var updated entities.QuotaCycle
+		if err := db.Where("auth_index = ?", "auth-skew-evt").Take(&updated).Error; err != nil {
+			t.Fatalf("reload cycle: %v", err)
+		}
+		return updated.UsageReady && !updated.Dirty && updated.Requests == 2 && updated.TotalTokens == 3500
+	})
+	stop()
+}
+
+func TestUsageAggregationRunnerQuotaHistoryDefersWriterAfterReaderWork(t *testing.T) {
+	db := openUsageAggregationRunnerDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+
+	if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{{
+		Provider:         "codex",
+		AuthIndex:        "auth-defer-writer",
+		WindowRole:       "primary",
+		WindowSeconds:    5 * 3600,
+		ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+		ResetAt:          now.Add(-time.Hour),
+		RemainingPercent: 80,
+		FirstObservedAt:  now.Add(-3 * time.Hour),
+		LastObservedAt:   now.Add(-2 * time.Hour),
+		ObservationCount: 1,
+	}}); err != nil {
+		t.Fatalf("write completed observation: %v", err)
+	}
+
+	runner := poller.NewUsageAggregationRunnerWithOptions(db, poller.UsageAggregationRunnerOptions{
+		DebounceInterval: 20 * time.Millisecond,
+		NowFunc:          func() time.Time { return now },
+	})
+
+	// 跑完初始 rollups 与 identity turn，使下一个 turn 为 quota_history。
+	for i := 0; i < 2; i++ {
+		if _, err := runner.RunOnce(ctx); err != nil {
+			t.Fatalf("warmup RunOnce %d: %v", i, err)
+		}
+	}
+
+	// 在 Reader 读取 quota_percent_segments 期间插入一条待处理 CPA inbox 消息，验证回写前检测到积压并让路。
+	var injected atomic.Bool
+	const callbackName = "test:quota_history_defer_before_writer"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table != "quota_percent_segments" || !injected.CompareAndSwap(false, true) {
+			return
+		}
+		if _, err := repository.InsertRedisUsageInboxRawMessages(
+			db.Session(&gorm.Session{NewDB: true}).Clauses(dbresolver.Write),
+			"redis_subscribe",
+			[]string{`{"request_id":"pending-inbox-1"}`},
+			now,
+		); err != nil {
+			t.Errorf("insert pending inbox message: %v", err)
+		}
+	}); err != nil {
+		t.Fatalf("register reader-to-writer inbox callback: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+
+	res, err := runner.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("quota_history RunOnce with mid-scan inbox arrival: %v", err)
+	}
+	if res.Kind != poller.UsageAggregationKindQuotaHistory || !res.DeferredForInbox {
+		t.Fatalf("expected quota_history turn to defer before writer when inbox arrives mid-scan, got %+v", res)
+	}
+
+	var cycle entities.QuotaCycle
+	if err := db.Where("auth_index = ?", "auth-defer-writer").Take(&cycle).Error; err != nil {
+		t.Fatalf("load cycle after defer: %v", err)
+	}
+	if cycle.UsageReady || !cycle.Dirty {
+		t.Fatalf("expected writer update to be skipped while deferring for inbox, got %+v", cycle)
+	}
+}
+
+func TestUsageAggregationRunnerQuotaHistoryFutureEventDoesNotStarveBacklogOrOtherAccounts(t *testing.T) {
+	db := openUsageAggregationRunnerDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+
+	cost := 0.20
+	costAvailable := true
+
+	// 1. 先建第 5 个较早周期（auth-backlog-5）与第 6 个空闲正常周期（auth-normal-6），再建排序靠前的 4 个含 10 分钟偏快事件的活跃周期。
+	if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{
+		{
+			Provider:         "codex",
+			AuthIndex:        "auth-backlog-5",
+			WindowRole:       "primary",
+			WindowSeconds:    5 * 3600,
+			ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+			ResetAt:          now.Add(-time.Hour),
+			RemainingPercent: 88,
+			FirstObservedAt:  now.Add(-3 * time.Hour),
+			LastObservedAt:   now.Add(-2 * time.Hour),
+			ObservationCount: 1,
+		},
+		{
+			Provider:         "codex",
+			AuthIndex:        "auth-normal-6",
+			WindowRole:       "primary",
+			WindowSeconds:    5 * 3600,
+			ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+			ResetAt:          now.Add(time.Hour),
+			RemainingPercent: 95,
+			FirstObservedAt:  now.Add(-time.Hour),
+			LastObservedAt:   now.Add(-time.Hour),
+			ObservationCount: 1,
+		},
+	}); err != nil {
+		t.Fatalf("write normal observations: %v", err)
+	}
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:      "backlog-5-evt",
+		APIGroupKey:   "key-1",
+		Provider:      "codex",
+		AuthType:      "oauth",
+		AuthIndex:     "auth-backlog-5",
+		Model:         "gpt-5",
+		Timestamp:     now.Add(-2 * time.Hour),
+		TotalTokens:   1200,
+		CostUSD:       &cost,
+		CostAvailable: &costAvailable,
+	}}); err != nil {
+		t.Fatalf("insert backlog-5 event: %v", err)
+	}
+
+	for i := 1; i <= 4; i++ {
+		auth := fmt.Sprintf("auth-future-%d", i)
+		if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{{
+			Provider:         "codex",
+			AuthIndex:        auth,
+			WindowRole:       "primary",
+			WindowSeconds:    5 * 3600,
+			ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+			ResetAt:          now.Add(time.Duration(i) * time.Hour),
+			RemainingPercent: 90,
+			FirstObservedAt:  now.Add(-30 * time.Minute),
+			LastObservedAt:   now.Add(-30 * time.Minute),
+			ObservationCount: 1,
+		}}); err != nil {
+			t.Fatalf("write future cycle %d: %v", i, err)
+		}
+		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+			EventKey:      fmt.Sprintf("future-evt-%d", i),
+			APIGroupKey:   "key-1",
+			Provider:      "codex",
+			AuthType:      "oauth",
+			AuthIndex:     auth,
+			Model:         "gpt-5",
+			Timestamp:     now.Add(10 * time.Minute),
+			TotalTokens:   900,
+			CostUSD:       &cost,
+			CostAvailable: &costAvailable,
+		}}); err != nil {
+			t.Fatalf("insert future event %d: %v", i, err)
+		}
+	}
+
+	var nowOffset atomic.Int64
+	runner := poller.NewUsageAggregationRunnerWithOptions(db, poller.UsageAggregationRunnerOptions{
+		DebounceInterval:           15 * time.Millisecond,
+		QuotaHistoryActiveThrottle: 20 * time.Second,
+		NowFunc:                    func() time.Time { return now.Add(time.Duration(nowOffset.Load())) },
+	})
+	stop := startUsageAggregationTestRunner(t, runner)
+
+	// 验证前 4 个偏快周期全部进入 dirty 等待，且排在第 5 位的 auth-backlog-5 仍被正常结算；
+	// 随后即使再次有新事件页命中这 4 个偏快周期，20 秒常规节流仍保护后续积压周期不被饿死。
+	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
+		var futureWaiting int64
+		if err := db.Model(&entities.QuotaCycle{}).
+			Where("auth_index LIKE ? AND usage_ready = ? AND dirty = ?", "auth-future-%", true, true).
+			Count(&futureWaiting).Error; err != nil {
+			t.Fatalf("count future waiting cycles: %v", err)
+		}
+		var fifth entities.QuotaCycle
+		if err := db.Where("auth_index = ?", "auth-backlog-5").Take(&fifth).Error; err != nil {
+			t.Fatalf("load fifth cycle: %v", err)
+		}
+		return futureWaiting == 4 && fifth.UsageReady && !fifth.Dirty && fifth.Requests == 1 && fifth.TotalTokens == 1200
+	})
+
+	// 再连续写入一页命中前 4 个偏快周期的新事件，并把第 5 个周期再次标脏：
+	// 验证解除 10 分钟等待后会退回 20 秒常规节流，前 4 个周期不会重新抢满 4 个名额饿死第 5 个周期。
+	var secondWave []entities.UsageEvent
+	for i := 1; i <= 4; i++ {
+		secondWave = append(secondWave, entities.UsageEvent{
+			EventKey:      fmt.Sprintf("future-wave2-%d", i),
+			APIGroupKey:   "key-1",
+			Provider:      "codex",
+			AuthType:      "oauth",
+			AuthIndex:     fmt.Sprintf("auth-future-%d", i),
+			Model:         "gpt-5",
+			Timestamp:     now.Add(-10 * time.Minute),
+			TotalTokens:   500,
+			CostUSD:       &cost,
+			CostAvailable: &costAvailable,
+		})
+	}
+	secondWave = append(secondWave, entities.UsageEvent{
+		EventKey:      "backlog-5-evt-2",
+		APIGroupKey:   "key-1",
+		Provider:      "codex",
+		AuthType:      "oauth",
+		AuthIndex:     "auth-backlog-5",
+		Model:         "gpt-5",
+		Timestamp:     now.Add(-90 * time.Minute),
+		TotalTokens:   800,
+		CostUSD:       &cost,
+		CostAvailable: &costAvailable,
+	})
+	if _, _, err := repository.InsertUsageEvents(db, secondWave); err != nil {
+		t.Fatalf("insert second wave events: %v", err)
+	}
+	var latestWaveEvt entities.UsageEvent
+	if err := db.Where("event_key = ?", "backlog-5-evt-2").Take(&latestWaveEvt).Error; err != nil {
+		t.Fatalf("load backlog-5-evt-2: %v", err)
+	}
+	runner.NotifyUsageEventsCommitted([]entities.UsageEvent{latestWaveEvt})
+
+	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
+		var fifth entities.QuotaCycle
+		if err := db.Where("auth_index = ?", "auth-backlog-5").Take(&fifth).Error; err != nil {
+			t.Fatalf("reload fifth cycle: %v", err)
+		}
+		return fifth.UsageReady && !fifth.Dirty && fifth.Requests == 2 && fifth.TotalTokens == 2000
+	})
+
+	// 推进 21 秒（跨过 auth-normal-6 自身的 20 秒温和节流，但远早于前 4 个周期的 10 分钟偏快事件时刻）；
+	// 向无关账号 auth-normal-6 写入正常事件并通知，必须立即被推进结算而不阻塞 10 分钟。
+	nowOffset.Store(int64(21 * time.Second))
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:      "normal-6-evt",
+		APIGroupKey:   "key-1",
+		Provider:      "codex",
+		AuthType:      "oauth",
+		AuthIndex:     "auth-normal-6",
+		Model:         "gpt-5",
+		Timestamp:     now.Add(-5 * time.Minute),
+		TotalTokens:   1800,
+		CostUSD:       &cost,
+		CostAvailable: &costAvailable,
+	}}); err != nil {
+		t.Fatalf("insert normal-6 event: %v", err)
+	}
+	var evt6 entities.UsageEvent
+	if err := db.Where("event_key = ?", "normal-6-evt").Take(&evt6).Error; err != nil {
+		t.Fatalf("load normal-6 event: %v", err)
+	}
+	runner.NotifyUsageEventsCommitted([]entities.UsageEvent{evt6})
+
+	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
+		var sixth entities.QuotaCycle
+		if err := db.Where("auth_index = ?", "auth-normal-6").Take(&sixth).Error; err != nil {
+			t.Fatalf("load sixth cycle: %v", err)
+		}
+		return sixth.UsageReady && !sixth.Dirty && sixth.Requests == 1 && sixth.TotalTokens == 1800
 	})
 	stop()
 }

@@ -104,10 +104,14 @@ type UsageAggregationRunner struct {
 	quotaHistoryTargetGeneration uint64
 	// quotaHistoryObservationGeneration 记录观测/周期结构变更通知代际，防止旧 turn 冷却状态覆盖新观测立即重算。
 	quotaHistoryObservationGeneration uint64
-	// quotaHistoryRetryAfter 记录全部剩余周期均处于进行中节流窗口时的最早可重算时刻。
+	// quotaHistoryRetryAfter 记录全部剩余周期均处于节流或等待偏快事件时的最早可重算时刻。
 	quotaHistoryRetryAfter time.Time
-	// quotaHistoryActiveLastRun 记录进行中周期最近一次持久化重算时刻，用于后台温和节流。
-	quotaHistoryActiveLastRun map[int64]time.Time
+	// quotaHistoryLastComputedAt 记录进行中周期最近一次完成重算的时刻，供解除偏快等待时恢复常规节流。
+	quotaHistoryLastComputedAt map[int64]time.Time
+	// quotaHistoryActiveReleaseAt 记录进行中周期温和节流的下次可重算时刻。
+	quotaHistoryActiveReleaseAt map[int64]time.Time
+	// quotaHistoryFutureReleaseAt 记录存在偏快事件（timestamp >= now）周期等待时钟追上的时刻，避免阻塞后续周期。
+	quotaHistoryFutureReleaseAt map[int64]time.Time
 
 	// wake 只表达状态已经变化，容量 1 会自然合并连续通知。
 	wake chan struct{}
@@ -138,9 +142,11 @@ func NewUsageAggregationRunnerWithOptions(db *gorm.DB, options UsageAggregationR
 		debounceInterval:           debounceInterval,
 		quotaHistoryActiveThrottle: quotaHistoryThrottle,
 		nextKind:                   UsageAggregationKindRollups,
-		identityTargetGeneration:   1, // 启动时必须覆盖一次进程启动前已经存在的 identities。
-		quotaHistoryActiveLastRun:  make(map[int64]time.Time),
-		wake:                       make(chan struct{}, 1),
+		identityTargetGeneration:    1, // 启动时必须覆盖一次进程启动前已经存在的 identities。
+		quotaHistoryLastComputedAt:  make(map[int64]time.Time),
+		quotaHistoryActiveReleaseAt: make(map[int64]time.Time),
+		quotaHistoryFutureReleaseAt: make(map[int64]time.Time),
+		wake:                        make(chan struct{}, 1),
 	}
 }
 
@@ -167,6 +173,8 @@ func (r *UsageAggregationRunner) NotifyUsageEventsCommitted(events []entities.Us
 	if r.quotaHistoryActive {
 		r.quotaHistoryPending = true
 		r.quotaHistoryTargetGeneration++
+		// 新事件到达时立即解除全局等待，让游标和无关账号立刻推进；仍在冷却的单周期由按周期字典独立跳过。
+		r.quotaHistoryRetryAfter = time.Time{}
 	}
 	r.mu.Unlock()
 	r.signalWake()
@@ -195,7 +203,9 @@ func (r *UsageAggregationRunner) NotifyQuotaHistoryChanged() {
 	r.quotaHistoryObservationGeneration++
 	// 观测变更（如新降档、边界升级、删周期）应立即解除节流等待与周期冷却记录。
 	r.quotaHistoryRetryAfter = time.Time{}
-	clear(r.quotaHistoryActiveLastRun)
+	clear(r.quotaHistoryLastComputedAt)
+	clear(r.quotaHistoryActiveReleaseAt)
+	clear(r.quotaHistoryFutureReleaseAt)
 	r.mu.Unlock()
 	r.signalWake()
 }
@@ -593,65 +603,121 @@ func (r *UsageAggregationRunner) nextRunnableKindLocked(ignoreActiveThrottle boo
 	return r.nextKind, false
 }
 
-func (r *UsageAggregationRunner) runQuotaHistoryTurn(ctx context.Context, writeDB *gorm.DB, now time.Time, ignoreActiveThrottle bool, observationGen uint64) (processed bool, deferred bool, stillPending bool, retryAfter time.Time, err error) {
-	// 1. 先按 usage_events.id 推进标脏游标一页。
-	scanRes, err := repository.AdvanceQuotaHistoryDirtyCursor(ctx, r.db, now, usageAggregationEventPageSize)
+func (r *UsageAggregationRunner) runQuotaHistoryTurn(ctx context.Context, writeDB *gorm.DB, _ time.Time, ignoreActiveThrottle bool, observationGen uint64) (processed bool, deferred bool, stillPending bool, retryAfter time.Time, err error) {
+	// 1. 先按 usage_events.id 推进标脏游标一页；Reader 预读后、申请唯一 Writer 前先为 CPA inbox 让路。
+	scanRes, err := repository.AdvanceQuotaHistoryDirtyCursorWithDefer(ctx, r.db, r.now(), usageAggregationEventPageSize, func(checkCtx context.Context) (bool, error) {
+		return r.deferForInbox(checkCtx, writeDB)
+	})
 	if err != nil {
 		return false, false, true, time.Time{}, err
+	}
+	if scanRes.DeferredForInbox {
+		return false, true, true, time.Time{}, nil
 	}
 	if scanRes.ScannedEvents > 0 {
 		processed = true
 	}
-
-	// 2. 写周期统计前先检查 CPA inbox 是否等待落库。
-	if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
-		return processed, deferred, true, time.Time{}, err
-	}
-
-	// 3. 后台模式下对高频进行中周期施加温和节流；RunOnce 跳过节流立即执行。
-	var throttledIDs []int64
-	var earliestThrottleRelease time.Time
-	if !ignoreActiveThrottle && r.quotaHistoryActiveThrottle > 0 {
+	if len(scanRes.DirtyCycleIDs) > 0 {
 		r.mu.Lock()
-		for cycleID, lastRun := range r.quotaHistoryActiveLastRun {
-			releaseAt := lastRun.Add(r.quotaHistoryActiveThrottle)
-			if now.Before(releaseAt) {
-				throttledIDs = append(throttledIDs, cycleID)
-				if earliestThrottleRelease.IsZero() || releaseAt.Before(earliestThrottleRelease) {
-					earliestThrottleRelease = releaseAt
+		for _, cycleID := range scanRes.DirtyCycleIDs {
+			if _, waitingFuture := r.quotaHistoryFutureReleaseAt[cycleID]; waitingFuture {
+				delete(r.quotaHistoryFutureReleaseAt, cycleID)
+				if lastAt, ok := r.quotaHistoryLastComputedAt[cycleID]; ok && r.quotaHistoryActiveThrottle > 0 {
+					r.quotaHistoryActiveReleaseAt[cycleID] = lastAt.Add(r.quotaHistoryActiveThrottle)
 				}
-			} else {
-				delete(r.quotaHistoryActiveLastRun, cycleID)
 			}
 		}
 		r.mu.Unlock()
 	}
 
-	cycles, hasMoreCycles, err := repository.SelectQuotaCyclesForUsageSync(ctx, r.db, now, usageAggregationQuotaHistoryBatchSize, throttledIDs)
+	// 2. 游标推进完成后重新采样结算时刻，确保刚被游标扫过的正常同钟请求落入 [start, now)。
+	recomputeNow := r.now()
+
+	// 3. 写周期统计前先检查 CPA inbox 是否等待落库。
+	if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
+		return processed, deferred, true, time.Time{}, err
+	}
+
+	// 4. 按周期跳过仍在等待偏快事件时刻或处于进行中温和节流窗口的周期，不阻塞后续待算周期。
+	var throttledIDs []int64
+	throttledSet := make(map[int64]struct{})
+	var earliestWake time.Time
+	noteWake := func(candidate time.Time) {
+		if candidate.IsZero() {
+			return
+		}
+		if earliestWake.IsZero() || candidate.Before(earliestWake) {
+			earliestWake = candidate
+		}
+	}
+	r.mu.Lock()
+	for cycleID, releaseAt := range r.quotaHistoryFutureReleaseAt {
+		if recomputeNow.Before(releaseAt) {
+			throttledSet[cycleID] = struct{}{}
+			throttledIDs = append(throttledIDs, cycleID)
+			noteWake(releaseAt)
+		} else {
+			delete(r.quotaHistoryFutureReleaseAt, cycleID)
+		}
+	}
+	if !ignoreActiveThrottle && r.quotaHistoryActiveThrottle > 0 {
+		for cycleID, releaseAt := range r.quotaHistoryActiveReleaseAt {
+			if recomputeNow.Before(releaseAt) {
+				if _, exists := throttledSet[cycleID]; !exists {
+					throttledSet[cycleID] = struct{}{}
+					throttledIDs = append(throttledIDs, cycleID)
+				}
+				noteWake(releaseAt)
+			} else {
+				delete(r.quotaHistoryActiveReleaseAt, cycleID)
+			}
+		}
+	}
+	r.mu.Unlock()
+
+	cycles, hasMoreCycles, err := repository.SelectQuotaCyclesForUsageSync(ctx, r.db, recomputeNow, usageAggregationQuotaHistoryBatchSize, throttledIDs)
 	if err != nil {
 		return processed, false, true, time.Time{}, err
 	}
 
 	hadUnappliedCycle := false
+	hasFuturePending := false
 	for _, cycle := range cycles {
 		if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
 			return processed, deferred, true, time.Time{}, err
 		}
-		computed, computeErr := repository.ComputeQuotaCyclePersistedUsage(ctx, r.db, cycle, now, 0)
+		computed, computeErr := repository.ComputeQuotaCyclePersistedUsage(ctx, r.db, cycle, recomputeNow, 0)
 		if computeErr != nil {
 			return processed, false, true, time.Time{}, computeErr
 		}
-		applied, applyErr := repository.ApplyComputedQuotaCycleUsage(ctx, r.db, computed, now, false)
+		// Reader 整周期扫描期间可能新到达 CPA inbox 批次，申请唯一 Writer 回写前再次让路。
+		if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
+			return processed, deferred, true, time.Time{}, err
+		}
+		applied, applyErr := repository.ApplyComputedQuotaCycleUsage(ctx, r.db, computed, recomputeNow, false)
 		if applyErr != nil {
 			return processed, false, true, time.Time{}, applyErr
 		}
 		if applied {
 			processed = true
-			if computed.Active {
+			if !computed.NextFutureEventAt.IsZero() {
+				hasFuturePending = true
+				futureWake := computed.NextFutureEventAt.Add(time.Millisecond)
+				noteWake(futureWake)
+				r.mu.Lock()
+				if r.quotaHistoryObservationGeneration == observationGen {
+					if computed.Active {
+						r.quotaHistoryLastComputedAt[cycle.ID] = recomputeNow
+					}
+					r.quotaHistoryFutureReleaseAt[cycle.ID] = futureWake
+				}
+				r.mu.Unlock()
+			} else if computed.Active && r.quotaHistoryActiveThrottle > 0 {
 				r.mu.Lock()
 				// 若本 turn 执行期间已有新观测通知到达，不写回旧冷却时间，避免挡住新观测立即重算。
 				if r.quotaHistoryObservationGeneration == observationGen {
-					r.quotaHistoryActiveLastRun[cycle.ID] = now
+					r.quotaHistoryLastComputedAt[cycle.ID] = recomputeNow
+					r.quotaHistoryActiveReleaseAt[cycle.ID] = recomputeNow.Add(r.quotaHistoryActiveThrottle)
 				}
 				r.mu.Unlock()
 			}
@@ -664,14 +730,17 @@ func (r *UsageAggregationRunner) runQuotaHistoryTurn(ctx context.Context, writeD
 	if scanRes.HasMore || hasMoreCycles || hadUnappliedCycle {
 		return processed, false, true, time.Time{}, nil
 	}
-	// 若本轮跳过了节流中的进行中周期，检查它们是否仍为 dirty，避免静默丢失更新。
+	if hasFuturePending {
+		return processed, false, true, earliestWake, nil
+	}
+	// 若本轮跳过了节流或等待偏快事件的周期，检查它们是否仍为 dirty，避免静默丢失更新。
 	if len(throttledIDs) > 0 {
-		pending, checkErr := repository.HasPendingQuotaHistoryWork(ctx, r.db, now)
+		pending, checkErr := repository.HasPendingQuotaHistoryWork(ctx, r.db, recomputeNow)
 		if checkErr != nil {
 			return processed, false, true, time.Time{}, checkErr
 		}
 		if pending {
-			return processed, false, true, earliestThrottleRelease, nil
+			return processed, false, true, earliestWake, nil
 		}
 	}
 	return processed, false, false, time.Time{}, nil
