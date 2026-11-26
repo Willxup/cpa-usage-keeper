@@ -61,14 +61,37 @@ func LoadUsageAggregationCheckpointSnapshot(ctx context.Context, db *gorm.DB) (U
 	return snapshot, nil
 }
 
+// LoadQuotaHistoryAggregationCheckpoint 用只读连接获取限额历史标脏游标，缺行返回 0。
+func LoadQuotaHistoryAggregationCheckpoint(ctx context.Context, db *gorm.DB) (int64, error) {
+	if db == nil {
+		return 0, fmt.Errorf("database is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var checkpoints []entities.UsageAggregationCheckpoint
+	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
+		Where("name = ?", entities.UsageAggregationCheckpointQuotaHistory).
+		Find(&checkpoints).Error; err != nil {
+		return 0, fmt.Errorf("load quota history aggregation checkpoint: %w", err)
+	}
+	if len(checkpoints) == 0 {
+		return 0, nil
+	}
+	return checkpoints[0].LastAggregatedUsageEventID, nil
+}
+
 // AdvanceUsageAggregationCheckpoint 在调用方事务内按 expected cursor 条件推进一行。
 func AdvanceUsageAggregationCheckpoint(ctx context.Context, tx *gorm.DB, name entities.UsageAggregationCheckpointName, expectedCursor, nextCursor int64, now time.Time) error {
 	if tx == nil {
 		return fmt.Errorf("database is nil")
 	}
-	// 只允许实体层声明的三种名称，避免 typo 静默创建第四类 checkpoint。
+	// 只允许实体层声明的水位名称，避免 typo 静默创建未知 checkpoint。
 	switch name {
-	case entities.UsageAggregationCheckpointOverview, entities.UsageAggregationCheckpointActivity, entities.UsageAggregationCheckpointLatency:
+	case entities.UsageAggregationCheckpointOverview,
+		entities.UsageAggregationCheckpointActivity,
+		entities.UsageAggregationCheckpointLatency,
+		entities.UsageAggregationCheckpointQuotaHistory:
 	default:
 		return fmt.Errorf("unsupported usage aggregation checkpoint %q", name)
 	}
