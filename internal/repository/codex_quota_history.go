@@ -207,10 +207,14 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 	}
 
 	created := false
+	reusedEarlierCycle := false
 	if !found {
 		cycle = newQuotaCycle(observation, quotaKey)
 		if err := tx.Create(&cycle).Error; err != nil {
 			return fmt.Errorf("create quota cycle: %w", err)
+		}
+		if err := markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, quotaKey, cycle.ID, cycle.WindowStartedAt); err != nil {
+			return fmt.Errorf("mark sibling quota cycles dirty on create: %w", err)
 		}
 		created = true
 	} else {
@@ -218,6 +222,7 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 		if observation.LastObservedAt.Before(cycle.LastObservedAt) {
 			return nil
 		}
+		reusedEarlierCycle = latestFound && cycle.ID != latestCycle.ID
 		if err := upgradeQuotaCycleBoundary(tx, &cycle, observation); err != nil {
 			return err
 		}
@@ -233,6 +238,14 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 			return fmt.Errorf("create first quota percent segment: %w", err)
 		}
 		if !created {
+			if err := markQuotaCycleBoundaryDirty(tx, cycle.ID); err != nil {
+				return fmt.Errorf("mark quota cycle dirty on first segment: %w", err)
+			}
+			if reusedEarlierCycle {
+				if err := markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, quotaKey, cycle.ID, cycle.WindowStartedAt); err != nil {
+					return fmt.Errorf("mark sibling quota cycles dirty on reuse: %w", err)
+				}
+			}
 			return updateQuotaCycleObservedTimes(tx, cycle, observation)
 		}
 		return nil
@@ -246,7 +259,15 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 	}
 	// 专门额度接口可信地确认同周期百分比更高时，较低尾段已不可能真实存在，必须在本事务内纠正数据库事实。
 	if observation.Authoritative && observation.RemainingPercent > tail.RemainingPercent {
-		return correctQuotaPercentTail(tx, cycle, observation)
+		if err := correctQuotaPercentTail(tx, cycle, observation); err != nil {
+			return err
+		}
+		if reusedEarlierCycle {
+			if err := markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, quotaKey, cycle.ID, cycle.WindowStartedAt); err != nil {
+				return fmt.Errorf("mark sibling quota cycles dirty on tail correction reuse: %w", err)
+			}
+		}
+		return nil
 	}
 	if observation.LastObservedAt.Equal(tail.LastObservedAt) {
 		if observation.RemainingPercent != tail.RemainingPercent {
@@ -271,6 +292,7 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 		return nil
 	}
 
+	segmentAdded := false
 	if observation.RemainingPercent == tail.RemainingPercent {
 		updates := map[string]any{
 			"last_observed_at":  timeutil.FormatSortableStorageTime(observation.LastObservedAt),
@@ -284,6 +306,17 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 		segment := newQuotaPercentSegment(cycle.ID, observation)
 		if err := tx.Create(&segment).Error; err != nil {
 			return fmt.Errorf("create quota percent segment: %w", err)
+		}
+		segmentAdded = true
+	}
+	if segmentAdded || reusedEarlierCycle {
+		if err := markQuotaCycleBoundaryDirty(tx, cycle.ID); err != nil {
+			return fmt.Errorf("mark quota cycle dirty on segment update: %w", err)
+		}
+	}
+	if reusedEarlierCycle {
+		if err := markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, quotaKey, cycle.ID, cycle.WindowStartedAt); err != nil {
+			return fmt.Errorf("mark sibling quota cycles dirty on reuse: %w", err)
 		}
 	}
 	return updateQuotaCycleObservedTimes(tx, cycle, observation)
@@ -366,6 +399,9 @@ func correctQuotaPercentTail(tx *gorm.DB, cycle entities.QuotaCycle, observation
 		"remaining_percent":     observation.RemainingPercent,
 		"removed_segment_count": deleted.RowsAffected,
 	}).Debug("quota history percent tail corrected by authoritative observation")
+	if err := markQuotaCycleBoundaryDirty(tx, cycle.ID); err != nil {
+		return fmt.Errorf("mark quota cycle dirty on tail correction: %w", err)
+	}
 	return updateQuotaCycleObservedTimes(tx, cycle, observation)
 }
 
@@ -403,6 +439,9 @@ func newQuotaCycle(observation repositorydto.CodexMainQuotaObservation, quotaKey
 		ResetAt:         observation.ResetAt,
 		FirstObservedAt: observation.FirstObservedAt,
 		LastObservedAt:  observation.LastObservedAt,
+		BoundaryVersion: 1,
+		DirtyVersion:    1,
+		Dirty:           true,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -429,10 +468,15 @@ func upgradeQuotaCycleBoundary(tx *gorm.DB, cycle *entities.QuotaCycle, observat
 	if !trustedCalibration && !directUpgrade {
 		return nil
 	}
+	oldStart := cycle.WindowStartedAt
+	newStart := observation.ResetAt.Add(-time.Duration(observation.WindowSeconds) * time.Second)
 	updates := map[string]any{
 		"reset_at_source":   observation.ResetAtSource,
 		"reset_at":          timeutil.FormatSortableStorageTime(observation.ResetAt),
-		"window_started_at": timeutil.FormatSortableStorageTime(observation.ResetAt.Add(-time.Duration(observation.WindowSeconds) * time.Second)),
+		"window_started_at": timeutil.FormatSortableStorageTime(newStart),
+		"dirty":             true,
+		"boundary_version":  gorm.Expr("boundary_version + 1"),
+		"dirty_version":     gorm.Expr("dirty_version + 1"),
 		"updated_at":        timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(time.Now())),
 	}
 	if err := tx.Model(&entities.QuotaCycle{}).Where("id = ?", cycle.ID).Updates(updates).Error; err != nil {
@@ -440,8 +484,49 @@ func upgradeQuotaCycleBoundary(tx *gorm.DB, cycle *entities.QuotaCycle, observat
 	}
 	cycle.ResetAtSource = entities.QuotaResetAtSource(observation.ResetAtSource)
 	cycle.ResetAt = observation.ResetAt
-	cycle.WindowStartedAt = observation.ResetAt.Add(-time.Duration(observation.WindowSeconds) * time.Second)
+	cycle.WindowStartedAt = newStart
+	cycle.Dirty = true
+	cycle.BoundaryVersion++
+	cycle.DirtyVersion++
+	minStart := oldStart
+	if newStart.Before(minStart) {
+		minStart = newStart
+	}
+	if err := markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, cycle.QuotaKey, cycle.ID, minStart); err != nil {
+		return fmt.Errorf("mark sibling quota cycles dirty on boundary upgrade: %w", err)
+	}
 	return nil
+}
+
+// markQuotaCycleBoundaryDirty 在当前写事务内把指定周期标脏并递增边界与脏代际版本。
+func markQuotaCycleBoundaryDirty(tx *gorm.DB, cycleID int64) error {
+	if cycleID <= 0 {
+		return nil
+	}
+	return tx.Model(&entities.QuotaCycle{}).
+		Where("id = ?", cycleID).
+		Updates(map[string]any{
+			"dirty":            true,
+			"boundary_version": gorm.Expr("boundary_version + 1"),
+			"dirty_version":    gorm.Expr("dirty_version + 1"),
+			"updated_at":       timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(time.Now())),
+		}).Error
+}
+
+// markOverlappingSiblingQuotaCyclesDirty 标记同账号同角色中有效右边界可能受影响的周期。
+func markOverlappingSiblingQuotaCyclesDirty(tx *gorm.DB, provider, authIndex, quotaKey string, excludeCycleID int64, minResetAfter time.Time) error {
+	query := tx.Model(&entities.QuotaCycle{}).
+		Where("provider = ? AND auth_index = ? AND quota_key = ? AND reset_at > ?",
+			provider, authIndex, quotaKey, timeutil.FormatSortableStorageTime(minResetAfter))
+	if excludeCycleID > 0 {
+		query = query.Where("id <> ?", excludeCycleID)
+	}
+	return query.Updates(map[string]any{
+		"dirty":            true,
+		"boundary_version": gorm.Expr("boundary_version + 1"),
+		"dirty_version":    gorm.Expr("dirty_version + 1"),
+		"updated_at":       timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(time.Now())),
+	}).Error
 }
 
 func updateQuotaCycleObservedTimes(tx *gorm.DB, cycle entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) error {
