@@ -27,7 +27,7 @@ func TestQuotaHistoryFreshDatabaseCreatesConstrainedGenericSchema(t *testing.T) 
 	if db.Migrator().HasTable("codex_quota_cycles") || db.Migrator().HasTable("codex_quota_percent_segments") {
 		t.Fatal("fresh database must not create legacy Codex quota history tables")
 	}
-	assertQuotaHistoryIndexNames(t, db, "quota_cycles", []string{"uniq_quota_cycles_identity"})
+	assertQuotaHistoryIndexNames(t, db, "quota_cycles", []string{"idx_quota_cycles_usage_sync", "uniq_quota_cycles_identity"})
 	assertQuotaHistoryIndexNames(t, db, "quota_percent_segments", []string{"uniq_quota_percent_segments_cycle_percent"})
 	assertQuotaHistoryRestrictForeignKey(t, db)
 	assertQuotaHistoryMigrationApplied(t, db)

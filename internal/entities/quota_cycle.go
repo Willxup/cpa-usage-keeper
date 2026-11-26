@@ -25,8 +25,30 @@ type QuotaCycle struct {
 	ResetAt         time.Time `gorm:"serializer:sortableTime;not null;uniqueIndex:uniq_quota_cycles_identity,priority:5"`
 	FirstObservedAt time.Time `gorm:"serializer:sortableTime;not null;check:chk_quota_cycles_observed_bounds,first_observed_at <= last_observed_at"`
 	LastObservedAt  time.Time `gorm:"serializer:sortableTime;not null"`
-	CreatedAt       time.Time `gorm:"serializer:storageTime;not null"`
-	UpdatedAt       time.Time `gorm:"serializer:storageTime;not null"`
+	// 以下派生统计列由后台 Reader 池基于热表 usage_events 幂等重算后回写，观测列仍是唯一事实来源。
+	Requests             int64   `gorm:"not null;default:0"`
+	SuccessfulRequests   int64   `gorm:"not null;default:0"`
+	FailedRequests       int64   `gorm:"not null;default:0"`
+	InputTokens          int64   `gorm:"not null;default:0"`
+	OutputTokens         int64   `gorm:"not null;default:0"`
+	ReasoningTokens      int64   `gorm:"not null;default:0"`
+	CacheReadTokens      int64   `gorm:"not null;default:0"`
+	CacheCreationTokens  int64   `gorm:"not null;default:0"`
+	TotalTokens          int64   `gorm:"not null;default:0"`
+	CostUSD              float64 `gorm:"not null;default:0"`
+	UnavailableCostCount int64   `gorm:"not null;default:0"`
+	// BoundaryVersion 随周期边界或百分比段结构变化单调递增，Writer 回写前据此防并发覆盖。
+	BoundaryVersion int64 `gorm:"not null;default:0"`
+	// DirtyVersion 随每次事件或观测标脏递增，用于判断回写期间是否有新脏代际到达。
+	DirtyVersion int64 `gorm:"not null;default:0"`
+	// UsageReady 区分已完成首次结算与尚未结算空窗，避免把未计算周期误展示为 0。
+	UsageReady bool `gorm:"not null;default:false;index:idx_quota_cycles_usage_sync,priority:2"`
+	// Dirty 标记该周期存在待重算的观测变更或新事件。
+	Dirty bool `gorm:"not null;default:false;index:idx_quota_cycles_usage_sync,priority:1"`
+	// CostStale 标记显式价格重算期间该周期的费用已过时，日常任务不得清除该标记。
+	CostStale bool      `gorm:"not null;default:false;index:idx_quota_cycles_usage_sync,priority:3"`
+	CreatedAt time.Time `gorm:"serializer:storageTime;not null"`
+	UpdatedAt time.Time `gorm:"serializer:storageTime;not null"`
 }
 
 func (QuotaCycle) TableName() string {
