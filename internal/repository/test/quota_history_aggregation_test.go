@@ -357,3 +357,52 @@ func TestApplyComputedQuotaCycleUsageRespectsBoundaryAndDirtyVersions(t *testing
 		t.Fatalf("stale boundary_version write should not overwrite requests: %+v", reloaded)
 	}
 }
+
+func TestAdvanceQuotaHistoryDirtyCursorSkipsNullableLegacyIdentityColumns(t *testing.T) {
+	db := openQuotaAggregationTestDB(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+
+	if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{{
+		Provider:         "codex",
+		AuthIndex:        "auth-null-safe",
+		WindowRole:       "primary",
+		WindowSeconds:    5 * 3600,
+		ResetAtSource:    string(entities.QuotaResetAtSourceAbsolute),
+		ResetAt:          now.Add(2 * time.Hour),
+		RemainingPercent: 90,
+		FirstObservedAt:  now.Add(-time.Hour),
+		LastObservedAt:   now.Add(-time.Hour),
+		ObservationCount: 1,
+	}}); err != nil {
+		t.Fatalf("write observation: %v", err)
+	}
+	var cycle entities.QuotaCycle
+	if err := db.Where("auth_index = ?", "auth-null-safe").Take(&cycle).Error; err != nil {
+		t.Fatalf("load cycle: %v", err)
+	}
+	if _, err := repository.RecomputeAndPersistQuotaCycles(ctx, db, []entities.QuotaCycle{cycle}, now, 0, false); err != nil {
+		t.Fatalf("initial recompute: %v", err)
+	}
+
+	// 插入一条早期迁移遗留 provider/auth_type/auth_index 均为 NULL 的旧记录，紧跟一条有效 Codex OAuth 请求。
+	if err := db.Exec(`INSERT INTO usage_events
+		(event_key, api_group_key, provider, endpoint, auth_type, request_id, session_id, model, timestamp, source, auth_index, failed, total_tokens, cost_usd, cost_available, created_at)
+		VALUES ('legacy-null-row', 'g1', NULL, '/v1/chat/completions', NULL, 'req-null', 's1', 'gpt-4', ?, 'legacy', NULL, 0, 100, 0.01, 1, ?)`,
+		now.Add(-30*time.Minute).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)).Error; err != nil {
+		t.Fatalf("insert nullable legacy usage event: %v", err)
+	}
+	insertQuotaTestEvent(t, db, "codex", "oauth", "auth-null-safe", now.Add(-15*time.Minute), false, 800, 0.12, true)
+
+	scanRes, err := repository.AdvanceQuotaHistoryDirtyCursor(ctx, db, now, 100)
+	if err != nil {
+		t.Fatalf("AdvanceQuotaHistoryDirtyCursor failed on NULL legacy columns: %v", err)
+	}
+	if scanRes.ScannedEvents != 2 || scanRes.DirtyCyclesMarked != 1 {
+		t.Fatalf("unexpected scan result: %+v", scanRes)
+	}
+	updated := loadQuotaCycleByID(t, db, cycle.ID)
+	if !updated.Dirty {
+		t.Fatalf("expected valid event after NULL legacy row to mark cycle dirty: %+v", updated)
+	}
+}

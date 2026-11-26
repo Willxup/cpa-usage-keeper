@@ -110,10 +110,10 @@ func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, n
 		return result, err
 	}
 
-	// 独立轻量投影只读 5 列，与 Overview 维度表完全解耦。
+	// 独立轻量投影只读 5 列，COALESCE 兼容旧迁移遗留的可空身份列，避免无关 NULL 行阻塞游标推进。
 	rows, err := db.WithContext(ctx).Clauses(dbresolver.Read).
 		Table("usage_events").
-		Select("id, provider, auth_type, auth_index, +timestamp AS timestamp").
+		Select("id, COALESCE(provider, ''), COALESCE(auth_type, ''), COALESCE(auth_index, ''), +timestamp AS timestamp").
 		Where("id > ?", cursor).
 		Order("id ASC").
 		Limit(batchSize).
