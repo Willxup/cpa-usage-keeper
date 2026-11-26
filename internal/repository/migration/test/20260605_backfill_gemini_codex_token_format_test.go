@@ -43,12 +43,10 @@ func openGeminiCodexTokenBackfillTestDatabase(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(
 		&entities.UsageEvent{},
 		&entities.UsageIdentity{},
-		&entities.UsageOverviewHourlyStat{},
-		&entities.UsageOverviewDailyStat{},
-		&entities.UsageOverviewAggregationCheckpoint{},
 	); err != nil {
-		t.Fatalf("create test schema: %v", err)
+		t.Fatalf("create event and identity schema: %v", err)
 	}
+	runOnlyMigration(t, db, "20260514_create_usage_overview_stats")
 	return db
 }
 
@@ -81,7 +79,7 @@ func seedGeminiCodexTokenBackfillRows(t *testing.T, db *gorm.DB) {
 	}).Error; err != nil {
 		t.Fatalf("seed usage events: %v", err)
 	}
-	hourly := []entities.UsageOverviewHourlyStat{
+	hourly := []publishedTestOverviewStat{
 		{ID: 1, BucketStart: time.Date(2026, 6, 1, 10, 0, 0, 0, now.Location()), APIGroupKey: "api-key", Model: "gemini-pro", AuthIndex: "gemini-auth", ModelAlias: "", OutputTokens: 17, ReasoningTokens: 6, TotalTokens: 42, CreatedAt: now, UpdatedAt: now},
 		{ID: 2, BucketStart: time.Date(2026, 6, 1, 11, 0, 0, 0, now.Location()), APIGroupKey: "oauth-key", Model: "gemini-pro", AuthIndex: "gemini-cli-auth", ModelAlias: "", OutputTokens: 2, ReasoningTokens: 1, TotalTokens: 8, CreatedAt: now, UpdatedAt: now},
 		{ID: 3, BucketStart: time.Date(2026, 6, 1, 10, 0, 0, 0, now.Location()), APIGroupKey: "api-key", Model: "gpt-5", AuthIndex: "openai-auth", ModelAlias: "", OutputTokens: 7, ReasoningTokens: 3, TotalTokens: 21, CreatedAt: now, UpdatedAt: now},
@@ -91,15 +89,13 @@ func seedGeminiCodexTokenBackfillRows(t *testing.T, db *gorm.DB) {
 		{ID: 7, BucketStart: time.Date(2026, 6, 1, 10, 0, 0, 0, now.Location()), APIGroupKey: "api-key", Model: "gemini-pro", AuthIndex: "unknown-auth-gemini", ModelAlias: "", OutputTokens: 5, ReasoningTokens: 4, TotalTokens: 21, CreatedAt: now, UpdatedAt: now},
 		{ID: 8, BucketStart: time.Date(2026, 6, 1, 10, 0, 0, 0, now.Location()), APIGroupKey: "api-key", Model: "gemini-pro", AuthIndex: "dirty-overview-auth", ModelAlias: "", OutputTokens: 5, ReasoningTokens: 4, TotalTokens: 21, CreatedAt: now, UpdatedAt: now},
 	}
-	if err := db.Create(&hourly).Error; err != nil {
+	if err := db.Table("usage_overview_hourly_stats").Create(&hourly).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
 	}
-	daily := make([]entities.UsageOverviewDailyStat, len(hourly))
-	for i, row := range hourly {
-		daily[i] = entities.UsageOverviewDailyStat(row)
-		daily[i].BucketStart = time.Date(2026, 6, 1, 0, 0, 0, 0, now.Location())
+	for i := range hourly {
+		hourly[i].BucketStart = time.Date(2026, 6, 1, 0, 0, 0, 0, now.Location())
 	}
-	if err := db.Create(&daily).Error; err != nil {
+	if err := db.Table("usage_overview_daily_stats").Create(&hourly).Error; err != nil {
 		t.Fatalf("seed daily stats: %v", err)
 	}
 
