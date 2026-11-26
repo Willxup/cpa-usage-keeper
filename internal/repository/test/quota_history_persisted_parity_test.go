@@ -129,8 +129,8 @@ func TestBuildCodexQuotaEfficiencyHistoryReadsOnlyPersistedTablesAndExposesFlags
 	if err != nil {
 		t.Fatalf("query cost_stale history: %v", err)
 	}
-	if !stale.Cycles[0].UsageReady || stale.Cycles[0].Usage.CostAvailable || stale.Cycles[0].Usage.TotalTokens != 6400 {
-		t.Fatalf("expected cost_stale cycle to keep tokens and set cost_available=false: %+v", stale.Cycles[0])
+	if !stale.Cycles[0].UsageReady || !stale.Cycles[0].CostStale || stale.Cycles[0].Usage.CostAvailable || stale.Cycles[0].Usage.TotalTokens != 6400 {
+		t.Fatalf("expected cost_stale cycle to keep tokens and set cost_stale=true/cost_available=false: %+v", stale.Cycles[0])
 	}
 	if !stale.Cycles[0].Transitions[0].UsageReady || stale.Cycles[0].Transitions[0].Usage.CostAvailable || stale.Cycles[0].Transitions[0].CostPerPointAvailable {
 		t.Fatalf("expected cost_stale transition to set cost_available=false: %+v", stale.Cycles[0].Transitions[0])

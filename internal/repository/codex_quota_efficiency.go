@@ -198,6 +198,7 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 			LastRemainingPercent:  lastPercent,
 			ObservationCount:      observationCount,
 			UsageReady:            cycle.UsageReady,
+			CostStale:             cycle.CostStale,
 			Usage: repositorydto.CodexQuotaEfficiencyUsage{
 				Requests:            cycle.Requests,
 				SuccessfulRequests:  cycle.SuccessfulRequests,

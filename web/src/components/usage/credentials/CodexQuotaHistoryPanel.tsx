@@ -1,5 +1,5 @@
 import { ChartLifecycleProvider, useChartRefresh } from '../charts/chartLifecycle'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CategoryScaleOptions, ChartData, ChartOptions, LinearScaleOptions } from 'chart.js'
 import { Chart } from '../charts/UsageChart'
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { ChartSurface } from '@/components/ui/ChartSurface'
 import { Modal } from '@/components/ui/Modal'
 import { PillSwitcher } from '@/components/ui/PillSwitcher'
+import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
 import { IconCheck, IconChevronDown, IconTrash2 } from '@/components/ui/icons'
 import type { CodexQuotaHistoryCycle, CodexQuotaHistoryResponse, CodexQuotaHistoryTransition, CodexQuotaHistoryWindow } from '@/lib/types'
 import { useThemeStore } from '@/stores'
@@ -38,6 +39,7 @@ interface QuotaSummaryMetrics {
   tokens: number
   cost: number
   costAvailable: boolean
+  costStale?: boolean
   percentage?: number
 }
 
@@ -78,6 +80,17 @@ interface CodexQuotaHistoryPanelProps {
   onAuthRequired?: () => void
 }
 
+type QuotaHistoryTooltipController = {
+  tooltipId: string
+  showOnMouseEnter: (lines: string[], anchor: HTMLElement) => void
+  hideOnMouseLeave: (anchor: HTMLElement) => void
+  showOnFocus: (lines: string[], anchor: HTMLElement) => void
+  hideOnBlur: (anchor: HTMLElement) => void
+  dismiss: () => boolean
+}
+
+const QuotaHistoryTooltipContext = createContext<QuotaHistoryTooltipController | null>(null)
+
 export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanelProps) {
   // 账号切换立即隔离选择、展开和请求状态，不让旧周期在新账号下短暂出现。
   return <QuotaHistoryPanel key={authIndex.trim()} authIndex={authIndex} onAuthRequired={onAuthRequired} />
@@ -98,6 +111,23 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
   const controllerRef = useRef<AbortController | null>(null)
   const lastRequestOptionsRef = useRef<FetchCodexQuotaHistoryOptions>({})
   const chartRef = useRef<HTMLElement | null>(null)
+  const tooltipId = `quota-history-tooltip-${useId()}`
+  const {
+    tooltip,
+    showOnMouseEnter,
+    hideOnMouseLeave,
+    showOnFocus,
+    hideOnBlur,
+    dismiss: dismissTooltip,
+  } = usePortalTooltip({ trackAnchor: true })
+  const tooltipController = useMemo<QuotaHistoryTooltipController>(() => ({
+    tooltipId,
+    showOnMouseEnter,
+    hideOnMouseLeave,
+    showOnFocus,
+    hideOnBlur,
+    dismiss: dismissTooltip,
+  }), [tooltipId, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismissTooltip])
 
   const loadHistory = useCallback(async (options: FetchCodexQuotaHistoryOptions = {}) => {
     const normalizedAuthIndex = authIndex.trim()
@@ -236,7 +266,17 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
   ), [history])
 
   return (
-    <div className={styles.panel} data-codex-quota-history-panel="true">
+    <QuotaHistoryTooltipContext.Provider value={tooltipController}>
+      <div
+        className={styles.panel}
+        data-codex-quota-history-panel="true"
+        onKeyDownCapture={(event) => {
+          if (event.key === 'Escape' && dismissTooltip()) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
+      >
       {history && history.windows.length > 1 ? (
         <PillSwitcher
           variant="toolbar"
@@ -312,7 +352,9 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
         </> : null}
         {deleteError ? <p role="alert">{deleteError}</p> : null}
       </Modal>
-    </div>
+      <PortalTooltip id={tooltipId} tooltip={tooltip} />
+      </div>
+    </QuotaHistoryTooltipContext.Provider>
   )
 }
 
@@ -339,10 +381,12 @@ function CycleEfficiencyChart({
     () => (cycle?.transitions ?? []).filter(isQuotaTransitionReady),
     [cycle?.transitions],
   )
+  const costStale = cycle?.cost_stale === true
   const chart = useMemo(
-    () => buildEfficiencyChart(readyTransitions, isDark, t, formatTime),
-    [readyTransitions, isDark, t, formatTime],
+    () => buildEfficiencyChart(readyTransitions, isDark, t, formatTime, costStale),
+    [readyTransitions, isDark, t, formatTime, costStale],
   )
+  const hasIncompleteCost = Boolean(cycle && (costStale || (cycle.usage_ready !== false && !cycle.usage.cost_available) || chart.hasUnavailableCost))
 
   return (
     <section ref={chartRef} tabIndex={-1} aria-labelledby={titleId}
@@ -384,7 +428,7 @@ function CycleEfficiencyChart({
                 {cycle.last_remaining_percent !== null ? <span>%</span> : null}
               </dd>
             </dl>
-            {chart.hasUnavailableCost ? (
+            {hasIncompleteCost ? (
               <small className={styles.costHeaderHint} data-codex-quota-cost-warning="true">
                 {t('usage_stats.credentials_quota_history_cost_unavailable')}
               </small>
@@ -403,7 +447,7 @@ function CycleEfficiencyChart({
               <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
                 <Chart type="bar" data={chart.data} options={chart.options} />
               </div>
-              <CycleAccessibleSummary transitions={readyTransitions} formatTime={formatTime} titleId={titleId} />
+              <CycleAccessibleSummary transitions={readyTransitions} formatTime={formatTime} titleId={titleId} costStale={costStale} />
               <div className={styles.chartLegend}>
                 <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
                 <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
@@ -446,11 +490,16 @@ function QuotaSummaryRow({
   emphasis?: 'primary' | 'secondary'
 }) {
   const { t } = useTranslation()
+  const formattedCost = metrics ? formatUsd(metrics.cost) : ''
+  const incompleteNote = t('usage_stats.credentials_models_cost_incomplete')
   const values = metrics ? {
     requests: formatQuotaSummaryRequests(metrics.requests),
     percentage: metrics.percentage == null ? '—' : formatQuotaSummaryPercentage(metrics.percentage),
     tokens: formatCompactNumber(metrics.tokens),
-    cost: metrics.costAvailable ? formatUsd(metrics.cost) : t('usage_stats.credentials_quota_history_cost_missing'),
+    cost: <QuotaCostValue text={formattedCost} available={metrics.costAvailable} stale={metrics.costStale} />,
+    costAria: metrics.costStale
+      ? t('usage_stats.credentials_quota_history_cost_missing')
+      : metrics.costAvailable ? formattedCost : `${formattedCost} (${incompleteNote})`,
   } : null
   return (
     <div
@@ -482,9 +531,37 @@ function QuotaSummaryRow({
           icon={quotaCostIcon}
           label={t('usage_stats.total_cost')}
           value={values.cost}
+          ariaValue={values.costAria}
         />
       </> : <span className={styles.summaryUnavailable}>—</span>}</dd>
     </div>
+  )
+}
+
+function QuotaCostValue({
+  text,
+  available,
+  stale = false,
+}: {
+  text: string
+  available: boolean
+  stale?: boolean
+}) {
+  const { t } = useTranslation()
+  const tooltipCtx = useContext(QuotaHistoryTooltipContext)
+  if (stale) return <>{t('usage_stats.credentials_quota_history_cost_missing')}</>
+  if (available) return <>{text}</>
+  const incompleteHint = t('usage_stats.credentials_models_cost_incomplete')
+  return (
+    <span
+      className={styles.incompleteCostTarget}
+      data-codex-quota-cost-incomplete="true"
+      onMouseEnter={(event) => tooltipCtx?.showOnMouseEnter([incompleteHint], event.currentTarget)}
+      onMouseLeave={(event) => tooltipCtx?.hideOnMouseLeave(event.currentTarget)}
+    >
+      {text}
+      <span className={styles.costIncomplete} aria-hidden="true">*</span>
+    </span>
   )
 }
 
@@ -493,18 +570,20 @@ function QuotaSummaryMetric({
   icon,
   label,
   value,
+  ariaValue,
 }: {
   kind: 'requests' | 'percentage' | 'tokens' | 'cost'
   icon: string
   label: string
-  value: string
+  value: ReactNode
+  ariaValue?: string
 }) {
   return (
     <span
       className={styles.chartSummaryMetric}
       data-codex-quota-summary-metric={kind}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${ariaValue ?? String(value)}`}
     >
       <img src={icon} alt="" aria-hidden="true" />
       <span>{value}</span>
@@ -516,7 +595,7 @@ function isQuotaTransitionReady(transition: CodexQuotaHistoryTransition): boolea
   return transition.usage_ready !== false
 }
 
-function calculateFullQuotaEstimate(transitions: CodexQuotaHistoryTransition[]): QuotaSummaryMetrics | null {
+function calculateFullQuotaEstimate(transitions: CodexQuotaHistoryTransition[], costStale = false): QuotaSummaryMetrics | null {
   // 只使用已完成持久化结算且被相邻百分比观察夹住的事件；周期总量还包含首段前和尾段后的未结算用量。
   const settled = transitions.reduce((total, transition) => ({
     percentagePoints: total.percentagePoints + transition.percentage_points,
@@ -531,31 +610,35 @@ function calculateFullQuotaEstimate(transitions: CodexQuotaHistoryTransition[]):
     requests: settled.requests * ratio,
     tokens: settled.tokens * ratio,
     cost: settled.cost * ratio,
-    costAvailable: settled.costAvailable,
+    costAvailable: settled.costAvailable && !costStale,
+    costStale,
   }
 }
 
 function buildQuotaCycleSummary(cycle: CodexQuotaHistoryCycle): QuotaCycleSummary {
   const readyTransitions = cycle.transitions.filter(isQuotaTransitionReady)
+  const costStale = cycle.cost_stale === true
   const used: QuotaSummaryMetrics | null = cycle.usage_ready === false ? null : {
     requests: cycle.usage.requests,
     tokens: cycle.usage.total_tokens,
     cost: cycle.usage.total_cost_usd,
-    costAvailable: cycle.usage.cost_available,
+    costAvailable: cycle.usage.cost_available && !costStale,
+    costStale,
   }
-  const fullEstimate = calculateFullQuotaEstimate(readyTransitions)
-  const median = calculateQuotaMedianMetrics(readyTransitions)
+  const fullEstimate = calculateFullQuotaEstimate(readyTransitions, costStale)
+  const median = calculateQuotaMedianMetrics(readyTransitions, costStale)
   const estimatedUnused = cycle.status === 'completed' && used ? subtractQuotaMetrics(fullEstimate, used) : null
   return { median, used, fullEstimate, estimatedUnused }
 }
 
-function calculateQuotaMedianMetrics(transitions: CodexQuotaHistoryTransition[]): QuotaSummaryMetrics | null {
+function calculateQuotaMedianMetrics(transitions: CodexQuotaHistoryTransition[], costStale = false): QuotaSummaryMetrics | null {
   const points = expandEfficiencyPoints(transitions)
   if (points.length === 0) return null
   const requestMedian = calculateMedian(points.map(({ transition }) => transition.usage.requests / transition.percentage_points))
   const tokenMedian = calculateMedian(points.map(({ transition }) => transition.tokens_per_point))
   const hasUnavailableCost = transitions.some((transition) => !transition.cost_per_point_available)
-  const costMedian = hasUnavailableCost
+  // 普通缺价继续计算已存费用的中位数并标 *，仅在显式改价中断（costStale）时隐藏未对齐金额。
+  const costMedian = costStale
     ? null
     : calculateMedian(points.map(({ transition }) => transition.cost_per_point))
   if (requestMedian == null || tokenMedian == null) return null
@@ -563,7 +646,8 @@ function calculateQuotaMedianMetrics(transitions: CodexQuotaHistoryTransition[])
     requests: requestMedian,
     tokens: tokenMedian,
     cost: costMedian ?? 0,
-    costAvailable: costMedian != null,
+    costAvailable: !hasUnavailableCost && costMedian != null,
+    costStale,
   }
 }
 
@@ -573,11 +657,13 @@ function subtractQuotaMetrics(
 ): QuotaSummaryMetrics | null {
   if (!fullEstimate) return null
   const unusedTokens = Math.max(fullEstimate.tokens - usage.tokens, 0)
+  const costStale = Boolean(fullEstimate.costStale || usage.costStale)
   return {
     requests: Math.max(fullEstimate.requests - usage.requests, 0),
     tokens: unusedTokens,
     cost: Math.max(fullEstimate.cost - usage.cost, 0),
-    costAvailable: fullEstimate.costAvailable && usage.costAvailable,
+    costAvailable: fullEstimate.costAvailable && usage.costAvailable && !costStale,
+    costStale,
     percentage: fullEstimate.tokens > 0 ? (unusedTokens / fullEstimate.tokens) * 100 : 0,
   }
 }
@@ -586,10 +672,12 @@ function CycleAccessibleSummary({
   transitions,
   formatTime,
   titleId,
+  costStale = false,
 }: {
   transitions: CodexQuotaHistoryTransition[]
   formatTime: QuotaHistoryTimeFormatter
   titleId: string
+  costStale?: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -611,16 +699,16 @@ function CycleAccessibleSummary({
           </span>{' '}
           <span>{t('usage_stats.credentials_quota_history_tokens_per_point')}: {formatCompactNumber(transition.tokens_per_point)} Token/1%.</span>{' '}
           <span>
-            {t('usage_stats.credentials_quota_history_cost_per_point')}: {transition.cost_per_point_available
-              ? `${formatUsd(transition.cost_per_point)}/1%`
-              : t('usage_stats.credentials_quota_history_cost_missing')}.
+            {t('usage_stats.credentials_quota_history_cost_per_point')}: {costStale
+              ? t('usage_stats.credentials_quota_history_cost_missing')
+              : `${formatUsd(transition.cost_per_point)}/1%${transition.cost_per_point_available ? '' : '*'}`}.
           </span>{' '}
           {!transition.is_direct ? (
             <span>
               {t('usage_stats.total_tokens')}: {formatCompactNumber(transition.usage.total_tokens)} Token.{' '}
-              {t('usage_stats.total_cost')}: {transition.usage.cost_available
-                ? formatUsd(transition.usage.total_cost_usd)
-                : t('usage_stats.credentials_quota_history_cost_missing')}.
+              {t('usage_stats.total_cost')}: {costStale
+                ? t('usage_stats.credentials_quota_history_cost_missing')
+                : `${formatUsd(transition.usage.total_cost_usd)}${transition.usage.cost_available ? '' : '*'}`}.
             </span>
           ) : null}
         </li>
@@ -686,8 +774,10 @@ const CycleCard = memo(function CycleCard({
   onReturnToChart: () => void
 }) {
   const { t } = useTranslation()
+  const tooltipCtx = useContext(QuotaHistoryTooltipContext)
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
+  const deleteTitle = t('usage_stats.credentials_quota_history_delete_title')
   const statusLabel = cycle.status === 'current'
     ? t('usage_stats.credentials_quota_history_status_current')
     : t('usage_stats.credentials_quota_history_status_completed')
@@ -748,9 +838,12 @@ const CycleCard = memo(function CycleCard({
           {t('usage_stats.credentials_quota_history_return_to_chart')}
         </button> : null}
         <Button type="button" variant="ghost" size="sm" className={styles.deleteCycle}
-          onClick={() => onDelete(cycle)} disabled={deleteDisabled}
-          aria-label={t('usage_stats.credentials_quota_history_delete_title')}
-          title={t('usage_stats.credentials_quota_history_delete_title')}>
+          onClick={() => { tooltipCtx?.dismiss(); onDelete(cycle) }} disabled={deleteDisabled}
+          aria-label={deleteTitle}
+          onMouseEnter={(event) => tooltipCtx?.showOnMouseEnter([deleteTitle], event.currentTarget)}
+          onMouseLeave={(event) => tooltipCtx?.hideOnMouseLeave(event.currentTarget)}
+          onFocus={(event) => tooltipCtx?.showOnFocus([deleteTitle], event.currentTarget)}
+          onBlur={(event) => tooltipCtx?.hideOnBlur(event.currentTarget)}>
           <IconTrash2 size={15} aria-hidden="true" />
         </Button>
       </div>
@@ -765,7 +858,7 @@ const CycleCard = memo(function CycleCard({
           {cycle.transitions.length === 0 ? (
             <div className={styles.noCycleTransitions}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
           ) : cycle.transitions.map((transition, index) => (
-            <TransitionRow key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`} transition={transition} formatTime={formatTime} />
+            <TransitionRow key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`} transition={transition} formatTime={formatTime} costStale={cycle.cost_stale === true} />
           ))}
         </> : null}
       </div>
@@ -816,7 +909,15 @@ function CycleQuotaSummary({
   )
 }
 
-function TransitionRow({ transition, formatTime }: { transition: CodexQuotaHistoryTransition; formatTime: QuotaHistoryTimeFormatter }) {
+function TransitionRow({
+  transition,
+  formatTime,
+  costStale = false,
+}: {
+  transition: CodexQuotaHistoryTransition
+  formatTime: QuotaHistoryTimeFormatter
+  costStale?: boolean
+}) {
   const { t } = useTranslation()
   const usageReady = isQuotaTransitionReady(transition)
   return (
@@ -836,7 +937,13 @@ function TransitionRow({ transition, formatTime }: { transition: CodexQuotaHisto
       <div className={styles.valueCell}>
         {usageReady ? <>
           <strong>{formatCompactNumber(transition.usage.total_tokens)} Token</strong>
-          <span>{transition.usage.cost_available ? formatUsd(transition.usage.total_cost_usd) : t('usage_stats.credentials_quota_history_cost_missing')}</span>
+          <span>
+            <QuotaCostValue
+              text={formatUsd(transition.usage.total_cost_usd)}
+              available={transition.usage.cost_available}
+              stale={costStale}
+            />
+          </span>
         </> : <>
           <strong>—</strong>
           <span>—</span>
@@ -845,7 +952,13 @@ function TransitionRow({ transition, formatTime }: { transition: CodexQuotaHisto
       <div className={styles.valueCell}>
         {usageReady ? <>
           <strong>{formatCompactNumber(transition.tokens_per_point)} Token/1%</strong>
-          <span>{transition.cost_per_point_available ? `${formatUsd(transition.cost_per_point)}/1%` : t('usage_stats.credentials_quota_history_cost_missing')}</span>
+          <span>
+            <QuotaCostValue
+              text={`${formatUsd(transition.cost_per_point)}/1%`}
+              available={transition.cost_per_point_available}
+              stale={costStale}
+            />
+          </span>
         </> : <>
           <strong>—</strong>
           <span>—</span>
@@ -860,6 +973,7 @@ function buildEfficiencyChart(
   isDark: boolean,
   t: (key: string) => string,
   formatTime: QuotaHistoryTimeFormatter,
+  costStale = false,
 ): {
   data: QuotaEfficiencyChartData
   options: QuotaEfficiencyChartOptions
@@ -867,8 +981,9 @@ function buildEfficiencyChart(
 } {
   const points = expandEfficiencyPoints(transitions)
   const tokenValues = points.map(({ transition }) => transition.tokens_per_point)
-  const costValues = points.map(({ transition }) => transition.cost_per_point_available ? transition.cost_per_point : null)
-  const hasUnavailableCost = transitions.some((transition) => !transition.cost_per_point_available)
+  // 普通缺价继续绘制已统计费用折线（通过星号与提示区分），仅在显式改价中断（costStale）时置空隐藏。
+  const costValues = points.map(({ transition }) => costStale ? null : transition.cost_per_point)
+  const hasUnavailableCost = costStale || transitions.some((transition) => !transition.cost_per_point_available)
   const chartTheme = getUsageChartTheme(isDark)
   const costLineColor = isDark ? QUOTA_COST_LINE_COLORS.dark : QUOTA_COST_LINE_COLORS.light
   const remainingLineColor = isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light
@@ -981,9 +1096,8 @@ function buildEfficiencyChart(
                 return `${t('usage_stats.credentials_quota_history_tokens_per_point')}: ${formatCompactNumber(point.transition.tokens_per_point)}`
               }
               if (context.datasetIndex === 1) {
-                return `${t('usage_stats.credentials_quota_history_cost_per_point')}: ${point.transition.cost_per_point_available
-                  ? formatUsd(point.transition.cost_per_point)
-                  : t('usage_stats.credentials_quota_history_cost_missing')}`
+                const suffix = point.transition.cost_per_point_available ? '' : '*'
+                return `${t('usage_stats.credentials_quota_history_cost_per_point')}: ${formatUsd(point.transition.cost_per_point)}${suffix}`
               }
               return `${t('usage_stats.credentials_quota_history_remaining_percentage')}: ${point.remainingPercent}%`
             },
@@ -991,24 +1105,26 @@ function buildEfficiencyChart(
               const point = points[items[0]?.dataIndex]
               if (!point) return []
               const lines: string[] = []
-              // Chart.js 在 mode='index' 下不会为 null 费用点触发 dataset 1 的 label，缺价时在 afterBody 开头补齐展示。
-              if (!point.transition.cost_per_point_available) {
+              if (costStale) {
                 lines.push(`${t('usage_stats.credentials_quota_history_cost_per_point')}: ${t('usage_stats.credentials_quota_history_cost_missing')}`)
               }
               const interval = `${t('usage_stats.credentials_quota_history_interval')}: ${formatTime(point.transition.interval_started_at)} → ${formatTime(point.transition.interval_ended_at)}`
+              const incompleteCost = !costStale && (!point.transition.cost_per_point_available || !point.transition.usage.cost_available)
               // Direct 与跨百分点样本统一显示真实观察时间；跨百分点再补充整段变化和总用量。
               if (point.transition.is_direct) {
                 lines.push(interval)
+                if (incompleteCost) lines.push(t('usage_stats.credentials_models_cost_incomplete'))
                 return lines
               }
               lines.push(
                 `${t('usage_stats.credentials_quota_history_change')}: ${point.transition.from_remaining_percent}% → ${point.transition.to_remaining_percent}%`,
                 interval,
                 `${t('usage_stats.total_tokens')}: ${formatCompactNumber(point.transition.usage.total_tokens)} Token`,
-                `${t('usage_stats.total_cost')}: ${point.transition.usage.cost_available
-                  ? formatUsd(point.transition.usage.total_cost_usd)
-                  : t('usage_stats.credentials_quota_history_cost_missing')}`,
+                `${t('usage_stats.total_cost')}: ${costStale
+                  ? t('usage_stats.credentials_quota_history_cost_missing')
+                  : `${formatUsd(point.transition.usage.total_cost_usd)}${point.transition.usage.cost_available ? '' : '*'}`}`,
               )
+              if (incompleteCost) lines.push(t('usage_stats.credentials_models_cost_incomplete'))
               return lines
             },
           },

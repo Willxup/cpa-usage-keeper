@@ -71,6 +71,8 @@ type CodexQuotaEfficiencyCycle struct {
 	ObservationCount int64
 	// UsageReady 表示该周期已完成至少一次后台持久化结算；false 时前端应展示空值占位而非 0。
 	UsageReady bool
+	// CostStale 表示显式价格重算中断导致该周期费用处于半新半旧状态；前端应隐藏过期金额而非标星展示。
+	CostStale bool `json:",omitempty"`
 	// Usage 聚合整个周期边界内的 OAuth UsageEvent，包括百分比稳定期间的事件。
 	Usage CodexQuotaEfficiencyUsage
 	// Transitions 只包含真实相邻剩余百分比状态形成的效率样本。

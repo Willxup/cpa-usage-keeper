@@ -81,6 +81,8 @@ type CodexQuotaHistoryCycle struct {
 	ObservationCount int64 `json:"observation_count"`
 	// UsageReady 表示该周期已完成至少一次后台持久化结算；false 时前端应显示占位符而非 0。
 	UsageReady bool `json:"usage_ready"`
+	// CostStale 表示显式价格重算中断导致费用未对齐；true 时隐藏金额，false 且 cost_available=false 时显示已算金额加缺价星号。
+	CostStale bool `json:"cost_stale,omitempty"`
 	// Usage 包含稳定段在内的整个周期 UsageEvent 已存费用与 Token 总量。
 	Usage CodexQuotaHistoryUsage `json:"usage"`
 	// Transitions 只列真实相邻剩余百分比变化，不补造跨档中间点。
@@ -243,6 +245,7 @@ func codexQuotaHistoryCycleFromRepository(cycle repositorydto.CodexQuotaEfficien
 		LastRemainingPercent:  cloneCodexQuotaHistoryInt(cycle.LastRemainingPercent),
 		ObservationCount:      cycle.ObservationCount,
 		UsageReady:            cycle.UsageReady,
+		CostStale:             cycle.CostStale,
 		Usage:                 codexQuotaHistoryUsageFromRepository(cycle.Usage),
 		Transitions:           make([]CodexQuotaHistoryTransition, 0, len(cycle.Transitions)),
 	}

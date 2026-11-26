@@ -690,6 +690,7 @@ export interface CodexQuotaHistoryCycle {
   last_remaining_percent: number | null
   observation_count: number
   usage_ready?: boolean
+  cost_stale?: boolean
   usage: CodexQuotaHistoryUsage
   transitions: CodexQuotaHistoryTransition[]
 }

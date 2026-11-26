@@ -83,5 +83,6 @@ describe('Codex quota history styles', () => {
     expect(headerRule).toContain('background: var(--bg-secondary);')
     const valueCellRule = scssRule('\n\n.valueCell {')
     expect(valueCellRule).toContain('text-align: right;')
+    expect(quotaHistoryStyles).not.toContain('cursor: help')
   })
 })
