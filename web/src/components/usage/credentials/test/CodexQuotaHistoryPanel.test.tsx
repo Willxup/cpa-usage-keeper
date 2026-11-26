@@ -261,6 +261,10 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(chart.querySelector('[data-codex-quota-accessible-summary]')?.textContent).not.toContain('90% → 89%')
     expect(latestChartData?.labels).toEqual(['93% → 92%'])
     expect(latestChartData?.datasets[1].data).toEqual([null])
+    const missingDirectAfterBody = latestChartOptions?.plugins?.tooltip?.callbacks?.afterBody as (items: Array<{ dataIndex: number }>) => string[]
+    expect(missingDirectAfterBody([{ dataIndex: 0 }])[0]).toBe(
+      'usage_stats.credentials_quota_history_cost_per_point: usage_stats.credentials_quota_history_cost_missing',
+    )
     expect(container.querySelectorAll('[data-testid="quota-efficiency-chart"]')).toHaveLength(1)
     expect(cycleCard(1).querySelector('[data-codex-quota-cycle-select]')?.getAttribute('aria-pressed')).toBe('true')
     expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
@@ -365,11 +369,9 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(card().querySelector('[data-codex-quota-transition]')?.textContent).toContain('$7.25/1%')
     expect(latestChartData?.datasets[0].data).toEqual([2400])
     expect(latestChartData?.datasets[1].data).toEqual([7.25])
-    const label = latestChartOptions?.plugins?.tooltip?.callbacks?.label as (context: { dataIndex: number; datasetIndex: number }) => string[]
-    expect(label({ dataIndex: 0, datasetIndex: 0 })).toEqual([
-      'usage_stats.credentials_quota_history_tokens_per_point: 2.40K',
-      'usage_stats.credentials_quota_history_cost_per_point: $7.25',
-    ])
+    const label = latestChartOptions?.plugins?.tooltip?.callbacks?.label as (context: { dataIndex: number; datasetIndex: number }) => string
+    expect(label({ dataIndex: 0, datasetIndex: 0 })).toBe('usage_stats.credentials_quota_history_tokens_per_point: 2.40K')
+    expect(label({ dataIndex: 0, datasetIndex: 1 })).toBe('usage_stats.credentials_quota_history_cost_per_point: $7.25')
     await openDelete(1)
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('usage_stats.credentials_quota_history_percent_summary:{"percent":92,"count":9}')
     await click(modalButton('common.cancel'))
@@ -633,10 +635,20 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(document.body.textContent).not.toContain('usage_stats.credentials_quota_history_role_secondary')
     expect(latestChartData?.labels).toEqual(['90% → 89%', '89% → 88%', '88% → 87%', '87% → 86%'])
     expect(latestChartData?.datasets).toEqual([
-      expect.objectContaining({ type: 'bar', yAxisID: 'tokens', data: [1000, 1000, 1000, 1000] }),
+      expect.objectContaining({
+        type: 'bar',
+        yAxisID: 'tokens',
+        data: [1000, 1000, 1000, 1000],
+        borderWidth: 0,
+        borderRadius: 3,
+        borderSkipped: false,
+        maxBarThickness: 36,
+      }),
       expect.objectContaining({ type: 'line', yAxisID: 'cost', data: [1, 1, 1, 1] }),
-      expect.objectContaining({ type: 'line', yAxisID: 'remaining', data: [89, 88, 87, 86] }),
+      expect.objectContaining({ type: 'line', yAxisID: 'remaining', data: [89, 88, 87, 86], fill: 'origin' }),
     ])
+    expect(document.body.querySelector('[data-codex-quota-chart-surface="true"]')).not.toBeNull()
+    expect(latestChartOptions?.plugins?.tooltip?.displayColors).toBe(true)
     // 直接观测和跨点均摊仍需在图上区分，但不绑定具体色值。
     const barBackground = latestChartData!.datasets[0].backgroundColor as
       (context: { dataIndex: number; chart: object }) => string
@@ -686,18 +698,25 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')?.getAttribute('aria-hidden')).toBe('true')
 
     const tooltipCallbacks = latestChartOptions?.plugins?.tooltip?.callbacks
-    const label = tooltipCallbacks?.label as (context: { dataIndex: number; datasetIndex: number }) => string[]
+    const labelColor = tooltipCallbacks?.labelColor as (context: { dataIndex: number; datasetIndex: number }) => { borderColor: string; backgroundColor: string }
+    const label = tooltipCallbacks?.label as (context: { dataIndex: number; datasetIndex: number }) => string
     const afterBody = tooltipCallbacks?.afterBody as (items: Array<{ dataIndex: number }>) => string[]
-    expect(label({ dataIndex: 0, datasetIndex: 0 })).toEqual([
-      'usage_stats.credentials_quota_history_tokens_per_point: 1.00K',
-      'usage_stats.credentials_quota_history_cost_per_point: $1.00',
-    ])
+    const directBarColor = labelColor({ dataIndex: 0, datasetIndex: 0 })
+    const crossBarColor = labelColor({ dataIndex: 1, datasetIndex: 0 })
+    const costLineSwatch = labelColor({ dataIndex: 0, datasetIndex: 1 })
+    const remainingLineSwatch = labelColor({ dataIndex: 0, datasetIndex: 2 })
+    expect(directBarColor.backgroundColor).toBe(directBarColor.borderColor)
+    expect(crossBarColor.backgroundColor).toBe(crossBarColor.borderColor)
+    expect(directBarColor.backgroundColor).not.toBe(crossBarColor.backgroundColor)
+    expect(costLineSwatch.backgroundColor).toBe(latestChartData?.datasets[1].borderColor)
+    expect(remainingLineSwatch.backgroundColor).toBe(latestChartData?.datasets[2].borderColor)
+    expect(label({ dataIndex: 0, datasetIndex: 0 })).toBe('usage_stats.credentials_quota_history_tokens_per_point: 1.00K')
+    expect(label({ dataIndex: 0, datasetIndex: 1 })).toBe('usage_stats.credentials_quota_history_cost_per_point: $1.00')
+    expect(label({ dataIndex: 0, datasetIndex: 2 })).toBe('usage_stats.credentials_quota_history_remaining_percentage: 89%')
     expect(afterBody([{ dataIndex: 0 }])).toEqual([
-      'usage_stats.credentials_quota_history_remaining_percentage: 89%',
       'usage_stats.credentials_quota_history_interval: Aug 20, 10:00 → Aug 20, 10:10',
     ])
     expect(afterBody([{ dataIndex: 1 }])).toEqual([
-      'usage_stats.credentials_quota_history_remaining_percentage: 88%',
       'usage_stats.credentials_quota_history_change: 89% → 86%',
       'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 → Aug 20, 11:30',
       'usage_stats.total_tokens: 3.00K Token',
@@ -934,6 +953,18 @@ describe('CodexQuotaHistoryPanel', () => {
     const pointRadius = latestChartData!.datasets[1].pointRadius as (context: { dataIndex: number }) => number
     expect(pointRadius({ dataIndex: 0 })).toBeGreaterThan(0)
     expect([1, 2, 3].map((dataIndex) => pointRadius({ dataIndex }))).toEqual([0, 0, 0])
+    const afterBody = latestChartOptions?.plugins?.tooltip?.callbacks?.afterBody as (items: Array<{ dataIndex: number }>) => string[]
+    // 有价点由 dataset 1 正常渲染，不重复输出；缺价点因 dataset 1 为 null 被跳过，须在 afterBody 开头补回缺价文案。
+    expect(afterBody([{ dataIndex: 0 }])).toEqual([
+      'usage_stats.credentials_quota_history_interval: Aug 20, 10:00 → Aug 20, 10:10',
+    ])
+    expect(afterBody([{ dataIndex: 1 }])).toEqual([
+      'usage_stats.credentials_quota_history_cost_per_point: usage_stats.credentials_quota_history_cost_missing',
+      'usage_stats.credentials_quota_history_change: 89% → 86%',
+      'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 → Aug 20, 11:30',
+      'usage_stats.total_tokens: 3.00K Token',
+      'usage_stats.total_cost: usage_stats.credentials_quota_history_cost_missing',
+    ])
   })
 
   it('uses a 24-hour clock while preserving the project-timezone wall clock from API timestamps', async () => {

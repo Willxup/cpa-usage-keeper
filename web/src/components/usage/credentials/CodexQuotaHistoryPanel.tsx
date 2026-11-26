@@ -1,7 +1,7 @@
 import { ChartLifecycleProvider, useChartRefresh } from '../charts/chartLifecycle'
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { CategoryScaleOptions, ChartData, ChartOptions } from 'chart.js'
+import type { CategoryScaleOptions, ChartData, ChartOptions, LinearScaleOptions } from 'chart.js'
 import { Chart } from '../charts/UsageChart'
 import '@/lib/chartjs'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
@@ -10,12 +10,14 @@ import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import quotaUnusedIcon from '@/assets/icons/quota-unused.svg'
 import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
+import { ChartSurface } from '@/components/ui/ChartSurface'
 import { Modal } from '@/components/ui/Modal'
+import { PillSwitcher } from '@/components/ui/PillSwitcher'
 import { IconCheck, IconChevronDown, IconTrash2 } from '@/components/ui/icons'
 import type { CodexQuotaHistoryCycle, CodexQuotaHistoryResponse, CodexQuotaHistoryTransition, CodexQuotaHistoryWindow } from '@/lib/types'
 import { useThemeStore } from '@/stores'
 import { formatCompactNumber, formatUsd } from '@/utils/usage'
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor } from '@/utils/usage/chartConfig'
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_TOKEN_COLORS, type UsageChartGradientColor } from '@/utils/usage/chartConfig'
 import { quotaRemainingStatus } from './credentialViewModels'
 import { createQuotaHistoryDateTimeFormatter, formatQuotaSummaryPercentage, formatQuotaSummaryRequests } from './quotaHistoryFormatters'
 import { createQuotaHistoryTimeFormatter, type QuotaHistoryTimeFormatter } from './quotaHistoryTimeLabels'
@@ -49,14 +51,26 @@ interface QuotaCycleSummary {
 type QuotaSummaryKind = 'used' | 'full-estimate' | 'median' | 'estimated-unused'
 
 const QUOTA_EFFICIENCY_BAR_COLORS = {
-  direct: { base: '#2563eb', light: '#93c5fd' },
-  averaged: { base: '#d97706', light: '#fde68a' },
+  // 对齐全站 #727 调色板：1% 直接样本用主蓝渐变，跨档均值用青绿渐变，彻底避开费用线暖色系。
+  direct: USAGE_CHART_TOKEN_COLORS.input,
+  averaged: USAGE_CHART_TOKEN_COLORS.cacheRead,
 } satisfies Record<'direct' | 'averaged', UsageChartGradientColor>
 
+const QUOTA_COST_LINE_COLORS = {
+  // 费用折线对齐琥珀暖色系，亮暗主题分别保证足够对比度。
+  light: '#d97706',
+  dark: '#fbbf24',
+} as const
+
 const QUOTA_REMAINING_LINE_COLORS = {
-  // 低饱和暖灰只承担趋势提示，贴合页面的纸感中性色，避免与 Token 柱体和 Cost 虚线争夺焦点。
-  light: 'rgba(120, 113, 108, 0.68)',
-  dark: 'rgba(168, 162, 158, 0.68)',
+  // 低饱和冷灰承担剩余百分比趋势衬底，配合极淡渐变面积稳住视觉重心。
+  light: 'rgba(100, 116, 139, 0.72)',
+  dark: 'rgba(148, 163, 184, 0.72)',
+} as const
+
+const QUOTA_REMAINING_AREA_STOPS = {
+  light: 'rgba(100, 116, 139, 0.11)',
+  dark: 'rgba(148, 163, 184, 0.13)',
 } as const
 
 interface CodexQuotaHistoryPanelProps {
@@ -224,25 +238,24 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
   return (
     <div className={styles.panel} data-codex-quota-history-panel="true">
       {history && history.windows.length > 1 ? (
-        <div className={styles.windowSwitcher} aria-label={t('usage_stats.credentials_quota_history_window_selector')}>
-          {history.windows.map((window) => {
+        <PillSwitcher
+          variant="toolbar"
+          className={styles.windowSwitcher}
+          optionClassName={styles.segmentButton}
+          ariaLabel={t('usage_stats.credentials_quota_history_window_selector')}
+          value={history.selected_window?.window_role ?? null}
+          onChange={(windowRole) => void loadHistory({ windowRole })}
+          options={history.windows.map((window) => {
             const selected = sameQuotaWindow(window, history.selected_window)
-            return (
-              <button
-                key={window.window_role}
-                type="button"
-                className={styles.segmentButton}
-                aria-pressed={selected}
-                disabled={deleting || (loading && selected)}
-                onClick={() => void loadHistory({ windowRole: window.window_role })}
-              >
-                {formatWindowLabel(window, t)}
-                {history.windows.some((other) => other.window_role !== window.window_role && formatWindowLabel(other, t) === formatWindowLabel(window, t))
-                  ? ` · ${window.window_role === 'primary' ? 'Primary' : 'Secondary'}` : ''}
-              </button>
-            )
+            const baseLabel = formatWindowLabel(window, t)
+            const duplicate = history.windows.some((other) => other.window_role !== window.window_role && formatWindowLabel(other, t) === baseLabel)
+            return {
+              value: window.window_role,
+              label: `${baseLabel}${duplicate ? ` · ${window.window_role === 'primary' ? 'Primary' : 'Secondary'}` : ''}`,
+              disabled: deleting || (loading && selected),
+            }
           })}
-        </div>
+        />
       ) : null}
 
       {error ? (
@@ -386,32 +399,34 @@ function CycleEfficiencyChart({
         <>
           {readyTransitions.length === 0 ? (
             <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
-          ) : <>
-            <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
-              <Chart type="bar" data={chart.data} options={chart.options} />
-            </div>
-            <CycleAccessibleSummary transitions={readyTransitions} formatTime={formatTime} titleId={titleId} />
-            <div className={styles.chartLegend}>
-              <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
-              <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
-              <span>
-                <i
-                  className={styles.remainingLine}
-                  data-codex-quota-remaining-legend="true"
-                  style={{ '--quota-remaining-line-color': isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light } as CSSProperties}
-                />
-                {t('usage_stats.credentials_quota_history_remaining_percentage')}
-              </span>
-              <span>
-                <i
-                  className={styles.costLine}
-                  data-codex-quota-cost-legend="true"
-                  style={{ '--quota-cost-line-color': USAGE_CHART_REQUESTS_LINE_COLOR } as CSSProperties}
-                />
-                {t('usage_stats.credentials_quota_history_cost_per_point')}
-              </span>
-            </div>
-          </>}
+          ) : (
+            <ChartSurface className={styles.chartSurface} data-codex-quota-chart-surface="true">
+              <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
+                <Chart type="bar" data={chart.data} options={chart.options} />
+              </div>
+              <CycleAccessibleSummary transitions={readyTransitions} formatTime={formatTime} titleId={titleId} />
+              <div className={styles.chartLegend}>
+                <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
+                <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
+                <span>
+                  <i
+                    className={styles.remainingLine}
+                    data-codex-quota-remaining-legend="true"
+                    style={{ '--quota-remaining-line-color': isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light } as CSSProperties}
+                  />
+                  {t('usage_stats.credentials_quota_history_remaining_percentage')}
+                </span>
+                <span>
+                  <i
+                    className={styles.costLine}
+                    data-codex-quota-cost-legend="true"
+                    style={{ '--quota-cost-line-color': isDark ? QUOTA_COST_LINE_COLORS.dark : QUOTA_COST_LINE_COLORS.light } as CSSProperties}
+                  />
+                  {t('usage_stats.credentials_quota_history_cost_per_point')}
+                </span>
+              </div>
+            </ChartSurface>
+          )}
         </>
       )}
     </section>
@@ -838,7 +853,10 @@ function buildEfficiencyChart(
   const costValues = points.map(({ transition }) => transition.cost_per_point_available ? transition.cost_per_point : null)
   const hasUnavailableCost = transitions.some((transition) => !transition.cost_per_point_available)
   const chartTheme = getUsageChartTheme(isDark)
+  const costLineColor = isDark ? QUOTA_COST_LINE_COLORS.dark : QUOTA_COST_LINE_COLORS.light
   const remainingLineColor = isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light
+  const remainingAreaTop = isDark ? QUOTA_REMAINING_AREA_STOPS.dark : QUOTA_REMAINING_AREA_STOPS.light
+  const pointHaloBorder = isDark ? '#111827' : '#ffffff'
   const text = chartTheme.textPrimary
   const muted = chartTheme.textSecondary
   const grid = chartTheme.grid
@@ -856,9 +874,12 @@ function buildEfficiencyChart(
             const color = transition?.is_direct ? QUOTA_EFFICIENCY_BAR_COLORS.direct : QUOTA_EFFICIENCY_BAR_COLORS.averaged
             return toUsageChartGradientFill(context, color)
           },
-          borderColor: points.map(({ transition }) => transition.is_direct
-            ? QUOTA_EFFICIENCY_BAR_COLORS.direct.base
-            : QUOTA_EFFICIENCY_BAR_COLORS.averaged.base),
+          borderWidth: 0,
+          borderRadius: 3,
+          borderSkipped: false,
+          barPercentage: 0.8,
+          categoryPercentage: 0.78,
+          maxBarThickness: 36,
           order: 2,
         },
         {
@@ -866,16 +887,18 @@ function buildEfficiencyChart(
           label: t('usage_stats.credentials_quota_history_cost_per_point'),
           data: costValues,
           yAxisID: 'cost',
-          borderColor: USAGE_CHART_REQUESTS_LINE_COLOR,
-          backgroundColor: USAGE_CHART_REQUESTS_LINE_COLOR,
-          pointBackgroundColor: USAGE_CHART_REQUESTS_LINE_COLOR,
-          pointBorderColor: isDark ? '#111827' : '#ffffff',
+          borderColor: costLineColor,
+          backgroundColor: costLineColor,
+          pointBackgroundColor: costLineColor,
+          pointBorderColor: pointHaloBorder,
           pointBorderWidth: 2,
-          // 连续折线不画圆点；只有无法形成线段的单点才保留可见标记。
-          pointRadius: (context) => isIsolatedCostPoint(costValues, context.dataIndex) ? 3 : 0,
-          pointHoverRadius: 5,
+          // 连续折线不画圆点；只有无法形成线段的单点才保留可见标记，悬浮带表面反差光晕。
+          pointRadius: (context) => isIsolatedCostPoint(costValues, context.dataIndex) ? 3.5 : 0,
+          pointHoverRadius: 4.5,
+          pointHoverBorderWidth: 2,
+          pointHoverBorderColor: pointHaloBorder,
           borderWidth: 2,
-          borderDash: [6, 4],
+          borderDash: [5, 4],
           tension: 0.24,
           spanGaps: false,
           order: 1,
@@ -886,16 +909,26 @@ function buildEfficiencyChart(
           data: points.map(({ remainingPercent }) => remainingPercent),
           yAxisID: 'remaining',
           borderColor: remainingLineColor,
-          backgroundColor: remainingLineColor,
+          backgroundColor: (context) => {
+            const { chart } = context
+            if (!chart.chartArea) return remainingAreaTop
+            const gradient = chart.ctx.createLinearGradient(0, chart.chartArea.top, 0, chart.chartArea.bottom)
+            gradient.addColorStop(0, remainingAreaTop)
+            gradient.addColorStop(1, 'rgba(148, 163, 184, 0)')
+            return gradient
+          },
+          fill: 'origin',
           pointBackgroundColor: remainingLineColor,
-          pointBorderColor: isDark ? '#111827' : '#ffffff',
+          pointBorderColor: pointHaloBorder,
           pointBorderWidth: 1.5,
           pointRadius: 0,
-          pointHoverRadius: 3,
-          borderWidth: 2,
-          tension: 0,
+          pointHoverRadius: 3.5,
+          pointHoverBorderWidth: 2,
+          pointHoverBorderColor: pointHaloBorder,
+          borderWidth: 1.5,
+          tension: 0.15,
           spanGaps: false,
-          order: 0,
+          order: 3,
         },
       ],
     },
@@ -907,35 +940,59 @@ function buildEfficiencyChart(
         legend: { display: false },
         tooltip: {
           ...buildUsageChartTooltipStyle(chartTheme),
-          displayColors: false,
+          boxPadding: 5,
+          itemSort: (left, right) => left.datasetIndex - right.datasetIndex,
           callbacks: {
-            label: (context) => {
-              if (context.datasetIndex !== 0) return []
+            // 柱体使用渐变函数且 borderWidth 为 0，显式返回纯色色标以保证 Tooltip 色点清晰可见。
+            labelColor: (context) => {
               const point = points[context.dataIndex]
-              if (!point) return []
-              return [
-                `${t('usage_stats.credentials_quota_history_tokens_per_point')}: ${formatCompactNumber(point.transition.tokens_per_point)}`,
-                `${t('usage_stats.credentials_quota_history_cost_per_point')}: ${point.transition.cost_per_point_available
+              if (context.datasetIndex === 0) {
+                const color = point?.transition.is_direct
+                  ? QUOTA_EFFICIENCY_BAR_COLORS.direct.base
+                  : QUOTA_EFFICIENCY_BAR_COLORS.averaged.base
+                return { borderColor: color, backgroundColor: color }
+              }
+              if (context.datasetIndex === 1) {
+                return { borderColor: costLineColor, backgroundColor: costLineColor }
+              }
+              return { borderColor: remainingLineColor, backgroundColor: remainingLineColor }
+            },
+            label: (context) => {
+              const point = points[context.dataIndex]
+              if (!point) return ''
+              if (context.datasetIndex === 0) {
+                return `${t('usage_stats.credentials_quota_history_tokens_per_point')}: ${formatCompactNumber(point.transition.tokens_per_point)}`
+              }
+              if (context.datasetIndex === 1) {
+                return `${t('usage_stats.credentials_quota_history_cost_per_point')}: ${point.transition.cost_per_point_available
                   ? formatUsd(point.transition.cost_per_point)
-                  : t('usage_stats.credentials_quota_history_cost_missing')}`,
-              ]
+                  : t('usage_stats.credentials_quota_history_cost_missing')}`
+              }
+              return `${t('usage_stats.credentials_quota_history_remaining_percentage')}: ${point.remainingPercent}%`
             },
             afterBody: (items) => {
               const point = points[items[0]?.dataIndex]
               if (!point) return []
+              const lines: string[] = []
+              // Chart.js 在 mode='index' 下不会为 null 费用点触发 dataset 1 的 label，缺价时在 afterBody 开头补齐展示。
+              if (!point.transition.cost_per_point_available) {
+                lines.push(`${t('usage_stats.credentials_quota_history_cost_per_point')}: ${t('usage_stats.credentials_quota_history_cost_missing')}`)
+              }
               const interval = `${t('usage_stats.credentials_quota_history_interval')}: ${formatTime(point.transition.interval_started_at)} → ${formatTime(point.transition.interval_ended_at)}`
-              const remaining = `${t('usage_stats.credentials_quota_history_remaining_percentage')}: ${point.remainingPercent}%`
               // Direct 与跨百分点样本统一显示真实观察时间；跨百分点再补充整段变化和总用量。
-              if (point.transition.is_direct) return [remaining, interval]
-              return [
-                remaining,
+              if (point.transition.is_direct) {
+                lines.push(interval)
+                return lines
+              }
+              lines.push(
                 `${t('usage_stats.credentials_quota_history_change')}: ${point.transition.from_remaining_percent}% → ${point.transition.to_remaining_percent}%`,
                 interval,
                 `${t('usage_stats.total_tokens')}: ${formatCompactNumber(point.transition.usage.total_tokens)} Token`,
                 `${t('usage_stats.total_cost')}: ${point.transition.usage.cost_available
                   ? formatUsd(point.transition.usage.total_cost_usd)
                   : t('usage_stats.credentials_quota_history_cost_missing')}`,
-              ]
+              )
+              return lines
             },
           },
         },
@@ -958,6 +1015,10 @@ function buildEfficiencyChart(
         tokens: {
           position: 'left',
           beginAtZero: true,
+          beforeFit: (axis) => {
+            const options = axis.options as LinearScaleOptions
+            if (options.title) options.title.display = (axis.chart?.width || 600) >= 480
+          },
           ticks: { color: muted, font: { size: 10 }, maxTicksLimit: 5, callback: (value) => formatCompactNumber(Number(value)) },
           grid: { color: grid },
           border: { display: false },
@@ -966,6 +1027,10 @@ function buildEfficiencyChart(
         cost: {
           position: 'right',
           beginAtZero: true,
+          beforeFit: (axis) => {
+            const options = axis.options as LinearScaleOptions
+            if (options.title) options.title.display = (axis.chart?.width || 600) >= 480
+          },
           ticks: { color: muted, font: { size: 10 }, maxTicksLimit: 5, callback: (value) => formatUsd(Number(value)) },
           grid: { drawOnChartArea: false },
           border: { display: false },
