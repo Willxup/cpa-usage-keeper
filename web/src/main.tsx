@@ -12,6 +12,9 @@ import './styles/components.scss';
 import './styles/global.scss';
 import { useThemeStore } from './stores';
 
+document.documentElement.lang = i18n.language;
+i18n.on('languageChanged', (language) => { document.documentElement.lang = language; });
+
 const faviconEl = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 faviconEl.rel = 'icon';
 faviconEl.type = 'image/svg+xml';

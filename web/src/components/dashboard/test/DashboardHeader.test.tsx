@@ -11,7 +11,7 @@ const themeState = { theme: 'white' };
 const changeLanguage = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/stores', () => ({ useThemeStore: (select: (state: object) => unknown) => select({ theme: themeState.theme, setTheme }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en', changeLanguage } }) }));
-vi.mock('@/i18n', () => ({ isSupportedLanguage: (language: string) => ['en', 'zh', 'zh-TW'].includes(language), persistLanguage: vi.fn() }));
+vi.mock('@/i18n', () => ({ isSupportedLanguage: (language: string) => ['en', 'zh', 'zh-TW', 'ru'].includes(language), persistLanguage: vi.fn() }));
 
 describe('DashboardHeader actions', () => {
   let container: HTMLDivElement;
@@ -111,13 +111,13 @@ describe('DashboardHeader actions', () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
 
-  it('keeps the shared language listbox and restores focus after selection', async () => {
+  it.each([['简体中文', 'zh'], ['Русский', 'ru']])('restores focus after selecting %s', async (label, code) => {
     await act(async () => root.render(<DashboardHeader onLogout={vi.fn()} />));
     const language = container.querySelector<HTMLButtonElement>('[aria-label="usage_stats.language_switch: English"]')!;
     await act(async () => language.click());
-    const chinese = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(option => option.textContent === '简体中文')!;
-    await act(async () => chinese.click());
-    expect(changeLanguage).toHaveBeenCalledWith('zh');
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(item => item.textContent === label)!;
+    await act(async () => option.click());
+    expect(changeLanguage).toHaveBeenCalledWith(code);
     expect(document.activeElement).toBe(language);
     expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
