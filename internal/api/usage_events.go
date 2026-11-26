@@ -330,6 +330,164 @@ func registerUsageEventsRoute(
 	})
 }
 
+func registerKeyUsageEventsRoute(
+	router gin.IRoutes,
+	usageProvider service.UsageProvider,
+	usageIdentityProvider service.UsageIdentityProvider,
+) {
+	exportSlots := make(chan struct{}, usageEventsExportMaxConcurrency)
+
+	router.GET("/key-events/filters/models", func(c *gin.Context) {
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if usageProvider == nil {
+			c.JSON(http.StatusOK, gin.H{"models": []string{}})
+			return
+		}
+		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), servicedto.UsageFilter{
+			APIKeyID: strconv.FormatInt(session.CPAAPIKeyID, 10),
+		})
+		if err != nil {
+			writeInternalError(c, "list key usage event model filter options failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"models": options.Models})
+	})
+
+	router.GET("/key-events/filters/sources", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		sources, err := loadMaskedUsageEventSourceFilterOptions(c, usageIdentityProvider)
+		if err != nil {
+			writeInternalError(c, "list key usage event source filter options failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"sources": sources})
+	})
+
+	router.GET("/key-events", func(c *gin.Context) {
+		session, apiKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if usageProvider == nil {
+			c.JSON(http.StatusOK, usageEventsResponse{Events: []usageEventPayload{}, Page: 1, PageSize: servicedto.DefaultUsageEventsLimit})
+			return
+		}
+
+		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		if err := applyUsageEventsSourceFilter(&filter); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		// Viewer 只能读取当前已登录 API Key 自身的请求事件，客户端 api_key_id 参数强制覆盖。
+		filter.APIKeyID = strconv.FormatInt(session.CPAAPIKeyID, 10)
+
+		rows, err := usageProvider.ListUsageEvents(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "list key usage events failed", err)
+			return
+		}
+
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
+		if err != nil {
+			writeInternalError(c, "load usage resolution data failed", err)
+			return
+		}
+		resolver := newMaskedUsageIdentityResolver(identities)
+		apiKeyInfos := map[string]analysisAPIKeyInfo{
+			apiKey.APIKey: {ID: strconv.FormatInt(apiKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(apiKey)},
+		}
+		nextCursor := ""
+		if filter.CursorMode && rows.HasMore && len(rows.Events) > 0 {
+			lastEvent := rows.Events[len(rows.Events)-1]
+			nextCursor = encodeUsageEventsCursor(lastEvent.Timestamp, lastEvent.ID)
+		}
+		c.JSON(http.StatusOK, usageEventsResponse{
+			Events:     buildUsageEventsPayload(rows.Events, resolver, apiKeyInfos),
+			TotalCount: rows.TotalCount,
+			Page:       rows.Page,
+			PageSize:   rows.PageSize,
+			TotalPages: rows.TotalPages,
+			NextCursor: nextCursor,
+			HasMore:    rows.HasMore,
+		})
+	})
+
+	router.GET("/key-events/export", func(c *gin.Context) {
+		session, apiKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		format := strings.ToLower(strings.TrimSpace(c.Query("format")))
+		if format == "" {
+			format = "csv"
+		}
+		if format != "csv" && format != "json" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid export format"})
+			return
+		}
+
+		filter, err := parseUsageExportFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		if err := applyUsageEventsSourceFilter(&filter); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		filter.APIKeyID = strconv.FormatInt(session.CPAAPIKeyID, 10)
+		select {
+		case exportSlots <- struct{}{}:
+			defer func() { <-exportSlots }()
+		default:
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "usage events export capacity is full"})
+			return
+		}
+		filter.Limit = 0
+		filter.Page = 0
+		filter.PageSize = 0
+		filter.Offset = 0
+
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
+		if err != nil {
+			writeInternalError(c, "load usage resolution data failed", err)
+			return
+		}
+		resolver := newMaskedUsageIdentityResolver(identities)
+		apiKeyInfos := map[string]analysisAPIKeyInfo{
+			apiKey.APIKey: {ID: strconv.FormatInt(apiKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(apiKey)},
+		}
+		streamEvents := func(emit func(servicedto.UsageEventRecord) error) error {
+			if usageProvider == nil {
+				return nil
+			}
+			return usageProvider.StreamUsageEvents(c.Request.Context(), filter, emit)
+		}
+		if format == "json" {
+			if err := writeUsageEventsJSONExport(c, streamEvents, resolver, apiKeyInfos); err != nil {
+				writeUsageEventsExportError(c, err)
+			}
+			return
+		}
+		if err := writeUsageEventsCSVExport(c, streamEvents, resolver, apiKeyInfos); err != nil {
+			writeUsageEventsExportError(c, err)
+		}
+	})
+}
+
 func registerUsageEventRequestLogDownloadTokenRoutes(
 	router gin.IRoutes,
 	requestLogProvider service.RequestLogProvider,
@@ -428,7 +586,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 	payload := make([]usageEventPayload, 0, len(rows))
 	for _, row := range rows {
 		identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
-		source, isDelete := usageEventPublicSource(row, identity, matched)
+		source, isDelete := usageEventPublicSource(row, identity, matched, resolver.maskAccountNames)
 		id := ""
 		if row.ID != 0 {
 			id = strconv.FormatInt(row.ID, 10)
@@ -515,7 +673,7 @@ func writeUsageEventRequestLogError(c *gin.Context, err error) {
 
 func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) usageEventExportPayload {
 	identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
-	source, isIdentityDeleted := usageEventPublicSource(row, identity, matched)
+	source, isIdentityDeleted := usageEventPublicSource(row, identity, matched, resolver.maskAccountNames)
 	id := ""
 	if row.ID != 0 {
 		id = strconv.FormatInt(row.ID, 10)
@@ -883,7 +1041,7 @@ func usageEventCPAAPIKeyID(apiGroupKey string, apiKeyInfos map[string]analysisAP
 	return ""
 }
 
-func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUsageIdentity, matched bool) (string, bool) {
+func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUsageIdentity, matched bool, maskAccountNames bool) (string, bool) {
 	if matched {
 		return identity.DisplayName, false
 	}
@@ -892,7 +1050,11 @@ func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUs
 	case "apikey":
 		return strings.TrimSpace(row.Provider), isDelete
 	case "oauth":
-		return strings.TrimSpace(row.Source), isDelete
+		source := strings.TrimSpace(row.Source)
+		if maskAccountNames {
+			source = helper.MaskAccountName(source)
+		}
+		return source, isDelete
 	default:
 		return strings.TrimSpace(row.Provider), isDelete
 	}
@@ -914,11 +1076,19 @@ func loadUsageEventSourceFilterOptions(c *gin.Context, usageIdentityProvider ser
 	if err != nil {
 		return nil, err
 	}
-	return buildUsageSourceFilterOptions(identities), nil
+	return buildUsageSourceFilterOptions(identities, false), nil
+}
+
+func loadMaskedUsageEventSourceFilterOptions(c *gin.Context, usageIdentityProvider service.UsageIdentityProvider) ([]usageSourceFilterOption, error) {
+	identities, err := loadUsageResolutionData(c, usageIdentityProvider)
+	if err != nil {
+		return nil, err
+	}
+	return buildUsageSourceFilterOptions(identities, true), nil
 }
 
 // Source 筛选项从活跃身份生成，避免把 usage_events.source 当成可选项暴露给页面。
-func buildUsageSourceFilterOptions(identities []entities.UsageIdentity) []usageSourceFilterOption {
+func buildUsageSourceFilterOptions(identities []entities.UsageIdentity, maskAccountNames bool) []usageSourceFilterOption {
 	if len(identities) == 0 {
 		return []usageSourceFilterOption{}
 	}
@@ -929,7 +1099,7 @@ func buildUsageSourceFilterOptions(identities []entities.UsageIdentity) []usageS
 		if identity.IsDeleted || identity.TotalRequests == 0 {
 			continue
 		}
-		option, ok := usageSourceFilterOptionFromIdentity(identity)
+		option, ok := usageSourceFilterOptionFromIdentity(identity, maskAccountNames)
 		if !ok {
 			continue
 		}
@@ -942,7 +1112,7 @@ func buildUsageSourceFilterOptions(identities []entities.UsageIdentity) []usageS
 	return options
 }
 
-func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity) (usageSourceFilterOption, bool) {
+func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity, maskAccountNames bool) (usageSourceFilterOption, bool) {
 	switch identity.AuthType {
 	case entities.UsageIdentityAuthTypeCredential, entities.UsageIdentityAuthTypeAIProvider:
 		value := strings.TrimSpace(identity.Identity)
@@ -950,6 +1120,9 @@ func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity) (usage
 			return usageSourceFilterOption{}, false
 		}
 		displayName := helper.UsageIdentityDisplayName(identity)
+		if maskAccountNames {
+			displayName = helper.UsageIdentityMaskedDisplayName(identity)
+		}
 		return usageSourceFilterOption{Value: value, Label: displayName, DisplayName: displayName}, true
 	default:
 		return usageSourceFilterOption{}, false

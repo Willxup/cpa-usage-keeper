@@ -167,9 +167,14 @@ func NewRouter(
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
 	keyViewerProtected.Use(authHandler.activeAPIKeyViewerMiddleware())
 	keyViewerProtected.Use(costReadMiddleware(costReadGate, basePath))
+	registerKeyStatusRoute(keyViewerProtected)
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider)
 	registerKeyUsageAnalysisRoute(keyViewerProtected, usageProvider)
+	registerKeyUsageEventsRoute(keyViewerProtected, usageProvider, usageIdentityProvider)
+	registerKeyUsageEventsLiveRoute(keyViewerProtected, usageProvider, usageIdentityProvider, usageEventsLive, costReadGate, authHandler, usageEventsLiveContext)
+	registerKeyCredentialsRoutes(keyViewerProtected, usageIdentityProvider)
+	registerKeyQuotaRoutes(keyViewerProtected, quotaProvider)
 
 	registerStaticRoutes(router, appGroup, staticFS, authConfig.FrameAncestorOrigins, basePath, nil)
 
@@ -305,6 +310,16 @@ func buildVersionResponse() versionResponse {
 		Version:            version.Version,
 		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
 	}
+}
+
+func registerKeyStatusRoute(router gin.IRoutes) {
+	router.GET("/key-status", func(c *gin.Context) {
+		if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"timezone": time.Local.String()})
+	})
 }
 
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, config StatusRouteConfig) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, fetchUsageQuotaCache } from '@/lib/api'
+import { ApiError, fetchKeyQuotaCache, fetchUsageQuotaCache } from '@/lib/api'
 import type { UsageQuotaCheckResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, type QuotaState } from './useQuotaRefreshTasks'
 
@@ -8,6 +8,7 @@ export const QUOTA_CACHE_REFRESH_INTERVAL_MS = 60 * 1000
 export const buildQuotaCacheAuthIndexesKey = (authIndexes: string[]) => JSON.stringify(authIndexes)
 
 interface UseQuotaCacheOptions {
+  viewer?: 'admin' | 'key'
   enabled: boolean
   authIndexes: string[]
   onAuthRequired?: () => void
@@ -21,7 +22,7 @@ export interface QuotaCacheState {
   resetQuotaCache: () => void
 }
 
-export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuotaCacheOptions): QuotaCacheState {
+export function useQuotaCache({ viewer = 'admin', enabled, authIndexes, onAuthRequired }: UseQuotaCacheOptions): QuotaCacheState {
   const [snapshot, setSnapshot] = useState<QuotaSnapshot>({ quotas: {}, states: {} })
   // 每个凭证单独记录手动任务更新；缓存请求只可写回读取期间未变化且未在刷新中的条目。
   const refreshRevisions = useRef<Record<string, number>>({})
@@ -91,7 +92,8 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
     const revisions = new Map(stableAuthIndexes.map((authIndex) => [authIndex, refreshRevisions.current[authIndex]]))
     try {
       // 缓存接口不会刷新限额；当前页有多少 auth_index 就查询多少缓存。
-      const response = await fetchUsageQuotaCache(stableAuthIndexes, controller.signal)
+      const loadCache = viewer === 'key' ? fetchKeyQuotaCache : fetchUsageQuotaCache
+      const response = await loadCache(stableAuthIndexes, controller.signal)
       if (controller.signal.aborted || requestControllerRef.current !== controller) {
         return
       }
@@ -125,7 +127,7 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
         requestControllerRef.current = null
       }
     }
-  }, [enabled, onAuthRequired, stableAuthIndexes])
+  }, [enabled, onAuthRequired, stableAuthIndexes, viewer])
 
   useEffect(() => {
     void refreshQuotaCache()

@@ -19,7 +19,7 @@ import { QuotaResetAction } from '../quota/QuotaResetAction'
 import { credentialResetCapabilities, isRowRefreshing } from '../quota/credentialQuotaCapabilities'
 import { CredentialRowShell, CredentialTableHeader, ListMetric } from './CredentialListShell'
 
-export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority }: CredentialViewProps & { contentMode: CredentialListContentMode }) {
+export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode, readOnly = false, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority }: CredentialViewProps & { contentMode: CredentialListContentMode }) {
   const { t } = useTranslation()
   const { badges, portal } = useCredentialExpiryTooltip(rows)
   const showHealthMode = contentMode === 'health'
@@ -53,7 +53,7 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
-                  readOnly={row.identity.is_deleted}
+                  readOnly={row.identity.is_deleted || readOnly}
                   onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
                 />
               ) : (
@@ -99,8 +99,8 @@ export function CredentialListView({ rows, timeZone, quotaUsageMode, contentMode
               <div className={listStyles.credentialQuotaSideWithAction}>
                 <CredentialQuotaPanel row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
                 <div className={listStyles.credentialQuotaActionStack}>
-                  {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
-                  {resetCredits > 0 && (
+                  {/* reset 按钮只在官方缓存给出可用次数且允许重置时展示；refresh 始终保留在右侧列居中位置。 */}
+                  {onResetQuotaForAuthIndex && resetCredits > 0 && (
                     <QuotaResetAction
                       variant="list"
                       authIndex={row.identity.identity}

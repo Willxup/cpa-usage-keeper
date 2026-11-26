@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
-import { ApiError, fetchErrorEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
+import { ApiError, fetchErrorEvents, fetchKeyEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
 import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
 import { CredentialQuotaPanel } from './quota/CredentialQuotaPanel'
 import { CredentialErrorEventsList } from './CredentialErrorEventsList'
@@ -33,6 +33,7 @@ type CredentialDetailTab = 'overview' | 'quota-history' | 'requests' | 'errors'
 interface CredentialDetailDrawerProps {
   open: boolean
   selection: CredentialDetailSelection | null
+  viewer?: 'admin' | 'key'
   timeZone?: string
   fallbackFocusRef?: RefObject<HTMLElement | null>
   onAuthRequired?: () => void
@@ -81,6 +82,7 @@ function appendCredentialErrorEvents(
 export function CredentialDetailDrawer({
   open,
   selection,
+  viewer = 'admin',
   timeZone,
   fallbackFocusRef,
   onAuthRequired,
@@ -160,11 +162,14 @@ export function CredentialDetailDrawer({
       setResettingStats(false)
     }
   }
+  const isKeyViewer = viewer === 'key'
   const quotaHistoryProvider = selection?.kind === 'credential' ? identity?.type?.trim().toLowerCase() : undefined
   const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
-  const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
-    ? ['overview', 'quota-history', 'requests', 'errors']
-    : ['overview', 'requests', 'errors'], [hasQuotaHistory])
+  const availableTabs = useMemo<CredentialDetailTab[]>(() => {
+    const tabs: CredentialDetailTab[] = hasQuotaHistory ? ['overview', 'quota-history', 'requests'] : ['overview', 'requests']
+    if (!isKeyViewer) tabs.push('errors')
+    return tabs
+  }, [hasQuotaHistory, isKeyViewer])
 
   const resetRequestEvents = useCallback(() => {
     firstPageControllerRef.current?.abort()
@@ -208,9 +213,11 @@ export function CredentialDetailDrawer({
   }, [open, resetErrorEvents, resetRequestEvents, selectionKey])
 
   useEffect(() => {
-    // 同一身份同步后可能切换类型；失去历史能力时立即退出标签。
-    if (activeTab === 'quota-history' && !hasQuotaHistory) setActiveTab('overview')
-  }, [activeTab, hasQuotaHistory])
+    // 同一身份同步后可能切换类型；失去历史能力或只读模式下隐藏错误页时立即退出标签。
+    if ((activeTab === 'quota-history' && !hasQuotaHistory) || (activeTab === 'errors' && isKeyViewer)) {
+      setActiveTab('overview')
+    }
+  }, [activeTab, hasQuotaHistory, isKeyViewer])
 
   const loadFirstPage = useCallback(async () => {
     if (!open || activeTab !== 'requests' || !sourceFilter) return
@@ -224,8 +231,9 @@ export function CredentialDetailDrawer({
     setEventsAutoLoadMore(true)
     setEventsError('')
     try {
-      // 详情列表固定从当前凭证最近的原始事件开始，不继承外层页面的查询条件。
-      const response = await fetchUsageEvents(undefined, controller.signal, {
+      // 详情列表固定从当前凭证最近的原始事件开始，不继承外层页面的查询条件；Key Viewer 仅查看自身 Key 的请求。
+      const loadEvents = isKeyViewer ? fetchKeyEvents : fetchUsageEvents
+      const response = await loadEvents(undefined, controller.signal, {
         authType: authTypeFilter,
         pageSize: REQUEST_EVENTS_PAGE_SIZE,
         cursorMode: true,
@@ -253,7 +261,7 @@ export function CredentialDetailDrawer({
         setEventsLoading(false)
       }
     }
-  }, [activeTab, authTypeFilter, onAuthRequired, open, sourceFilter, t])
+  }, [activeTab, authTypeFilter, isKeyViewer, onAuthRequired, open, sourceFilter, t])
 
   useEffect(() => {
     if (!open || activeTab !== 'requests') return
@@ -370,7 +378,8 @@ export function CredentialDetailDrawer({
     setEventsLoadingMore(true)
     setEventsError('')
     try {
-      const response = await fetchUsageEvents(undefined, controller.signal, {
+      const loadEvents = isKeyViewer ? fetchKeyEvents : fetchUsageEvents
+      const response = await loadEvents(undefined, controller.signal, {
         authType: authTypeFilter,
         pageSize: REQUEST_EVENTS_PAGE_SIZE,
         cursorMode: true,
@@ -396,7 +405,7 @@ export function CredentialDetailDrawer({
         setEventsLoadingMore(false)
       }
     }
-  }, [authTypeFilter, eventsLoading, eventsLoadingMore, eventsNextCursor, onAuthRequired, sourceFilter, t])
+  }, [authTypeFilter, eventsLoading, eventsLoadingMore, eventsNextCursor, isKeyViewer, onAuthRequired, sourceFilter, t])
 
   const loadMoreErrorEvents = useCallback(async () => {
     const cursor = errorEventsNextCursor?.trim()
@@ -437,7 +446,9 @@ export function CredentialDetailDrawer({
         <strong>{row.displayName}</strong>
         <span data-credential-detail-subtitle>
           {selection.kind === 'credential'
-            ? identity.file_name?.trim() || '-'
+            ? isKeyViewer
+              ? `${row.providerLabel} · ${row.typeLabel}`
+              : identity.file_name?.trim() || '-'
             : `${row.providerLabel} · ${row.typeLabel} · ${row.authTypeLabel}`}
         </span>
       </div>
@@ -511,21 +522,23 @@ export function CredentialDetailDrawer({
             >
               {t('usage_stats.credentials_detail_requests_tab')}
             </button>
-            <button
-              ref={errorsTabRef}
-              id={errorsTabId}
-              type="button"
-              role="tab"
-              className={styles.tabButton}
-              aria-selected={activeTab === 'errors'}
-              aria-controls={errorsPanelId}
-              tabIndex={activeTab === 'errors' ? 0 : -1}
-              data-credential-detail-tab="errors"
-              onClick={() => activateTab('errors')}
-              onKeyDown={handleTabKeyDown}
-            >
-              {t('usage_stats.credentials_detail_errors_tab')}
-            </button>
+            {!isKeyViewer ? (
+              <button
+                ref={errorsTabRef}
+                id={errorsTabId}
+                type="button"
+                role="tab"
+                className={styles.tabButton}
+                aria-selected={activeTab === 'errors'}
+                aria-controls={errorsPanelId}
+                tabIndex={activeTab === 'errors' ? 0 : -1}
+                data-credential-detail-tab="errors"
+                onClick={() => activateTab('errors')}
+                onKeyDown={handleTabKeyDown}
+              >
+                {t('usage_stats.credentials_detail_errors_tab')}
+              </button>
+            ) : null}
           </div>
           {((activeTab === 'requests' && eventsError && events.length === 0 && !eventsLoading)
             || (activeTab === 'errors' && errorEventsError && errorEvents.length === 0 && !errorEventsLoading)) ? (
@@ -581,11 +594,11 @@ export function CredentialDetailDrawer({
               <div className={styles.quotaRows}><DrawerQuotaPanel key={selectionKey} row={selection.row} quotaUsageMode="current" timeZone={timeZone} /></div>
             </section>
           ) : null}
-          <DrawerModelUsage identityId={identityId} onAuthRequired={onAuthRequired} />
+          <DrawerModelUsage identityId={identityId} onAuthRequired={onAuthRequired} viewer={viewer} />
           </section>
         ) : activeTab === 'quota-history' && hasQuotaHistory ? (
           <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
-            <CodexQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
+            <CodexQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} viewer={viewer} readOnly={isKeyViewer} />
           </section>
         ) : activeTab === 'requests' ? (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>
@@ -598,13 +611,13 @@ export function CredentialDetailDrawer({
                 loadingMore={eventsLoadingMore}
                 autoLoadMore={eventsAutoLoadMore}
                 onLoadMore={() => void loadMore()}
-                requestLogAccessEnabled={requestLogAccessEnabled}
-                onRequestLogOpen={onRequestLogOpen}
+                requestLogAccessEnabled={isKeyViewer ? false : requestLogAccessEnabled}
+                onRequestLogOpen={isKeyViewer ? undefined : onRequestLogOpen}
                 requestLogLoadingEventId={requestLogLoadingEventId}
               />
             )}
           </section>
-        ) : (
+        ) : !isKeyViewer ? (
           <section id={errorsPanelId} role="tabpanel" aria-labelledby={errorsTabId} className={styles.errorsPanel}>
             {errorEventsError ? <div className={styles.requestError} role="status">{errorEventsError}</div> : null}
             {errorEventsError && errorEvents.length === 0 ? null : (
@@ -618,7 +631,7 @@ export function CredentialDetailDrawer({
               />
             )}
           </section>
-        )}
+        ) : null}
       </Modal>
       </CredentialDetailOpenContext.Provider>
       <Modal

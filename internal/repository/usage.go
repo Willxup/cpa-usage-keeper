@@ -350,9 +350,13 @@ func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 	return query
 }
 
-// Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
+// Request Event Log 筛选项第一步：只应用时间窗口与可选 API Key 范围，不叠加当前列表筛选。
 func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	return applyUsageQueryWindow(query, filter)
+	query = applyUsageQueryWindow(query, filter)
+	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
+		query = query.Where("api_group_key = ?", apiGroupKey)
+	}
+	return query
 }
 
 // Request Event Log 列表第一步：在时间窗口上叠加 model/auth_index/result。

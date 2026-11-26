@@ -38,11 +38,15 @@ func isCostReadRoute(method, path string) bool {
 			"/api/v1/usage/analysis", "/api/v1/usage/events", "/api/v1/usage/events/export",
 			"/api/v1/usage/identities/:id/models",
 			"/api/v1/key-overview", "/api/v1/key-overview/comparisons", "/api/v1/key-overview/realtime",
-			"/api/v1/key-analysis", "/api/v1/quota/history/:auth_index", "/api/v1/quota/refresh/:auth_index":
+			"/api/v1/key-analysis", "/api/v1/key-events", "/api/v1/key-events/export",
+			"/api/v1/key-credentials/:id/models",
+			"/api/v1/key-quota/history/:auth_index", "/api/v1/key-quota/refresh/:auth_index",
+			"/api/v1/quota/history/:auth_index", "/api/v1/quota/refresh/:auth_index":
 			return true
 		}
 	case http.MethodPost:
-		return path == "/api/v1/quota/cache" || path == "/api/v1/quota/refresh"
+		return path == "/api/v1/quota/cache" || path == "/api/v1/quota/refresh" ||
+			path == "/api/v1/key-quota/cache" || path == "/api/v1/key-quota/refresh"
 	}
 	return false
 }

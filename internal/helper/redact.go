@@ -43,3 +43,83 @@ func CPAAPIKeyDisplayName(row entities.CPAAPIKey) string {
 	}
 	return CPAAPIKeyMaskedDisplayKey(row)
 }
+
+// MaskAccountName 对面向 API Key 只读视图的账号名称/邮箱进行脱敏，保留少量首尾字符以便区分不同凭证。
+func MaskAccountName(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	if at := strings.LastIndex(trimmed, "@"); at > 0 && at < len(trimmed)-1 {
+		local := trimmed[:at]
+		domain := trimmed[at+1:]
+		return maskEmailLocal(local) + "@" + maskEmailDomain(domain)
+	}
+	return maskGenericLabel(trimmed)
+}
+
+func maskEmailLocal(local string) string {
+	runes := []rune(strings.TrimSpace(local))
+	switch n := len(runes); {
+	case n == 0:
+		return "***"
+	case n == 1:
+		return "*"
+	case n == 2:
+		return string(runes[:1]) + "***"
+	case n <= 4:
+		return string(runes[:1]) + "***" + string(runes[n-1:])
+	default:
+		return string(runes[:2]) + "***" + string(runes[n-2:])
+	}
+}
+
+func maskEmailDomain(domain string) string {
+	cleaned := strings.TrimSpace(domain)
+	if strings.HasSuffix(strings.ToLower(cleaned), ".json") && len(cleaned) > 5 {
+		cleaned = cleaned[:len(cleaned)-5]
+	}
+	parts := strings.Split(cleaned, ".")
+	if len(parts) < 2 {
+		return maskDomainLabel(cleaned)
+	}
+	tld := parts[len(parts)-1]
+	head := parts[0]
+	if head == "" || tld == "" {
+		return maskDomainLabel(cleaned)
+	}
+	return maskDomainLabel(head) + "." + tld
+}
+
+func maskDomainLabel(label string) string {
+	runes := []rune(strings.TrimSpace(label))
+	if len(runes) == 0 {
+		return "***"
+	}
+	return string(runes[:1]) + "***"
+}
+
+func maskGenericLabel(value string) string {
+	runes := []rune(value)
+	switch n := len(runes); {
+	case n <= 2:
+		return "***"
+	case n <= 6:
+		return string(runes[:1]) + "***" + string(runes[n-1:])
+	default:
+		return string(runes[:2]) + "***" + string(runes[n-2:])
+	}
+}
+
+// UsageIdentityMaskedDisplayName 返回面向 API Key 只读视图的凭证脱敏展示名；管理员设置的非邮箱别名保持原样。
+func UsageIdentityMaskedDisplayName(item entities.UsageIdentity) string {
+	if item.Alias != nil {
+		if alias := strings.TrimSpace(*item.Alias); alias != "" {
+			if !strings.Contains(alias, "@") {
+				return alias
+			}
+			return MaskAccountName(alias)
+		}
+	}
+	return MaskAccountName(UsageIdentityDisplayName(item))
+}

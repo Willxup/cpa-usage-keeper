@@ -18,7 +18,7 @@ import { QuotaResetAction } from '../quota/QuotaResetAction'
 import { CredentialQuotaPanel } from '../quota/CredentialQuotaPanel'
 import { credentialResetCapabilities, isRowRefreshing } from '../quota/credentialQuotaCapabilities'
 
-export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority }: CredentialViewProps) {
+export function CredentialCardsView({ rows, timeZone, quotaUsageMode, readOnly = false, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority }: CredentialViewProps) {
   const { t } = useTranslation()
   const { badges, portal } = useCredentialExpiryTooltip(rows)
   return <>
@@ -44,7 +44,7 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
-                  readOnly={row.identity.is_deleted}
+                  readOnly={row.identity.is_deleted || readOnly}
                   onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
                 />
               )
@@ -87,7 +87,7 @@ export function CredentialCardsView({ rows, timeZone, quotaUsageMode, onRefreshQ
                       {rowRefreshing ? <LoadingSpinner size={15} /> : <IconRefreshCw size={15} />}
                     </button>}
                   </CredentialCardActionTooltip>
-                  {resetCredits > 0 && (
+                  {onResetQuotaForAuthIndex && resetCredits > 0 && (
                     <QuotaResetAction
                       authIndex={row.identity.identity}
                       resetCredits={resetCredits}

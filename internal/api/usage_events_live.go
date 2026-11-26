@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -64,13 +65,16 @@ func liveBounds(filter servicedto.UsageFilter) usageEventsLiveBounds {
 	return usageEventsLiveBounds{RangeStart: timeutil.FormatStorageTime(*filter.StartTime), RangeEnd: timeutil.FormatStorageTime(*filter.EndTime), EndExclusive: filter.EndExclusive}
 }
 
-func liveFilter(c *gin.Context, anchor time.Time) (servicedto.UsageFilter, error) {
+func liveFilter(c *gin.Context, anchor time.Time, forcedAPIKeyID string) (servicedto.UsageFilter, error) {
 	filter, err := parseUsageFilterQuery(c.Request, anchor)
 	if err != nil {
 		return filter, err
 	}
 	if err = applyUsageEventsSourceFilter(&filter); err != nil {
 		return filter, err
+	}
+	if forcedAPIKeyID != "" {
+		filter.APIKeyID = forcedAPIKeyID
 	}
 	filter.CursorMode = true
 	filter.CursorTimestamp = nil
@@ -80,8 +84,8 @@ func liveFilter(c *gin.Context, anchor time.Time) (servicedto.UsageFilter, error
 	return filter, nil
 }
 
-// liveSessionValid 不 Touch 会话，防止长连接自动延长或复活已撤销的管理员会话。
-func liveSessionValid(c *gin.Context, handler *authHandler) bool {
+// liveSessionValid 不 Touch 会话，防止长连接自动延长或复活已撤销的会话。
+func liveSessionValid(c *gin.Context, handler *authHandler, allowedRole auth.Role, viewerAPIKeyID int64) bool {
 	if handler == nil || !handler.config.Enabled {
 		return true
 	}
@@ -91,88 +95,134 @@ func liveSessionValid(c *gin.Context, handler *authHandler) bool {
 		return false
 	}
 	session, valid := handler.sessions.Get(resolved.Token)
-	return valid && session.Role == auth.RoleAdmin && sessionMatchesResolvedSource(session, resolved)
+	if !valid || session.Role != allowedRole || !sessionMatchesResolvedSource(session, resolved) {
+		return false
+	}
+	if allowedRole == auth.RoleAPIKeyViewer {
+		if session.CPAAPIKeyID <= 0 || session.CPAAPIKeyID != viewerAPIKeyID || handler.cpaAPIKeyProvider == nil {
+			return false
+		}
+		row, err := handler.cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID)
+		if err != nil || row.SourceType == entities.CPAAPIKeySourcePlugin {
+			return false
+		}
+	}
+	return true
 }
 
 func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvider, identities service.UsageIdentityProvider, keys service.CPAAPIKeyProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler, lifecycleCtx context.Context) {
 	slots := &usageEventsLiveSlots{}
 	router.GET("/usage/events/live", func(c *gin.Context) {
-		if lifecycleCtx != nil {
-			// 仅长连接跟随应用取消；客户端断开仍通过原请求 context 传播。
-			ctx, cancel := context.WithCancel(c.Request.Context())
-			stop := context.AfterFunc(lifecycleCtx, cancel)
-			defer func() { stop(); cancel() }()
-			c.Request = c.Request.WithContext(ctx)
-		}
-		provider, ok := usage.(service.UsageEventsLiveProvider)
-		if !ok || notifier == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"code": "live_unavailable"})
-			return
-		}
-		now := timeutil.NormalizeStorageTime(time.Now())
-		filter, err := liveFilter(c, now)
-		if err != nil {
-			writeUsageFilterParseError(c, err)
-			return
-		}
-		if filter.StartTime == nil || filter.EndTime == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "usage range is required"})
-			return
-		}
-		releaseSlot, ok := slots.acquire()
-		if !ok {
-			c.Header("Retry-After", "5")
-			c.JSON(http.StatusTooManyRequests, gin.H{"code": "live_capacity"})
-			return
-		}
-		defer releaseSlot()
-		// 先订阅再读取上界；连接内只传唤醒，数据库是唯一数据来源。
-		wake, unsubscribe := notifier.Subscribe()
-		defer unsubscribe()
-		stream := &usageEventsLiveStream{c: c, provider: provider, gate: gate, auth: handler, identities: identities, keys: keys}
-		cursor := usageEventsLiveCursor{Anchor: now}
-		err = stream.batch(func(ctx context.Context) error {
-			page, high, err := provider.LiveSnapshot(ctx, filter)
-			if err != nil {
-				return err
-			}
-			cursor.ID = high
-			events, err := stream.buildEvents(ctx, page.Events)
-			if err != nil {
-				return err
-			}
-			next := ""
-			if page.HasMore && len(page.Events) > 0 {
-				last := page.Events[len(page.Events)-1]
-				next = encodeUsageEventsCursor(last.Timestamp, last.ID)
-			}
-			stream.open()
-			return stream.send("snapshot", gin.H{
-				"events": events, "total_count": page.TotalCount,
-				"page": page.Page, "page_size": page.PageSize, "total_pages": page.TotalPages,
-				"next_cursor": next, "has_more": page.HasMore, "range_start": liveBounds(filter).RangeStart,
-				"range_end": liveBounds(filter).RangeEnd, "end_exclusive": filter.EndExclusive, "snapshot_at": timeutil.FormatStorageTime(now),
-			})
-		})
-		if err != nil {
-			if errors.Is(err, errLiveBusy) {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"code": "costs_busy", "message": "Cost statistics are being updated. Please try again shortly."})
-			} else if !c.Writer.Written() {
-				writeInternalError(c, "load live usage snapshot failed", err)
-			}
-			return
-		}
-		stream.run(cursor, wake)
+		serveUsageEventsLive(c, slots, usage, identities, keys, notifier, gate, handler, lifecycleCtx, auth.RoleAdmin, nil)
 	})
 }
 
+func registerKeyUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvider, identities service.UsageIdentityProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler, lifecycleCtx context.Context) {
+	slots := &usageEventsLiveSlots{}
+	router.GET("/key-events/live", func(c *gin.Context) {
+		_, apiKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		keyCopy := apiKey
+		serveUsageEventsLive(c, slots, usage, identities, nil, notifier, gate, handler, lifecycleCtx, auth.RoleAPIKeyViewer, &keyCopy)
+	})
+}
+
+func serveUsageEventsLive(c *gin.Context, slots *usageEventsLiveSlots, usage service.UsageProvider, identities service.UsageIdentityProvider, keys service.CPAAPIKeyProvider, notifier *service.UsageEventsNotifier, gate *service.CostReadGate, handler *authHandler, lifecycleCtx context.Context, allowedRole auth.Role, viewerAPIKey *entities.CPAAPIKey) {
+	if lifecycleCtx != nil {
+		// 仅长连接跟随应用取消；客户端断开仍通过原请求 context 传播。
+		ctx, cancel := context.WithCancel(c.Request.Context())
+		stop := context.AfterFunc(lifecycleCtx, cancel)
+		defer func() { stop(); cancel() }()
+		c.Request = c.Request.WithContext(ctx)
+	}
+	provider, ok := usage.(service.UsageEventsLiveProvider)
+	if !ok || notifier == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "live_unavailable"})
+		return
+	}
+	forcedAPIKeyID := ""
+	if viewerAPIKey != nil {
+		forcedAPIKeyID = strconv.FormatInt(viewerAPIKey.ID, 10)
+	}
+	now := timeutil.NormalizeStorageTime(time.Now())
+	filter, err := liveFilter(c, now, forcedAPIKeyID)
+	if err != nil {
+		writeUsageFilterParseError(c, err)
+		return
+	}
+	if filter.StartTime == nil || filter.EndTime == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usage range is required"})
+		return
+	}
+	releaseSlot, ok := slots.acquire()
+	if !ok {
+		c.Header("Retry-After", "5")
+		c.JSON(http.StatusTooManyRequests, gin.H{"code": "live_capacity"})
+		return
+	}
+	defer releaseSlot()
+	// 先订阅再读取上界；连接内只传唤醒，数据库是唯一数据来源。
+	wake, unsubscribe := notifier.Subscribe()
+	defer unsubscribe()
+	stream := &usageEventsLiveStream{
+		c:              c,
+		provider:       provider,
+		gate:           gate,
+		auth:           handler,
+		identities:     identities,
+		keys:           keys,
+		allowedRole:    allowedRole,
+		viewerAPIKey:   viewerAPIKey,
+		forcedAPIKeyID: forcedAPIKeyID,
+	}
+	cursor := usageEventsLiveCursor{Anchor: now}
+	err = stream.batch(func(ctx context.Context) error {
+		page, high, err := provider.LiveSnapshot(ctx, filter)
+		if err != nil {
+			return err
+		}
+		cursor.ID = high
+		events, err := stream.buildEvents(ctx, page.Events)
+		if err != nil {
+			return err
+		}
+		next := ""
+		if page.HasMore && len(page.Events) > 0 {
+			last := page.Events[len(page.Events)-1]
+			next = encodeUsageEventsCursor(last.Timestamp, last.ID)
+		}
+		stream.open()
+		return stream.send("snapshot", gin.H{
+			"events": events, "total_count": page.TotalCount,
+			"page": page.Page, "page_size": page.PageSize, "total_pages": page.TotalPages,
+			"next_cursor": next, "has_more": page.HasMore, "range_start": liveBounds(filter).RangeStart,
+			"range_end": liveBounds(filter).RangeEnd, "end_exclusive": filter.EndExclusive, "snapshot_at": timeutil.FormatStorageTime(now),
+		})
+	})
+	if err != nil {
+		if errors.Is(err, errLiveBusy) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"code": "costs_busy", "message": "Cost statistics are being updated. Please try again shortly."})
+		} else if !c.Writer.Written() {
+			writeInternalError(c, "load live usage snapshot failed", err)
+		}
+		return
+	}
+	stream.run(cursor, wake)
+}
+
 type usageEventsLiveStream struct {
-	c          *gin.Context
-	provider   service.UsageEventsLiveProvider
-	gate       *service.CostReadGate
-	auth       *authHandler
-	identities service.UsageIdentityProvider
-	keys       service.CPAAPIKeyProvider
+	c              *gin.Context
+	provider       service.UsageEventsLiveProvider
+	gate           *service.CostReadGate
+	auth           *authHandler
+	identities     service.UsageIdentityProvider
+	keys           service.CPAAPIKeyProvider
+	allowedRole    auth.Role
+	viewerAPIKey   *entities.CPAAPIKey
+	forcedAPIKeyID string
 }
 
 // 每批非空事件使用当前活跃来源和 API Key 映射，避免长连接复用建流时的旧展示信息。
@@ -186,10 +236,20 @@ func (s *usageEventsLiveStream) buildEvents(ctx context.Context, rows []serviced
 		if err != nil {
 			return nil, fmt.Errorf("load usage resolution data: %w", err)
 		}
-		resolver = newUsageIdentityResolver(identities)
+		if s.viewerAPIKey != nil {
+			resolver = newMaskedUsageIdentityResolver(identities)
+		} else {
+			resolver = newUsageIdentityResolver(identities)
+		}
+	} else if s.viewerAPIKey != nil {
+		resolver = newMaskedUsageIdentityResolver(nil)
 	}
 	var keyInfos map[string]analysisAPIKeyInfo
-	if s.keys != nil {
+	if s.viewerAPIKey != nil {
+		keyInfos = map[string]analysisAPIKeyInfo{
+			s.viewerAPIKey.APIKey: {ID: strconv.FormatInt(s.viewerAPIKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*s.viewerAPIKey)},
+		}
+	} else if s.keys != nil {
 		keys, err := s.keys.ListCPAAPIKeys(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list api key options: %w", err)
@@ -202,6 +262,14 @@ func (s *usageEventsLiveStream) buildEvents(ctx context.Context, rows []serviced
 	return buildUsageEventsPayload(rows, resolver, keyInfos), nil
 }
 
+func (s *usageEventsLiveStream) sessionValid() bool {
+	var viewerAPIKeyID int64
+	if s.viewerAPIKey != nil {
+		viewerAPIKeyID = s.viewerAPIKey.ID
+	}
+	return liveSessionValid(s.c, s.auth, s.allowedRole, viewerAPIKeyID)
+}
+
 func (s *usageEventsLiveStream) open() {
 	s.c.Header("Content-Type", "text/event-stream; charset=utf-8")
 	s.c.Header("Cache-Control", "no-cache, no-transform")
@@ -209,7 +277,7 @@ func (s *usageEventsLiveStream) open() {
 }
 
 func (s *usageEventsLiveStream) send(event string, payload any) error {
-	if !liveSessionValid(s.c, s.auth) {
+	if !s.sessionValid() {
 		return context.Canceled
 	}
 	data, err := json.Marshal(payload)
@@ -229,7 +297,7 @@ func (s *usageEventsLiveStream) send(event string, payload any) error {
 
 // batch 的许可覆盖查询、编码和限时写入，不能延续到心跳或通知等待。
 func (s *usageEventsLiveStream) batch(fn func(context.Context) error) error {
-	if !liveSessionValid(s.c, s.auth) {
+	if !s.sessionValid() {
 		return context.Canceled
 	}
 	release, ok := s.gate.Acquire()
@@ -267,7 +335,7 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 			}
 		} else {
 			if busy {
-				filter, filterErr := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()))
+				filter, filterErr := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()), s.forcedAPIKeyID)
 				if filterErr != nil || s.send("heartbeat", liveBounds(filter)) != nil {
 					return
 				}
@@ -286,7 +354,7 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 		case <-wakeChannel:
 		case <-retryChannel:
 		case <-heartbeat.C:
-			filter, err := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()))
+			filter, err := liveFilter(s.c, timeutil.NormalizeStorageTime(time.Now()), s.forcedAPIKeyID)
 			if err != nil {
 				_ = s.send("reset", gin.H{"code": "range_changed"})
 				return
@@ -316,12 +384,12 @@ func (s *usageEventsLiveStream) run(cursor usageEventsLiveCursor, wake <-chan st
 func (s *usageEventsLiveStream) catchUp(cursor *usageEventsLiveCursor) error {
 	started := time.Now()
 	now := timeutil.NormalizeStorageTime(started)
-	current, err := liveFilter(s.c, now)
+	current, err := liveFilter(s.c, now, s.forcedAPIKeyID)
 	if err != nil {
 		_ = s.send("reset", gin.H{"code": "range_changed"})
 		return err
 	}
-	old, err := liveFilter(s.c, cursor.Anchor)
+	old, err := liveFilter(s.c, cursor.Anchor, s.forcedAPIKeyID)
 	if err != nil {
 		_ = s.send("reset", gin.H{"code": "range_changed"})
 		return err

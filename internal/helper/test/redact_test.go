@@ -54,3 +54,32 @@ func TestCPAAPIKeyMaskedDisplayKeyFallsBackToStoredDisplayKeyWhenRawKeyIsMissing
 		t.Fatalf("expected stored display key fallback, got %q", got)
 	}
 }
+
+func TestMaskAccountNameAndIdentityDisplayName(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"alice@example.com", "al***ce@e***.com"},
+		{"bob@outlook.com", "b***b@o***.com"},
+		{"ab@liif.cc", "a***@l***.cc"},
+		{"x@a.io", "*@a***.io"},
+		{"codex-alice@gmail.com.json", "co***ce@g***.com"},
+		{"my-account-name", "my***me"},
+		{"xy", "***"},
+		{"", ""},
+	} {
+		if got := helper.MaskAccountName(tc.input); got != tc.want {
+			t.Fatalf("MaskAccountName(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+
+	alias := "Codex Node 1"
+	emailAlias := "secret@company.com"
+	if got := helper.UsageIdentityMaskedDisplayName(entities.UsageIdentity{Name: "alice@example.com", Alias: &alias}); got != "Codex Node 1" {
+		t.Fatalf("expected non-email alias preserved, got %q", got)
+	}
+	if got := helper.UsageIdentityMaskedDisplayName(entities.UsageIdentity{Name: "alice@example.com", Alias: &emailAlias}); got != "se***et@c***.com" {
+		t.Fatalf("expected email alias masked, got %q", got)
+	}
+	if got := helper.UsageIdentityMaskedDisplayName(entities.UsageIdentity{Name: "alice@example.com"}); got != "al***ce@e***.com" {
+		t.Fatalf("expected email name masked, got %q", got)
+	}
+}

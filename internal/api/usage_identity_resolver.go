@@ -10,9 +10,18 @@ import (
 type usageIdentityResolver struct {
 	credentialsByIdentity map[string]entities.UsageIdentity
 	providersByIdentity   map[string]entities.UsageIdentity
+	maskAccountNames      bool
 }
 
 func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentityResolver {
+	return buildUsageIdentityResolver(identities, false)
+}
+
+func newMaskedUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentityResolver {
+	return buildUsageIdentityResolver(identities, true)
+}
+
+func buildUsageIdentityResolver(identities []entities.UsageIdentity, maskAccountNames bool) usageIdentityResolver {
 	credentialsByIdentity := make(map[string]entities.UsageIdentity, len(identities))
 	providersByIdentity := make(map[string]entities.UsageIdentity, len(identities))
 	for _, identity := range identities {
@@ -34,6 +43,7 @@ func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentity
 	return usageIdentityResolver{
 		credentialsByIdentity: credentialsByIdentity,
 		providersByIdentity:   providersByIdentity,
+		maskAccountNames:      maskAccountNames,
 	}
 }
 
@@ -42,9 +52,13 @@ type resolvedUsageIdentity struct {
 	Type        string
 }
 
-func resolvedUsageIdentityFromEntity(item entities.UsageIdentity) resolvedUsageIdentity {
+func resolvedUsageIdentityFromEntity(item entities.UsageIdentity, maskAccountNames bool) resolvedUsageIdentity {
+	displayName := helper.UsageIdentityDisplayName(item)
+	if maskAccountNames {
+		displayName = helper.UsageIdentityMaskedDisplayName(item)
+	}
 	return resolvedUsageIdentity{
-		DisplayName: helper.UsageIdentityDisplayName(item),
+		DisplayName: displayName,
 		Type:        strings.TrimSpace(item.Type),
 	}
 }
@@ -55,10 +69,10 @@ func (r usageIdentityResolver) resolveByAuthIndex(authIndex string) (resolvedUsa
 		return resolvedUsageIdentity{}, false
 	}
 	if identity, ok := r.providersByIdentity[key]; ok {
-		return resolvedUsageIdentityFromEntity(identity), true
+		return resolvedUsageIdentityFromEntity(identity, r.maskAccountNames), true
 	}
 	if identity, ok := r.credentialsByIdentity[key]; ok {
-		return resolvedUsageIdentityFromEntity(identity), true
+		return resolvedUsageIdentityFromEntity(identity, r.maskAccountNames), true
 	}
 	return resolvedUsageIdentity{}, false
 }

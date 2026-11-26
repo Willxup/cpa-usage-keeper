@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -41,7 +42,17 @@ type usageIdentityModelsResponse struct {
 }
 
 func registerUsageIdentityModelsRoute(router gin.IRoutes, provider service.UsageIdentityProvider) {
-	router.GET("/usage/identities/:id/models", func(c *gin.Context) {
+	registerUsageIdentityModelsRouteAtPath(router, "/usage/identities/:id/models", provider, false)
+}
+
+func registerUsageIdentityModelsRouteAtPath(router gin.IRoutes, routePath string, provider service.UsageIdentityProvider, credentialsOnly bool) {
+	router.GET(routePath, func(c *gin.Context) {
+		if credentialsOnly {
+			if _, _, ok := activeAPIKeyViewerContext(c); !ok {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+				return
+			}
+		}
 		reader, ok := provider.(service.UsageIdentityModelsReader)
 		if !ok {
 			c.JSON(http.StatusNotImplemented, gin.H{"error": "usage identity models are not configured"})
@@ -51,6 +62,24 @@ func registerUsageIdentityModelsRoute(router gin.IRoutes, provider service.Usage
 		if err != nil || id <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
 			return
+		}
+		if credentialsOnly {
+			identityReader, hasIdentityReader := provider.(service.UsageIdentityReader)
+			if hasIdentityReader {
+				detail, err := identityReader.GetUsageIdentity(c.Request.Context(), id)
+				if err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+						return
+					}
+					writeInternalError(c, "get key credential failed", err)
+					return
+				}
+				if detail.Identity.AuthType != entities.UsageIdentityAuthTypeCredential {
+					c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+					return
+				}
+			}
 		}
 		result, err := reader.GetUsageIdentityModels(c.Request.Context(), id, c.Query("range"))
 		if err != nil {

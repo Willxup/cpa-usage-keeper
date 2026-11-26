@@ -8,7 +8,7 @@ import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaRequestIcon from '@/assets/icons/quota-request.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import quotaUnusedIcon from '@/assets/icons/quota-unused.svg'
-import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
+import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, fetchKeyCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { IconCheck, IconChevronDown, IconTrash2 } from '@/components/ui/icons'
@@ -62,14 +62,16 @@ const QUOTA_REMAINING_LINE_COLORS = {
 interface CodexQuotaHistoryPanelProps {
   authIndex: string
   onAuthRequired?: () => void
+  viewer?: 'admin' | 'key'
+  readOnly?: boolean
 }
 
-export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanelProps) {
+export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired, viewer = 'admin', readOnly = false }: CodexQuotaHistoryPanelProps) {
   // 账号切换立即隔离选择、展开和请求状态，不让旧周期在新账号下短暂出现。
-  return <QuotaHistoryPanel key={authIndex.trim()} authIndex={authIndex} onAuthRequired={onAuthRequired} />
+  return <QuotaHistoryPanel key={authIndex.trim()} authIndex={authIndex} onAuthRequired={onAuthRequired} viewer={viewer} readOnly={readOnly} />
 }
 
-function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanelProps) {
+function QuotaHistoryPanel({ authIndex, onAuthRequired, viewer = 'admin', readOnly = false }: CodexQuotaHistoryPanelProps) {
   const { t, i18n } = useTranslation()
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme)
   const [history, setHistory] = useState<CodexQuotaHistoryResponse | null>(null)
@@ -98,12 +100,13 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
     setError('')
     try {
       // 窗口切换重新查询选中角色，但响应仍带回全部窗口选项；Token/Cost 指标切换不重新请求。
-      let response = await fetchCodexQuotaHistory(normalizedAuthIndex, requestOptions, controller.signal)
+      const loadQuotaHistory = viewer === 'key' ? fetchKeyCodexQuotaHistory : fetchCodexQuotaHistory
+      let response = await loadQuotaHistory(normalizedAuthIndex, requestOptions, controller.signal)
       if (controllerRef.current !== controller) return
       // 删除某角色的最后一个周期后，原选择可能消失；回到剩余窗口的默认选择。
       if (requestOptions.windowRole && !response.selected_window && response.windows.length > 0) {
         lastRequestOptionsRef.current = {}
-        response = await fetchCodexQuotaHistory(normalizedAuthIndex, {}, controller.signal)
+        response = await loadQuotaHistory(normalizedAuthIndex, {}, controller.signal)
       }
       if (controllerRef.current !== controller) return
       // 同一角色刷新保留有效周期；角色变化或选中周期被删除时，回到当前周期或最新历史周期。
@@ -132,7 +135,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
         setLoading(false)
       }
     }
-  }, [authIndex, onAuthRequired, t, markChartLoaded])
+  }, [authIndex, onAuthRequired, t, markChartLoaded, viewer])
 
   useEffect(() => {
     lastRequestOptionsRef.current = {}
@@ -272,12 +275,12 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
             onSelect={selectCycle}
             onReturnToChart={returnToChart}
             deleteDisabled={loading || deleting}
-            onDelete={openDelete} />
+            onDelete={readOnly ? undefined : openDelete} />
         </>
       ) : !error ? (
         <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_empty')}</div>
       ) : null}
-      <Modal
+      {!readOnly ? <Modal
         open={deleteTarget !== null}
         title={t('usage_stats.credentials_quota_history_delete_title')}
         onClose={closeDelete}
@@ -299,7 +302,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
           })}</p>
         </> : null}
         {deleteError ? <p role="alert">{deleteError}</p> : null}
-      </Modal>
+      </Modal> : null}
     </div>
   )
 }
@@ -612,7 +615,7 @@ function CyclesList({
   cycles: CodexQuotaHistoryCycle[]
   formatTime: QuotaHistoryTimeFormatter
   summaries: Map<number, QuotaCycleSummary>
-  onDelete: (cycle: CodexQuotaHistoryCycle) => void
+  onDelete?: (cycle: CodexQuotaHistoryCycle) => void
   deleteDisabled: boolean
   selectedCycleId: number | null
   onSelect: (cycleId: number) => void
@@ -649,7 +652,7 @@ const CycleCard = memo(function CycleCard({
   cycle: CodexQuotaHistoryCycle
   formatTime: QuotaHistoryTimeFormatter
   summary: QuotaCycleSummary | null
-  onDelete: (cycle: CodexQuotaHistoryCycle) => void
+  onDelete?: (cycle: CodexQuotaHistoryCycle) => void
   deleteDisabled: boolean
   selected: boolean
   onSelect: (cycleId: number) => void
@@ -708,12 +711,12 @@ const CycleCard = memo(function CycleCard({
         {selected ? <button type="button" className={styles.returnToChart} onClick={onReturnToChart}>
           {t('usage_stats.credentials_quota_history_return_to_chart')}
         </button> : null}
-        <Button type="button" variant="ghost" size="sm" className={styles.deleteCycle}
+        {onDelete ? <Button type="button" variant="ghost" size="sm" className={styles.deleteCycle}
           onClick={() => onDelete(cycle)} disabled={deleteDisabled}
           aria-label={t('usage_stats.credentials_quota_history_delete_title')}
           title={t('usage_stats.credentials_quota_history_delete_title')}>
           <IconTrash2 size={15} aria-hidden="true" />
-        </Button>
+        </Button> : null}
       </div>
       <div id={detailsId} hidden={!expanded}>
         {expanded ? <>
