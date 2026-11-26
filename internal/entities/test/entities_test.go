@@ -109,7 +109,7 @@ func TestCacheTokenSchemaUsesExplicitReadAndWriteNames(t *testing.T) {
 	}
 }
 
-func TestUsageOverviewSchemaIncludesFiveAggregationDimensions(t *testing.T) {
+func TestUsageOverviewSchemaIncludesOnlySixAggregationDimensions(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite memory database: %v", err)
@@ -118,11 +118,10 @@ func TestUsageOverviewSchemaIncludesFiveAggregationDimensions(t *testing.T) {
 		t.Fatalf("AutoMigrate usage overview schema returned error: %v", err)
 	}
 
-	dimensions := []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		for _, dimension := range dimensions {
-			if !db.Migrator().HasColumn(table, dimension) {
-				t.Fatalf("expected %s.%s", table, dimension)
+		for _, dimension := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
+			if db.Migrator().HasColumn(table, dimension) {
+				t.Fatalf("unexpected %s.%s", table, dimension)
 			}
 		}
 	}
@@ -160,7 +159,7 @@ func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, table string, 
 	if err := db.Raw("PRAGMA index_info(" + name + ")").Scan(&rows).Error; err != nil {
 		t.Fatalf("load index %s columns: %v", name, err)
 	}
-	want := []string{"bucket_start", "api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
+	want := []string{"bucket_start", "api_group_key", "model", "auth_index", "service_tier", "reasoning_effort"}
 	got := make([]string, len(rows))
 	for index, row := range rows {
 		got[index] = row.Name
@@ -173,7 +172,7 @@ func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, table string, 
 func assertUsageOverviewDuplicateDimensionKeyRejected(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	now := time.Now()
-	hourly := UsageOverviewHourlyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ModelAlias: "alias-a", ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "high", Endpoint: "/v1/responses", ExecutorType: "CodexExecutor", CreatedAt: now, UpdatedAt: now}
+	hourly := UsageOverviewHourlyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ServiceTier: "default", ReasoningEffort: "high", CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&hourly).Error; err != nil {
 		t.Fatalf("insert first hourly dimension key: %v", err)
 	}
@@ -182,7 +181,7 @@ func assertUsageOverviewDuplicateDimensionKeyRejected(t *testing.T, db *gorm.DB)
 		t.Fatal("expected duplicate hourly dimension key to fail")
 	}
 
-	daily := UsageOverviewDailyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ModelAlias: "alias-a", ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "high", Endpoint: "/v1/responses", ExecutorType: "CodexExecutor", CreatedAt: now, UpdatedAt: now}
+	daily := UsageOverviewDailyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ServiceTier: "default", ReasoningEffort: "high", CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&daily).Error; err != nil {
 		t.Fatalf("insert first daily dimension key: %v", err)
 	}

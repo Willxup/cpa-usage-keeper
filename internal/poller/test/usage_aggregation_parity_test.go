@@ -83,7 +83,8 @@ type usageAggregationOverviewRow struct {
 	APIGroupKey         string
 	Model               string
 	AuthIndex           string
-	ModelAlias          string
+	ServiceTier         string
+	ReasoningEffort     string
 	RequestCount        int64
 	SuccessCount        int64
 	FailureCount        int64
@@ -125,7 +126,7 @@ func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time
 			Name: identity, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: identity, Type: "codex", IsDeleted: index%2 == 0,
 		})
 	}
-	// 准备：事件循环复用 27 个 identity，并覆盖多 API group、model、alias、成功失败和全部旧 Token 字段。
+	// 准备：事件循环复用 27 个 identity，并覆盖不同 Key、模型、请求档位、强度、别名和旧 Token 字段。
 	for index := 1; index <= 1001; index++ {
 		identityIndex := (index-1)%27 + 1
 		identity := fmt.Sprintf("parity-auth-%02d", identityIndex)
@@ -133,6 +134,7 @@ func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time
 		events = append(events, entities.UsageEvent{
 			EventKey: fmt.Sprintf("parity-event-%04d", index), APIGroupKey: fmt.Sprintf("provider-%d", index%2),
 			Model: fmt.Sprintf("model-%d", index%4), ModelAlias: &alias, AuthType: "oauth", AuthIndex: identity,
+			ServiceTier: fmt.Sprintf("tier-%d", index%5), ReasoningEffort: fmt.Sprintf("effort-%d", index%7),
 			Timestamp: now.Add(-time.Duration(index%27+1) * time.Minute), Failed: index%5 == 0,
 			InputTokens: int64(index), OutputTokens: int64(index * 2), ReasoningTokens: int64(index * 3),
 			CachedTokens: int64(index * 11), CacheReadTokens: int64(index * 5), CacheCreationTokens: int64(index * 7), TotalTokens: int64(index * 13),
@@ -150,12 +152,13 @@ func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time
 
 func loadUsageAggregationParitySnapshot(t *testing.T, db *gorm.DB) usageAggregationParitySnapshot {
 	t.Helper()
+	const dimensionOrder = "bucket_start, api_group_key, model, auth_index, service_tier, reasoning_effort"
 	var hourly []entities.UsageOverviewHourlyStat
-	if err := db.Order("bucket_start asc, api_group_key asc, model asc, auth_index asc, model_alias asc").Find(&hourly).Error; err != nil {
+	if err := db.Order(dimensionOrder).Find(&hourly).Error; err != nil {
 		t.Fatalf("load parity hourly rows: %v", err)
 	}
 	var daily []entities.UsageOverviewDailyStat
-	if err := db.Order("bucket_start asc, api_group_key asc, model asc, auth_index asc, model_alias asc").Find(&daily).Error; err != nil {
+	if err := db.Order(dimensionOrder).Find(&daily).Error; err != nil {
 		t.Fatalf("load parity daily rows: %v", err)
 	}
 	var checkpoint entities.UsageAggregationCheckpoint
@@ -190,7 +193,8 @@ func loadUsageAggregationParitySnapshot(t *testing.T, db *gorm.DB) usageAggregat
 
 func usageAggregationOverviewRowFromHourly(row entities.UsageOverviewHourlyStat) usageAggregationOverviewRow {
 	return usageAggregationOverviewRow{
-		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex, ModelAlias: row.ModelAlias,
+		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex,
+		ServiceTier: row.ServiceTier, ReasoningEffort: row.ReasoningEffort,
 		RequestCount: row.RequestCount, SuccessCount: row.SuccessCount, FailureCount: row.FailureCount,
 		InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, ReasoningTokens: row.ReasoningTokens,
 		CachedTokens: row.CachedTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, TotalTokens: row.TotalTokens,
@@ -199,7 +203,8 @@ func usageAggregationOverviewRowFromHourly(row entities.UsageOverviewHourlyStat)
 
 func usageAggregationOverviewRowFromDaily(row entities.UsageOverviewDailyStat) usageAggregationOverviewRow {
 	return usageAggregationOverviewRow{
-		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex, ModelAlias: row.ModelAlias,
+		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex,
+		ServiceTier: row.ServiceTier, ReasoningEffort: row.ReasoningEffort,
 		RequestCount: row.RequestCount, SuccessCount: row.SuccessCount, FailureCount: row.FailureCount,
 		InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, ReasoningTokens: row.ReasoningTokens,
 		CachedTokens: row.CachedTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, TotalTokens: row.TotalTokens,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/benchmark/capacity"
@@ -111,11 +112,13 @@ func preparePricingDataset(ctx context.Context, path string, events int64, scena
 	return spec, nil
 }
 
-// downgradePricingPhysicalSchema 仅回退本次价格存储增列；five-dim 额外恢复两个旧 Overview 物理形态。
+const pricingBenchTenDimensions = "bucket_start, api_group_key, model, auth_index, model_alias, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type"
+
+// downgradePricingPhysicalSchema 恢复价格持久化之前的十维物理结构；five-dim 再回退到五维及其旧水位。
 func downgradePricingPhysicalSchema(ctx context.Context, db *sql.DB, scenario string) error {
 	for _, step := range []string{
 		"DROP TABLE pricing_state", "DROP TABLE pricing_migration_state",
-		"DELETE FROM schema_migrations WHERE version = '20261009_pricing_storage_structure'",
+		"DELETE FROM schema_migrations WHERE version IN ('20261009_pricing_storage_structure', '20261123_usage_overview_six_dimensions')",
 		"ALTER TABLE usage_events DROP COLUMN cost_usd",
 		"ALTER TABLE usage_events DROP COLUMN cost_available",
 		"ALTER TABLE usage_events_archive DROP COLUMN cost_usd",
@@ -141,6 +144,9 @@ func downgradePricingPhysicalSchema(ctx context.Context, db *sql.DB, scenario st
 			return fmt.Errorf("checkpoint old schema projection: %w", err)
 		}
 	}
+	if err := restoreTenDimensionOverview(ctx, db); err != nil {
+		return err
+	}
 	if scenario == pricingBenchFiveDim {
 		if err := downgradeFiveDimensionOverview(ctx, db); err != nil {
 			return err
@@ -154,6 +160,34 @@ func downgradePricingPhysicalSchema(ctx context.Context, db *sql.DB, scenario st
 		return fmt.Errorf("finalize old schema database journal mode: got %s, want delete", journalMode)
 	}
 	return nil
+}
+
+// restoreTenDimensionOverview 恢复旧列和索引，不伪造六维统计已经丢弃的拆分值。
+// 合成原始事件仍带完整维度，正式 M5 会据此重建真实十维桶，再测试十到六维迁移。
+func restoreTenDimensionOverview(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		for _, column := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
+			if _, err := tx.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" TEXT NOT NULL DEFAULT ''"); err != nil {
+				return fmt.Errorf("restore old %s.%s: %w", table, column, err)
+			}
+		}
+		index := "uniq_" + table + "_dimensions"
+		for _, step := range []string{
+			"DROP INDEX " + index,
+			"CREATE UNIQUE INDEX " + index + " ON " + table + " (" + pricingBenchTenDimensions + ")",
+			"CREATE INDEX idx_" + table + "_model_alias_bucket ON " + table + " (model_alias, bucket_start)",
+		} {
+			if _, err := tx.ExecContext(ctx, step); err != nil {
+				return fmt.Errorf("restore ten-dimension %s indexes: %w", table, err)
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 // downgradeFiveDimensionOverview 创建按旧五键合并的物理桶及两个历史 checkpoint。
@@ -237,8 +271,21 @@ func verifyOldPricingPhysicalSchema(ctx context.Context, db *sql.DB, spec *datas
 		if columns["speed_tps_sum"] || columns["speed_sample_count"] || columns["decode_speed_tps_sum"] || columns["decode_speed_sample_count"] {
 			return fmt.Errorf("%s still has v2 speed columns before migration", table)
 		}
-		if spec.Scenario == pricingBenchFiveDim && (table == "usage_overview_hourly_stats" || table == "usage_overview_daily_stats") && columns["service_tier"] {
-			return fmt.Errorf("%s still has ten-dimension fields", table)
+		if strings.HasPrefix(table, "usage_overview_") {
+			if spec.Scenario == pricingBenchFiveDim {
+				if columns["service_tier"] {
+					return fmt.Errorf("%s still has ten-dimension fields", table)
+				}
+			} else {
+				var dimensions sql.NullString
+				if err := db.QueryRowContext(ctx, `SELECT group_concat(name, ', ') FROM
+					(SELECT name FROM pragma_index_info(?) ORDER BY seqno)`, "uniq_"+table+"_dimensions").Scan(&dimensions); err != nil {
+					return fmt.Errorf("inspect old %s dimensions: %w", table, err)
+				}
+				if dimensions.String != pricingBenchTenDimensions {
+					return fmt.Errorf("old %s index dimensions %q, want %q", table, dimensions.String, pricingBenchTenDimensions)
+				}
+			}
 		}
 	}
 	modelColumns, err := pricingBenchColumns(ctx, db, "model_price_settings")
@@ -267,11 +314,11 @@ func verifyOldPricingPhysicalSchema(ctx context.Context, db *sql.DB, spec *datas
 	if control != 0 {
 		return fmt.Errorf("pricing control tables remain before old migration: %d", control)
 	}
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version='20261009_pricing_storage_structure'").Scan(&applied); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version IN ('20261009_pricing_storage_structure', '20261123_usage_overview_six_dimensions')").Scan(&applied); err != nil {
 		return err
 	}
 	if applied != 0 {
-		return fmt.Errorf("pricing storage migration remains applied: %d", applied)
+		return fmt.Errorf("new pricing or overview migration remains applied: %d", applied)
 	}
 	for _, target := range []struct {
 		table string

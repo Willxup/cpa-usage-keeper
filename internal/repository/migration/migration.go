@@ -106,6 +106,7 @@ const (
 	migrationAddUsageEventEffectiveServiceTier = "20261023_usage_event_effective_service_tier"
 	migrationAddPluginAPIKeySources            = "20261028_plugin_api_key_sources"
 	migrationAddUsageIdentitySIWCFields        = "20261029_usage_identity_siwc_fields"
+	migrationUsageOverviewSixDimensions        = "20261123_usage_overview_six_dimensions"
 )
 
 type schemaMigration struct {
@@ -121,7 +122,7 @@ type databaseMigration struct {
 	version            string
 	run                func(*gorm.DB) error
 	disableTransaction bool
-	// destructive 要求在默认事务开始前完成一份通用数据库快照，失败时不得执行 migration。
+	// destructive 要求在运行迁移前完成一份通用数据库快照，失败时不得执行 migration。
 	destructive bool
 }
 
@@ -324,6 +325,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventEffectiveServiceTier, run: addUsageEventEffectiveServiceTierMigration},
 		{version: migrationAddPluginAPIKeySources, run: addPluginAPIKeySourcesMigration},
 		{version: migrationAddUsageIdentitySIWCFields, run: addUsageIdentitySIWCFieldsMigration},
+		// 备份后按桶短事务复制；迁移自行原子切换两张表，不能用外层长事务包住复制。
+		{version: migrationUsageOverviewSixDimensions, run: usageOverviewSixDimensionsMigration, disableTransaction: true, destructive: true},
 	}
 }
 
@@ -348,7 +351,7 @@ func runSchemaMigration(db *gorm.DB, migration databaseMigration, optionValues .
 			}
 			logger := logrus.WithField("version", migration.version)
 			logger.Info("schema migration backup started")
-			// 备份必须先在 migration 事务外完成；回调成功返回后才允许进入下面的默认单事务。
+			// 备份必须先在 migration 事务外完成；回调成功返回后才允许执行迁移。
 			if err := options.BeforeDestructiveMigration(context.Background(), migration.version); err != nil {
 				logger.WithError(err).Error("schema migration backup failed")
 				return fmt.Errorf("backup before schema migration %s: %w", migration.version, err)

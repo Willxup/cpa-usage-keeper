@@ -88,8 +88,8 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	seedAnalysisProjectionIdentities(t, db, "identity-a")
 	if err := db.Create(&[]entities.UsageOverviewHourlyStat{
 		{
-			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a", ModelAlias: "alias-a",
-			ServiceTier: "priority", Endpoint: "/responses", RequestCount: 2, InputTokens: 1_000_000, OutputTokens: 300_000,
+			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a",
+			ServiceTier: "priority", RequestCount: 2, InputTokens: 1_000_000, OutputTokens: 300_000,
 			ReasoningTokens: 100_000, CacheReadTokens: 200_000, CacheCreationTokens: 100_000, TotalTokens: 1_300_000,
 			CostUSD: &storedCost, UnavailableCostCount: &unavailable,
 		},
@@ -172,8 +172,8 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 	seedAnalysisProjectionIdentities(t, db, "identity-a")
 	sharedHourly := func(bucket time.Time, requests, input, output, reasoning, cacheRead, cacheCreation, total int64) entities.UsageOverviewHourlyStat {
 		return entities.UsageOverviewHourlyStat{
-			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a", ModelAlias: "alias-a",
-			ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli", RequestCount: requests,
+			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a",
+			ServiceTier: "batch", ReasoningEffort: "xhigh", RequestCount: requests,
 			InputTokens: input, OutputTokens: output, ReasoningTokens: reasoning, CacheReadTokens: cacheRead,
 			CacheCreationTokens: cacheCreation, TotalTokens: total,
 			CostUSD: &zeroCost, UnavailableCostCount: &unavailable,
@@ -188,14 +188,14 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 	if err := db.Create(&[]entities.UsageOverviewDailyStat{
 		{
 			BucketStart: time.Date(2026, 2, 2, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
-			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
+			AuthIndex: "identity-a", ServiceTier: "batch", ReasoningEffort: "xhigh",
 			RequestCount: 2, InputTokens: 200, OutputTokens: 20, ReasoningTokens: 4, CacheReadTokens: 40,
 			CacheCreationTokens: 20, TotalTokens: 220,
 			CostUSD: &dayTwoCost, UnavailableCostCount: &unavailable,
 		},
 		{
 			BucketStart: time.Date(2026, 2, 4, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
-			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
+			AuthIndex: "identity-a", ServiceTier: "batch", ReasoningEffort: "xhigh",
 			RequestCount: 3, InputTokens: 300, OutputTokens: 30, ReasoningTokens: 6, CacheReadTokens: 60,
 			CacheCreationTokens: 30, TotalTokens: 330,
 			CostUSD: &dayFourCost, UnavailableCostCount: &unavailable,

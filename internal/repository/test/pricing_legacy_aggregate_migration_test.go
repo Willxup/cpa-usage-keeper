@@ -72,7 +72,10 @@ func TestLegacyPricingOverviewRebuildLeavesCBehindHForNormalAggregation(t *testi
 	if err := fixture.writer.Table("usage_aggregation_checkpoints").Where("name = ?", "overview").Select("last_aggregated_usage_event_id").Scan(&checkpoint).Error; err != nil || checkpoint != 1 {
 		t.Fatalf("Overview 水位被 M5 改写: %d %v", checkpoint, err)
 	}
-	// 启动追赶沿原水位处理剩余已计价事件；重复追赶不能双计。
+	// 模拟生产顺序：M5/M6 完成后先合并六维，再沿原水位处理剩余已计价事件。
+	if err := repository.RunDatabaseMigrationsWithBackup(ctx, fixture.writer, fixture.reader, fixture.backupDir); err != nil {
+		t.Fatal(err)
+	}
 	for range 2 {
 		if err := repository.AggregateUsageOverviewStats(ctx, fixture.writer, time.Now()); err != nil {
 			t.Fatal(err)

@@ -107,7 +107,8 @@ func openPublishedPricingEventFixture(t *testing.T) publishedPricingEventFixture
 	if err := migration.MarkAllAsApplied(writer); err != nil {
 		t.Fatalf("记录已发布版本：%v", err)
 	}
-	if err := writer.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261009_pricing_storage_structure").Error; err != nil {
+	if err := writer.Exec(`DELETE FROM schema_migrations WHERE version IN
+		('20261009_pricing_storage_structure', '20261123_usage_overview_six_dimensions')`).Error; err != nil {
 		t.Fatal(err)
 	}
 	state, err := repository.BootstrapPricingInitialization(context.Background(), writer)

@@ -153,7 +153,7 @@ func TestListUsageEventsWithFilterPreservesStoredModelAndAliasCosts(t *testing.T
 	}
 }
 
-func TestBuildUsageOverviewWithFilterReadsStoredHourlyModelAndAliasCosts(t *testing.T) {
+func TestBuildUsageOverviewWithFilterReadsStoredHourlyCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -171,7 +171,6 @@ func TestBuildUsageOverviewWithFilterReadsStoredHourlyModelAndAliasCosts(t *test
 				BucketStart: bucket,
 				APIGroupKey: "api-key",
 				Model:       test.model,
-				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
 				CostUSD:     &storedCost, UnavailableCostCount: &unavailable,
@@ -195,7 +194,7 @@ func TestBuildUsageOverviewWithFilterReadsStoredHourlyModelAndAliasCosts(t *test
 	}
 }
 
-func TestBuildUsageOverviewWithFilterReadsStoredDailyModelAndAliasCosts(t *testing.T) {
+func TestBuildUsageOverviewWithFilterReadsStoredDailyCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -213,7 +212,6 @@ func TestBuildUsageOverviewWithFilterReadsStoredDailyModelAndAliasCosts(t *testi
 				BucketStart: bucket,
 				APIGroupKey: "api-key",
 				Model:       test.model,
-				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
 				CostUSD:     &storedCost, UnavailableCostCount: &unavailable,
@@ -237,7 +235,7 @@ func TestBuildUsageOverviewWithFilterReadsStoredDailyModelAndAliasCosts(t *testi
 	}
 }
 
-func TestBuildAnalysisWithFilterPreservesHourlyModelAndAliasStoredCosts(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesHourlyStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -257,7 +255,6 @@ func TestBuildAnalysisWithFilterPreservesHourlyModelAndAliasStoredCosts(t *testi
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
-				ModelAlias:   "alias-model",
 				RequestCount: 1,
 				InputTokens:  1_000_000,
 				TotalTokens:  1_000_000,
@@ -288,7 +285,7 @@ func TestBuildAnalysisWithFilterPreservesHourlyModelAndAliasStoredCosts(t *testi
 	}
 }
 
-func TestBuildAnalysisWithFilterPreservesDailyModelAndAliasStoredCosts(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesDailyStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -308,7 +305,6 @@ func TestBuildAnalysisWithFilterPreservesDailyModelAndAliasStoredCosts(t *testin
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
-				ModelAlias:   "alias-model",
 				RequestCount: 1,
 				InputTokens:  1_000_000,
 				TotalTokens:  1_000_000,
@@ -484,7 +480,6 @@ func TestUsageWindowPreservesRawAndHourlyStoredModelCosts(t *testing.T) {
 				BucketStart: hourlyBucket,
 				AuthIndex:   "auth-hourly",
 				Model:       test.model,
-				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
 				CostUSD:     windowCostPtr(test.cost), UnavailableCostCount: windowUnavailablePtr(0),
@@ -520,7 +515,7 @@ func TestUsageWindowAddsStoredRawAndHourlyCostsWithoutAliasRepricing(t *testing.
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := db.Create(&[]entities.UsageOverviewHourlyStat{
-		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", ModelAlias: "alias-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
+		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
 		{BucketStart: time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
@@ -531,7 +526,7 @@ func TestUsageWindowAddsStoredRawAndHourlyCostsWithoutAliasRepricing(t *testing.
 		t.Fatalf("SumByAuthIndex returned error: %v", err)
 	}
 	if stats.Tokens != 5_000_000 {
-		t.Fatalf("expected raw and hourly tokens to merge by model_alias/model, got %+v", stats)
+		t.Fatalf("expected raw and hourly tokens to merge by model, got %+v", stats)
 	}
 	assertUsageCostClose(t, stats.Cost, 50)
 }

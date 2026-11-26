@@ -20,7 +20,7 @@ import (
 const (
 	usageCostRecalculationPageSize = 1000
 	usageCostRecalculationIDChunk  = 900 // 留在 SQLite 旧版 999 参数限制之内。
-	usageCostRecalculationKey      = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ? AND service_tier = ? AND response_service_tier = ? AND reasoning_effort = ? AND endpoint = ? AND executor_type = ?"
+	usageCostRecalculationKey      = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND service_tier = ? AND reasoning_effort = ?"
 	// 与 overview 的 strings.TrimSpace 所用 Unicode White_Space 集合一致，不能退化成 SQLite 默认只去 ASCII 空格的 TRIM。
 	usageCostRecalculationSpace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
 	// SQLite 直接解析 .999999999 会舍入到下秒；去掉 fraction 后得到精确整秒，再按绝对小时分组。
@@ -59,6 +59,7 @@ func LoadUsageCostRecalculationPage(ctx context.Context, reader *gorm.DB, scope 
 	if afterID == scope.MaxEventID {
 		return []entities.UsageEvent{}, afterID, true, nil
 	}
+	// 重算仍需逐事件读取全部计价字段，不能用汇总桶的六维投影代替原始维度。
 	var scanned []entities.UsageEvent
 	if err := reader.Clauses(dbresolver.Read).WithContext(ctx).Model(&entities.UsageEvent{}).
 		Select(entities.UsageAggregationEventProjectionColumns).
@@ -247,10 +248,9 @@ func addUsageRecalculationBucketFee(tx *gorm.DB, table string, key overview.Buck
 	return nil
 }
 
-// usageCostRecalculationKeyArgs 按 Overview 唯一索引全部维度定位小时或日的同一行。
+// usageCostRecalculationKeyArgs 按 Overview 六维唯一索引定位小时或日的同一行。
 func usageCostRecalculationKeyArgs(key overview.BucketKey) []any {
-	return []any{timeutil.FormatStorageTime(key.BucketStart), key.APIGroupKey, key.Model, key.AuthIndex, key.ModelAlias,
-		key.ServiceTier, key.ResponseServiceTier, key.ReasoningEffort, key.Endpoint, key.ExecutorType}
+	return []any{timeutil.FormatStorageTime(key.BucketStart), key.APIGroupKey, key.Model, key.AuthIndex, key.ServiceTier, key.ReasoningEffort}
 }
 
 func finiteUsageRecalculationCost(cost float64) bool {
@@ -264,7 +264,7 @@ type usageCostRecalculationTotal struct {
 }
 
 // FinalizeUsageCostRecalculationStats 只重算本次命中过事件的小时/自然日时间桶。
-// Reader 各 grain 一次按完整维度 SUM 全桶已存事件费用（含 S/T 外贡献），Rows 流式每 1000 组交 Writer 短事务覆盖。
+// Reader 各 grain 一次按六维 SUM 全桶已存事件费用（含 S/T 外贡献），Rows 流式每 1000 组交 Writer 短事务覆盖。
 // 调用方保证事件批次已完成且处理/聚合/维护仍停稳；错误不撤销已提交批次，也不写持久任务游标。
 func FinalizeUsageCostRecalculationStats(ctx context.Context, reader, writer *gorm.DB, scope UsageCostRecalculationScope) error {
 	if reader == nil || writer == nil {
@@ -322,7 +322,7 @@ func FinalizeUsageCostRecalculationStats(ctx context.Context, reader, writer *go
 // SQL 仅使用已发布迁移归一化后的项目时区 RFC3339 时间；分组字符集与 Go strings.TrimSpace 一致。
 // timestamp 的本地日期与 overview 自然日相同，绝对小时使用去小数后的 epoch 秒，DST 回拨两小时不合并。
 func usageCostRecalculationGroupSelect(bucketSQL string) (string, []any) {
-	columns := []string{"api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
+	columns := []string{"api_group_key", "model", "auth_index", "service_tier", "reasoning_effort"}
 	parts := []string{bucketSQL + " AS bucket_key"}
 	args := make([]any, 0, len(columns))
 	for index, column := range columns {
@@ -340,13 +340,13 @@ func usageCostRecalculationGroupSelect(bucketSQL string) (string, []any) {
 	return strings.Join(parts, ", "), args
 }
 
-// overwriteUsageRecalculationGroups 持续读取 SQL 分组结果，不把一个月的高维键装进 Go map。
+// overwriteUsageRecalculationGroups 持续读取 SQL 六维分组结果，不把一个月的桶装进 Go map。
 // reader 可在 WAL 快照中保持 Rows，writer 每 1000 组独立提交并归还唯一写连接。
 func overwriteUsageRecalculationGroups[T int64 | string](ctx context.Context, reader, writer *gorm.DB, table, bucketSQL string, maxEventID int64, buckets []T) error {
 	selectSQL, selectArgs := usageCostRecalculationGroupSelect(bucketSQL)
 	rows, err := reader.Clauses(dbresolver.Read).WithContext(ctx).Table("usage_events").
 		Select(selectSQL, selectArgs...).Where("id <= ?", maxEventID).Where(bucketSQL+" IN ?", buckets).
-		Group("1,2,3,4,5,6,7,8,9,10").Order("1,2,3,4,5,6,7,8,9,10").Rows()
+		Group("1,2,3,4,5,6").Order("1,2,3,4,5,6").Rows()
 	if err != nil {
 		return fmt.Errorf("read %s recalculation groups: %w", table, err)
 	}
@@ -358,8 +358,7 @@ func overwriteUsageRecalculationGroups[T int64 | string](ctx context.Context, re
 		var cost sql.NullFloat64
 		var unavailable sql.NullInt64
 		var missing int64
-		if err := rows.Scan(&bucket, &key.APIGroupKey, &key.Model, &key.AuthIndex, &key.ModelAlias,
-			&key.ServiceTier, &key.ResponseServiceTier, &key.ReasoningEffort, &key.Endpoint, &key.ExecutorType,
+		if err := rows.Scan(&bucket, &key.APIGroupKey, &key.Model, &key.AuthIndex, &key.ServiceTier, &key.ReasoningEffort,
 			&cost, &unavailable, &missing); err != nil {
 			return fmt.Errorf("scan %s recalculation group: %w", table, err)
 		}

@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -181,6 +182,111 @@ func TestUsageCostRecalculationFinalSumKeepsOutsideRange(t *testing.T) {
 			t.Fatalf("outside event %d changed: %+v err=%v", event.id, stored, err)
 		}
 	}
+}
+
+func TestUsageCostRecalculationUsesOriginalPricingDimensionsAndSixBucketKeys(t *testing.T) {
+	ctx := context.Background()
+	writer, reader := openRecalculationPools(t)
+	if _, err := repository.UpsertModelPriceSetting(writer, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 1}); err != nil {
+		t.Fatal(err)
+	}
+	hour := time.Date(2026, 9, 23, 10, 0, 0, 0, time.Local)
+	base := entities.UsageEvent{
+		APIGroupKey: "key", Model: "priced", AuthIndex: "auth", ServiceTier: "fast", ReasoningEffort: "high",
+		Timestamp: hour.Add(time.Minute), InputTokens: 1_000_000, TotalTokens: 1_000_000,
+		CostUSD: recalcCost(1), CostAvailable: recalcAvailable(true),
+	}
+	alias := "priced-alias"
+	testEvents := []struct {
+		key    string
+		change func(*entities.UsageEvent)
+		fee    float64
+	}{
+		{"alias", func(e *entities.UsageEvent) { e.ModelAlias = &alias }, 4},
+		{"response tier", func(e *entities.UsageEvent) { e.ResponseServiceTier = "priority" }, 6},
+		{"endpoint", func(e *entities.UsageEvent) { e.Endpoint = "/responses" }, 10},
+		{"executor", func(e *entities.UsageEvent) { e.ExecutorType = "ws" }, 14},
+		{"empty tier", func(e *entities.UsageEvent) { e.ServiceTier = "" }, 2},
+		{"other effort", func(e *entities.UsageEvent) { e.ReasoningEffort = " max " }, 2},
+		{"outside", func(e *entities.UsageEvent) { e.Timestamp = hour.Add(45 * time.Minute) }, 1},
+	}
+	var events []entities.UsageEvent
+	for _, sample := range testEvents {
+		event := base
+		event.EventKey = sample.key
+		sample.change(&event)
+		events = append(events, event)
+	}
+	if err := writer.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(ctx, writer, hour.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// 四种原始字段各自改变费率，但对应请求仍只占同一个六维桶。
+	if _, err := repository.UpsertModelPriceSetting(writer, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReplaceModelPriceRules(writer, "priced", []dto.ModelPriceRuleInput{
+		{Key: "model_alias", Value: alias, Multiplier: 2},
+		{Key: "response_service_tier", Value: "priority", Multiplier: 3},
+		{Key: "endpoint", Value: "/responses", Multiplier: 5},
+		{Key: "executor_type", Value: "ws", Multiplier: 7},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scope := repository.UsageCostRecalculationScope{Start: hour, End: hour.Add(30 * time.Minute), MaxEventID: events[len(events)-1].ID}
+	page, _, done, err := repository.LoadUsageCostRecalculationPage(ctx, reader, scope, 0)
+	if err != nil || !done || len(page) != 6 {
+		t.Fatalf("wrong recalculation scope: events=%d done=%t err=%v", len(page), done, err)
+	}
+	if err := repository.ApplyUsageCostRecalculationBatch(ctx, writer, scope, page, newUsageCostResolverForTest(t, reader)); err != nil {
+		t.Fatal(err)
+	}
+	assertFees := func() {
+		t.Helper()
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			var rows []struct {
+				ServiceTier, ReasoningEffort       string
+				RequestCount, UnavailableCostCount int64
+				CostUSD                            float64
+			}
+			if err := writer.Table(table).Order("service_tier, reasoning_effort").Find(&rows).Error; err != nil || len(rows) != 3 {
+				t.Fatalf("%s: expected three six-dimension buckets, got %+v, %v", table, rows, err)
+			}
+			for index, want := range []struct {
+				tier, effort string
+				requests     int64
+				fee          float64
+			}{{"", "high", 1, 2}, {"fast", "high", 5, 35}, {"fast", "max", 1, 2}} {
+				row := rows[index]
+				if row.ServiceTier != want.tier || row.ReasoningEffort != want.effort || row.RequestCount != want.requests || row.UnavailableCostCount != 0 || !recalcClose(row.CostUSD, want.fee) {
+					t.Fatalf("%s bucket %d: got %+v, want %+v", table, index, row, want)
+				}
+			}
+		}
+	}
+	assertFees()
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		if err := writer.Exec("UPDATE " + table + " SET cost_usd = cost_usd + 0.001").Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 全桶校准按存储的六维合并新费用，还需保留范围外同桶的一笔旧价格。
+	if err := repository.FinalizeUsageCostRecalculationStats(ctx, reader, writer, scope); err != nil {
+		t.Fatal(err)
+	}
+	assertFees()
+	var stored []entities.UsageEvent
+	if err := reader.Order("id").Find(&stored).Error; err != nil || len(stored) != len(testEvents) {
+		t.Fatalf("read recalculated event fees: len=%d err=%v", len(stored), err)
+	}
+	for i, sample := range testEvents {
+		if row := stored[i]; row.EventKey != sample.key || row.CostUSD == nil || !recalcClose(*row.CostUSD, sample.fee) || row.CostAvailable == nil || !*row.CostAvailable {
+			t.Fatalf("%s fee: got %+v, want %g", sample.key, row, sample.fee)
+		}
+	}
+	assertUsageOverviewCheckpoint(t, writer, scope.MaxEventID)
 }
 
 // TestUsageCostRecalculationStreamsMoreThanOneGroupBatch 验证业务句柄经独立 Reader 路由持续读 Rows 时，Writer 可提交满页。
