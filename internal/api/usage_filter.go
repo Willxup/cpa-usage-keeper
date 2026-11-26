@@ -57,7 +57,9 @@ func parseUsageEventsTimeFilterQuery(req *http.Request, anchor time.Time) (servi
 
 // Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样放宽至统一的一年上限。
 func parseUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
+	filter, err := parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
+	filter.IncludeDeleted = req.URL.Query().Get("include_deleted") == "true"
+	return filter, err
 }
 
 func parseKeyUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {

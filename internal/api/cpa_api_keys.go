@@ -41,10 +41,12 @@ type cpaAPIKeySettingsResponse struct {
 	LastSyncedAt   *string `json:"lastSyncedAt"`
 	SourceType     string  `json:"sourceType"`
 	AccessProvider string  `json:"accessProvider"`
+	IsDeleted      *bool   `json:"isDeleted,omitempty"`
 }
 
 type cpaAPIKeySettingsListResponse struct {
-	Items []cpaAPIKeySettingsResponse `json:"items"`
+	Items          []cpaAPIKeySettingsResponse `json:"items"`
+	IncludeDeleted bool                        `json:"includeDeleted,omitempty"`
 }
 
 type cpaAPIKeyOption struct {
@@ -70,11 +72,12 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 	})
 
 	router.GET("/usage/api-keys/settings", func(c *gin.Context) {
-		rows, err := listCPAAPIKeySettingsRows(c, provider)
+		includeDeleted := c.Query("include_deleted") == "true" && provider != nil
+		rows, err := listCPAAPIKeySettingsRows(c, provider, includeDeleted)
 		if err != nil {
 			return
 		}
-		c.JSON(http.StatusOK, cpaAPIKeySettingsListResponse{Items: rows})
+		c.JSON(http.StatusOK, cpaAPIKeySettingsListResponse{Items: rows, IncludeDeleted: includeDeleted})
 	})
 
 	router.GET("/usage/api-keys/options", func(c *gin.Context) {
@@ -143,20 +146,32 @@ func listCPAAPIKeyRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cp
 	return response, nil
 }
 
-func listCPAAPIKeySettingsRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cpaAPIKeySettingsResponse, error) {
+func listCPAAPIKeySettingsRows(c *gin.Context, provider service.CPAAPIKeyProvider, includeDeleted bool) ([]cpaAPIKeySettingsResponse, error) {
 	if provider == nil {
 		return []cpaAPIKeySettingsResponse{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := listCPAAPIKeysWithDeleted(c, provider, includeDeleted)
 	if err != nil {
 		writeInternalError(c, "list api key settings failed", err)
 		return nil, err
 	}
 	response := make([]cpaAPIKeySettingsResponse, 0, len(rows))
 	for _, row := range rows {
-		response = append(response, toCPAAPIKeySettingsResponse(row))
+		response = append(response, toCPAAPIKeySettingsResponse(row, includeDeleted))
 	}
 	return response, nil
+}
+
+// listCPAAPIKeysWithDeleted 仅在管理员显式请求且 provider 支持时读取历史，避免错误回显已包含删除项。
+func listCPAAPIKeysWithDeleted(c *gin.Context, provider service.CPAAPIKeyProvider, includeDeleted bool) ([]entities.CPAAPIKey, error) {
+	if !includeDeleted {
+		return provider.ListCPAAPIKeys(c.Request.Context())
+	}
+	history, ok := provider.(service.CPAAPIKeyHistoryProvider)
+	if !ok {
+		return nil, errors.New("api key history provider is not configured")
+	}
+	return history.ListAllCPAAPIKeys(c.Request.Context())
 }
 
 func listCPAAPIKeyOptionRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cpaAPIKeyOption, error) {
@@ -193,7 +208,7 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 	}
 }
 
-func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsResponse {
+func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey, includeDeleted bool) cpaAPIKeySettingsResponse {
 	label := helper.CPAAPIKeyDisplayName(row)
 	var lastSyncedAt *string
 	if row.LastSyncedAt != nil {
@@ -204,6 +219,10 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 	if row.SourceType == entities.CPAAPIKeySourcePlugin {
 		apiKey = ""
 	}
+	var isDeleted *bool
+	if includeDeleted {
+		isDeleted = &row.IsDeleted
+	}
 	return cpaAPIKeySettingsResponse{
 		ID:             strconv.FormatInt(row.ID, 10),
 		APIKey:         apiKey,
@@ -213,6 +232,7 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 		LastSyncedAt:   lastSyncedAt,
 		SourceType:     cpaAPIKeySourceType(row),
 		AccessProvider: row.AccessProvider,
+		IsDeleted:      isDeleted,
 	}
 }
 

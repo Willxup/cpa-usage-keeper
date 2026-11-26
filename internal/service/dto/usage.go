@@ -10,7 +10,9 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	Range string
+	// IncludeDeleted 仅由管理员 Analysis 的显式查询参数设置。
+	IncludeDeleted bool
+	Range          string
 	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
 	RangeUnit    string
 	RangeCount   int

@@ -39,3 +39,11 @@ npm --prefix ./web run build
 ### 验证要求
 
 覆盖上海普通日期、夏令时跳时与回拨，以及浏览器和响应时区不同的情况。确认改动未影响图表样式和生命周期行为。
+
+## 管理员历史 API Key 查询
+
+`GET /usage/api/v1/usage/analysis?range=24h&include_deleted=true` 显式包含已删除及无登记行的全部小时／日 Key 用量。API Key 构成和热力图所有 Key 标识使用登记行的十进制 Keeper ID；无登记行时使用 `legacy:<api_group_key 的小写 SHA-256 十六进制>`，与 Comparisons 一致。标签仍使用别名／显示名或脱敏值。成功启用时顶层增加 `include_deleted: true`。
+
+`GET /usage/api/v1/usage/api-keys/settings?include_deleted=true` 返回 active 和已删除行，每项增加 `isDeleted`，顶层增加 `includeDeleted: true`。原生行保留 `apiKey`，插件行仍省略；此管理员响应须按敏感数据处理。
+
+只有字面值 `true` 启用。两个路由仍仅限管理员；省略或其他值保持原有响应且不增加新字段。Key Viewer 忽略此参数，已删除 Key 仍不能登录。Comparisons、`api_key_id` 筛选和数据库结构均不变。
