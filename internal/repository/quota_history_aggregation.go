@@ -214,6 +214,25 @@ func AdvanceQuotaHistoryDirtyCursor(ctx context.Context, db *gorm.DB, now time.T
 	return result, nil
 }
 
+// HasAnyQuotaCycles 检查库中是否存在任意限额周期，供调度启动决定是否启用限额历史事件标脏。
+func HasAnyQuotaCycles(ctx context.Context, db *gorm.DB) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("check quota cycles existence: database is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var anyCycleID int64
+	if err := db.WithContext(ctx).Clauses(dbresolver.Read).
+		Table("quota_cycles").
+		Select("id").
+		Limit(1).
+		Scan(&anyCycleID).Error; err != nil {
+		return false, fmt.Errorf("check quota cycles existence: %w", err)
+	}
+	return anyCycleID > 0, nil
+}
+
 // HasPendingQuotaHistoryWork 检查是否存在未扫描事件、dirty 周期或 90 天热表范围内的待回填周期。
 func HasPendingQuotaHistoryWork(ctx context.Context, db *gorm.DB, now time.Time) (bool, error) {
 	if db == nil {
@@ -224,6 +243,17 @@ func HasPendingQuotaHistoryWork(ctx context.Context, db *gorm.DB, now time.Time)
 	}
 	if now.IsZero() {
 		now = time.Now()
+	}
+	var anyCycleID int64
+	if err := db.WithContext(ctx).Clauses(dbresolver.Read).
+		Table("quota_cycles").
+		Select("id").
+		Limit(1).
+		Scan(&anyCycleID).Error; err != nil {
+		return false, fmt.Errorf("check quota cycles existence: %w", err)
+	}
+	if anyCycleID <= 0 {
+		return false, nil
 	}
 	hotCutoff := timeutil.FormatSortableStorageTime(usageEventsArchiveCutoff(now))
 

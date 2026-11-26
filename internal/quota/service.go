@@ -16,6 +16,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// QuotaHistoryChangeNotifier 在限额观测写入或周期删除提交后非阻塞唤醒后台汇总。
+type QuotaHistoryChangeNotifier interface {
+	NotifyQuotaHistoryChanged()
+}
+
 type ServiceOptions struct {
 	RefreshWorkerLimit               int
 	QuotaUpstreamResponsesEnabled    bool
@@ -26,6 +31,8 @@ type ServiceOptions struct {
 	CodexQuotaHistoryHeartbeatInterval time.Duration
 	// CodexQuotaHistoryQueueSize 分别覆盖 Header 与可信主动查询两条有界队列容量，非正值使用生产默认值。
 	CodexQuotaHistoryQueueSize int
+	// QuotaHistoryChangeNotifier 在观测落库或周期删除提交后唤醒限额历史后台持久化汇总。
+	QuotaHistoryChangeNotifier QuotaHistoryChangeNotifier
 }
 
 type Service struct {
@@ -109,6 +116,8 @@ type Service struct {
 	codexQuotaHistoryLoad codexQuotaHistoryLoader
 	// codexQuotaHistoryListIdentities 批量确认 Header 来源属于活跃 Codex Credential。
 	codexQuotaHistoryListIdentities codexQuotaHistoryIdentityLister
+	// quotaHistoryChangeNotifier 在观测 flush 或周期删除提交后非阻塞唤醒后台聚合 runner。
+	quotaHistoryChangeNotifier QuotaHistoryChangeNotifier
 	// codexQuotaHistoryMu 同时保护 closing 检查和非阻塞发送，避免 stop/send 竞态。
 	codexQuotaHistoryMu sync.Mutex
 	// codexQuotaHistoryClosing 表示 runner 已停止接收任何新 history 候选。
@@ -209,6 +218,7 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 		codexQuotaHistoryWrite:             repository.WriteCodexMainQuotaObservations,
 		codexQuotaHistoryLoad:              repository.LoadLatestQuotaHistoryState,
 		codexQuotaHistoryListIdentities:    repository.ListActiveCredentialUsageIdentitiesByAuthIndexes,
+		quotaHistoryChangeNotifier:         options.QuotaHistoryChangeNotifier,
 	}
 	go service.runUsageHeaderSnapshotWorker()
 	// history 拥有独立队列、timer 和稳定尾段，不能复用一分钟 cache worker 的 pending map。

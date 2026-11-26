@@ -525,4 +525,7 @@ func (s *Service) flushCodexQuotaHistory(state *codexQuotaHistoryRunnerState, pe
 		current.PendingIndex = -1
 		state.Current[key] = current
 	}
+	if s.quotaHistoryChangeNotifier != nil {
+		s.quotaHistoryChangeNotifier.NotifyQuotaHistoryChanged()
+	}
 }

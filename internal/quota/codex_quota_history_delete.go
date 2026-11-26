@@ -80,6 +80,9 @@ func (s *Service) deleteCodexQuotaHistoryCycle(state *codexQuotaHistoryRunnerSta
 			delete(state.Stable, key)
 		}
 		s.clearQueuedCodexQuotaHistoryCycle(cycle)
+		if s.quotaHistoryChangeNotifier != nil {
+			s.quotaHistoryChangeNotifier.NotifyQuotaHistoryChanged()
+		}
 	}
 	request.result <- err
 }

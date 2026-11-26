@@ -31,9 +31,13 @@ const (
 	usageAggregationTransactionTimeout = 30 * time.Second
 	// usageAggregationEventPageSize 与 repository 的共享事件页硬上限保持一致。
 	usageAggregationEventPageSize = 1000
+	// usageAggregationQuotaHistoryActiveThrottle 对高频进行中限额周期做温和合并节流，避免每次事件都重扫长周期。
+	usageAggregationQuotaHistoryActiveThrottle = 20 * time.Second
+	// usageAggregationQuotaHistoryBatchSize 限制单 turn 重算周期数，避免阻塞其它聚合或 Pause 停稳。
+	usageAggregationQuotaHistoryBatchSize = repository.DefaultQuotaHistoryRecomputeBatchSize
 )
 
-// UsageAggregationKind 标识 runner 当前执行的两种公平调度 turn。
+// UsageAggregationKind 标识 runner 当前执行的公平调度 turn。
 type UsageAggregationKind string
 
 const (
@@ -41,6 +45,8 @@ const (
 	UsageAggregationKindRollups UsageAggregationKind = "rollups"
 	// UsageAggregationKindIdentity 沿用现有 Identity 分页和每行 cursor。
 	UsageAggregationKindIdentity UsageAggregationKind = "identity"
+	// UsageAggregationKindQuotaHistory 低优先级推进限额历史标脏游标与有界周期持久化重算。
+	UsageAggregationKindQuotaHistory UsageAggregationKind = "quota_history"
 )
 
 // UsageAggregationRunResult 描述一次 turn 是否写入数据或为 CPA inbox 让路。
@@ -54,21 +60,23 @@ type UsageAggregationRunResult struct {
 
 // UsageAggregationRunnerOptions 只开放测试需要控制的时钟和时间窗口，不增加用户配置项。
 type UsageAggregationRunnerOptions struct {
-	DebounceInterval time.Duration
-	NowFunc          func() time.Time
+	DebounceInterval           time.Duration
+	QuotaHistoryActiveThrottle time.Duration
+	NowFunc                    func() time.Time
 }
 
-// UsageAggregationRunner 在一个 goroutine 内公平调度共享 rollups 与既有 Identity。
+// UsageAggregationRunner 在一个 goroutine 内公平调度共享 rollups、Identity 与限额历史持久化。
 type UsageAggregationRunner struct {
-	db               *gorm.DB
-	now              func() time.Time
-	debounceInterval time.Duration
+	db                         *gorm.DB
+	now                        func() time.Time
+	debounceInterval           time.Duration
+	quotaHistoryActiveThrottle time.Duration
 	// workGate 保护普通 turn 的完整 Reader 预读、计算、事务提交和内存状态更新。
 	workGate aggregationWorkGate
 
-	// mu 只保护轻量内存目标和 Identity 分页状态，锁内不执行数据库操作。
+	// mu 只保护轻量内存目标和 Identity/限额历史分页状态，锁内不执行数据库操作。
 	mu sync.Mutex
-	// nextKind 固定在 rollups 与 Identity 之间轮转，防止任一 backlog 独占 writer。
+	// nextKind 固定在 rollups、Identity、quota_history 之间轮转，防止任一 backlog 独占 writer。
 	nextKind UsageAggregationKind
 	// startupTargetLoaded 保证完全静默时启动只查询一次 MAX(id)。
 	startupTargetLoaded bool
@@ -88,6 +96,19 @@ type UsageAggregationRunner struct {
 	// identityScanGeneration 是当前分页扫描从头开始时捕获的通知代际。
 	identityScanGeneration uint64
 
+	// quotaHistoryActive 表示库中已存在限额周期，无周期的实例跳过事件标脏扫描以保持零额外开销。
+	quotaHistoryActive bool
+	// quotaHistoryPending 标记存在待扫描事件、dirty 周期或 90 天热表范围内的待回填周期。
+	quotaHistoryPending bool
+	// quotaHistoryTargetGeneration 记录任意事件提交或观测变更通知推进的最新代际，防止并发通知被旧 turn 覆盖。
+	quotaHistoryTargetGeneration uint64
+	// quotaHistoryObservationGeneration 记录观测/周期结构变更通知代际，防止旧 turn 冷却状态覆盖新观测立即重算。
+	quotaHistoryObservationGeneration uint64
+	// quotaHistoryRetryAfter 记录全部剩余周期均处于进行中节流窗口时的最早可重算时刻。
+	quotaHistoryRetryAfter time.Time
+	// quotaHistoryActiveLastRun 记录进行中周期最近一次持久化重算时刻，用于后台温和节流。
+	quotaHistoryActiveLastRun map[int64]time.Time
+
 	// wake 只表达状态已经变化，容量 1 会自然合并连续通知。
 	wake chan struct{}
 }
@@ -103,17 +124,23 @@ func NewUsageAggregationRunnerWithOptions(db *gorm.DB, options UsageAggregationR
 	if debounceInterval <= 0 {
 		debounceInterval = usageAggregationDefaultDebounceInterval
 	}
+	quotaHistoryThrottle := options.QuotaHistoryActiveThrottle
+	if quotaHistoryThrottle <= 0 {
+		quotaHistoryThrottle = usageAggregationQuotaHistoryActiveThrottle
+	}
 	now := options.NowFunc
 	if now == nil {
 		now = time.Now
 	}
 	return &UsageAggregationRunner{
-		db:                       db,
-		now:                      now,
-		debounceInterval:         debounceInterval,
-		nextKind:                 UsageAggregationKindRollups,
-		identityTargetGeneration: 1, // 启动时必须覆盖一次进程启动前已经存在的 identities。
-		wake:                     make(chan struct{}, 1),
+		db:                         db,
+		now:                        now,
+		debounceInterval:           debounceInterval,
+		quotaHistoryActiveThrottle: quotaHistoryThrottle,
+		nextKind:                   UsageAggregationKindRollups,
+		identityTargetGeneration:   1, // 启动时必须覆盖一次进程启动前已经存在的 identities。
+		quotaHistoryActiveLastRun:  make(map[int64]time.Time),
+		wake:                       make(chan struct{}, 1),
 	}
 }
 
@@ -131,12 +158,16 @@ func (r *UsageAggregationRunner) NotifyUsageEventsCommitted(events []entities.Us
 	if maxEventID <= 0 {
 		return
 	}
-	// usage 提交既需要三个全局 rollup 追赶，也需要 Identity 覆盖一次最新事件。
+	// usage 提交既需要三个全局 rollup 追赶，也需要 Identity 与限额历史覆盖最新事件。
 	r.mu.Lock()
 	if maxEventID > r.pendingTargetEventID {
 		r.pendingTargetEventID = maxEventID
 	}
 	r.identityTargetGeneration++
+	if r.quotaHistoryActive {
+		r.quotaHistoryPending = true
+		r.quotaHistoryTargetGeneration++
+	}
 	r.mu.Unlock()
 	r.signalWake()
 }
@@ -148,6 +179,23 @@ func (r *UsageAggregationRunner) NotifyUsageIdentitiesChanged() {
 	}
 	r.mu.Lock()
 	r.identityTargetGeneration++
+	r.mu.Unlock()
+	r.signalWake()
+}
+
+// NotifyQuotaHistoryChanged 在配额观测写入或周期删除提交后非阻塞唤醒限额历史持久化汇总。
+func (r *UsageAggregationRunner) NotifyQuotaHistoryChanged() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.quotaHistoryActive = true
+	r.quotaHistoryPending = true
+	r.quotaHistoryTargetGeneration++
+	r.quotaHistoryObservationGeneration++
+	// 观测变更（如新降档、边界升级、删周期）应立即解除节流等待与周期冷却记录。
+	r.quotaHistoryRetryAfter = time.Time{}
+	clear(r.quotaHistoryActiveLastRun)
 	r.mu.Unlock()
 	r.signalWake()
 }
@@ -181,7 +229,7 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 		break
 	}
 
-	errorBackoffs := make(map[UsageAggregationKind]time.Duration, 2)
+	errorBackoffs := make(map[UsageAggregationKind]time.Duration, 3)
 	var debounceTimer *time.Timer
 	for {
 		if ctx.Err() != nil {
@@ -192,12 +240,17 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 		}
 
 		// 新目标即使遇到旧目标持续失败，也拥有独立 one-shot 窗口，避免健康 Rollup 一起冻结。
+		now := r.now()
 		r.mu.Lock()
 		pendingRollupWindow := r.pendingTargetEventID > 0 && (!r.activeRound || r.pendingTargetEventID > r.activeTargetEventID)
 		if pendingRollupWindow && debounceTimer == nil {
 			debounceTimer = time.NewTimer(r.debounceInterval)
 		}
-		runnable := r.hasRunnableWorkLocked()
+		runnable := r.hasRunnableWorkLocked(now)
+		quotaThrottleWait := time.Duration(0)
+		if !runnable && r.quotaHistoryPending && !r.quotaHistoryRetryAfter.IsZero() && now.Before(r.quotaHistoryRetryAfter) {
+			quotaThrottleWait = r.quotaHistoryRetryAfter.Sub(now)
+		}
 		r.mu.Unlock()
 
 		// Identity 处理期间 timer 也可能到期，每个短 turn 之间优先冻结当前窗口。
@@ -212,7 +265,7 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 		}
 
 		if runnable {
-			result, err := r.runPreparedOnce(ctx)
+			result, err := r.runPreparedOnce(ctx, false)
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 					return nil
@@ -238,30 +291,61 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 			continue
 		}
 
+		var throttleTimer *time.Timer
+		var throttleC <-chan time.Time
+		if quotaThrottleWait > 0 {
+			throttleTimer = time.NewTimer(quotaThrottleWait)
+			throttleC = throttleTimer.C
+		}
+
 		// 没有可执行 turn 时阻塞等待；这条路径不访问数据库。
 		if debounceTimer == nil {
 			select {
 			case <-ctx.Done():
+				if throttleTimer != nil {
+					throttleTimer.Stop()
+				}
 				return nil
 			case <-r.wake:
+				if throttleTimer != nil {
+					throttleTimer.Stop()
+				}
+				continue
+			case <-throttleC:
+				r.mu.Lock()
+				r.quotaHistoryRetryAfter = time.Time{}
+				r.mu.Unlock()
 				continue
 			}
 		}
 		select {
 		case <-ctx.Done():
 			debounceTimer.Stop()
+			if throttleTimer != nil {
+				throttleTimer.Stop()
+			}
 			return nil
 		case <-r.wake:
+			if throttleTimer != nil {
+				throttleTimer.Stop()
+			}
 			// 新通知只更新 pending target；现有 timer 保持原到期时间。
 			continue
+		case <-throttleC:
+			r.mu.Lock()
+			r.quotaHistoryRetryAfter = time.Time{}
+			r.mu.Unlock()
 		case <-debounceTimer.C:
+			if throttleTimer != nil {
+				throttleTimer.Stop()
+			}
 			debounceTimer = nil
 			r.freezePendingTarget()
 		}
 	}
 }
 
-// RunOnce 是同步测试/诊断入口：初始化或待冻结目标都立即处理，不真实等待 5 秒。
+// RunOnce 是同步测试/诊断入口：初始化或待冻结目标都立即处理，不真实等待 5 秒或进行中周期节流。
 func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationRunResult, error) {
 	if r == nil {
 		return UsageAggregationRunResult{}, fmt.Errorf("usage aggregation runner is nil")
@@ -277,7 +361,7 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 	}
 	// 直接调用不启动 timer；它把已经收到的最大 ID 作为当前固定目标。
 	r.freezePendingTarget()
-	return r.runPreparedOnce(ctx)
+	return r.runPreparedOnce(ctx, true)
 }
 
 func (r *UsageAggregationRunner) ensureStartupTarget(ctx context.Context) error {
@@ -291,6 +375,17 @@ func (r *UsageAggregationRunner) ensureStartupTarget(ctx context.Context) error 
 	if err != nil {
 		return err
 	}
+	hasQuotaCycles, err := repository.HasAnyQuotaCycles(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	quotaHistoryPending := false
+	if hasQuotaCycles {
+		quotaHistoryPending, err = repository.HasPendingQuotaHistoryWork(ctx, r.db, r.now())
+		if err != nil {
+			return err
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.startupTargetLoaded {
@@ -300,6 +395,13 @@ func (r *UsageAggregationRunner) ensureStartupTarget(ctx context.Context) error 
 	r.activeRound = true
 	r.activeTargetEventID = targetEventID
 	r.rollupsReachedTarget = targetEventID == 0
+	if hasQuotaCycles {
+		r.quotaHistoryActive = true
+		if quotaHistoryPending || r.pendingTargetEventID > targetEventID {
+			r.quotaHistoryPending = true
+			r.quotaHistoryTargetGeneration++
+		}
+	}
 	// 查询期间到达且 ID 更大的通知留给下一窗口；已被 MAX 覆盖的通知无需再跑一轮。
 	if r.pendingTargetEventID <= targetEventID {
 		r.pendingTargetEventID = 0
@@ -325,23 +427,33 @@ func (r *UsageAggregationRunner) freezePendingTarget() {
 	r.rollupsReachedTarget = false
 }
 
-func (r *UsageAggregationRunner) hasRunnableWorkLocked() bool {
-	return r.activeRound || r.identityWorkPendingLocked()
+func (r *UsageAggregationRunner) hasRunnableWorkLocked(now time.Time) bool {
+	return r.activeRound || r.identityWorkPendingLocked() || r.quotaHistoryRunnableLocked(now, false)
+}
+
+func (r *UsageAggregationRunner) quotaHistoryRunnableLocked(now time.Time, ignoreActiveThrottle bool) bool {
+	if !r.quotaHistoryPending {
+		return false
+	}
+	if ignoreActiveThrottle || r.quotaHistoryRetryAfter.IsZero() {
+		return true
+	}
+	return !now.Before(r.quotaHistoryRetryAfter)
 }
 
 func (r *UsageAggregationRunner) identityWorkPendingLocked() bool {
 	return r.identityAfterID != 0 || r.identityScanGeneration < r.identityTargetGeneration
 }
 
-func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggregationRunResult, error) {
+func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context, ignoreActiveThrottle bool) (UsageAggregationRunResult, error) {
 	leave, err := r.workGate.enter(ctx)
 	if err != nil {
 		return UsageAggregationRunResult{}, err
 	}
 	defer leave()
 	r.mu.Lock()
-	// 只有两类工作都存在时才遵循公平轮转；其中一类已经追平时直接执行另一类，避免空 turn 查询数据库。
-	kind, runnable := r.nextRunnableKindLocked()
+	// 只有在多类工作都存在时才遵循公平轮转；其它类已追平时直接执行待处理类，避免空 turn 查询数据库。
+	kind, runnable := r.nextRunnableKindLocked(ignoreActiveThrottle)
 	targetEventID := r.activeTargetEventID
 	activeRound := r.activeRound
 	identityPending := r.identityWorkPendingLocked()
@@ -350,6 +462,8 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 	if kind == UsageAggregationKindIdentity && identityPending && identityAfterID == 0 {
 		identityPassGeneration = r.identityTargetGeneration
 	}
+	quotaHistoryTargetGen := r.quotaHistoryTargetGeneration
+	quotaHistoryObservationGen := r.quotaHistoryObservationGeneration
 	r.mu.Unlock()
 
 	result := UsageAggregationRunResult{Kind: kind}
@@ -357,7 +471,7 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 		return result, nil
 	}
 	writeDB := r.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: ctx})
-	// Identity 与 rollups 都会写唯一 writer，进入 turn 前先给 CPA inbox 让路。
+	// Identity、rollups 与限额历史都会写唯一 writer，进入 turn 前先给 CPA inbox 让路。
 	hasInbox, err := repository.HasProcessableRedisUsageInbox(ctx, writeDB)
 	if err != nil {
 		return result, err
@@ -391,7 +505,7 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 	case UsageAggregationKindIdentity:
 		if !identityPending {
 			r.mu.Lock()
-			r.nextKind = UsageAggregationKindRollups
+			r.nextKind = UsageAggregationKindQuotaHistory
 			r.mu.Unlock()
 			return result, nil
 		}
@@ -400,7 +514,7 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 			return result, runErr
 		}
 		r.mu.Lock()
-		r.nextKind = UsageAggregationKindRollups
+		r.nextKind = UsageAggregationKindQuotaHistory
 		if batch.ReachedEnd {
 			r.identityAfterID = 0
 			r.identityScanGeneration = identityPassGeneration
@@ -414,24 +528,153 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 		result.Processed = batch.ProcessedIdentities > 0 || !batch.ReachedEnd || identityStillPending
 		return result, nil
 
+	case UsageAggregationKindQuotaHistory:
+		processed, deferred, stillPending, retryAfter, runErr := r.runQuotaHistoryTurn(transactionCtx, writeDB, now, ignoreActiveThrottle, quotaHistoryObservationGen)
+		result.Processed = processed
+		result.DeferredForInbox = deferred
+		if runErr != nil {
+			return result, runErr
+		}
+		r.mu.Lock()
+		r.nextKind = UsageAggregationKindRollups
+		targetAdvanced := r.quotaHistoryTargetGeneration != quotaHistoryTargetGen
+		observationAdvanced := r.quotaHistoryObservationGeneration != quotaHistoryObservationGen
+		if !stillPending {
+			// 仅在代际未前进时清除待处理标记，避免覆盖执行期间并发到达的事件或观测通知。
+			if !targetAdvanced {
+				r.quotaHistoryPending = false
+			}
+			r.quotaHistoryRetryAfter = time.Time{}
+		} else {
+			r.quotaHistoryPending = true
+			// 若执行期间并发到达新事件或观测变更，不得写入旧节流等待时刻，让下一 turn 立即检查。
+			if !retryAfter.IsZero() && !targetAdvanced && !observationAdvanced {
+				r.quotaHistoryRetryAfter = retryAfter
+			} else {
+				r.quotaHistoryRetryAfter = time.Time{}
+			}
+		}
+		r.mu.Unlock()
+		return result, nil
+
 	default:
 		return result, fmt.Errorf("unknown usage aggregation kind %q", kind)
 	}
 }
 
-func (r *UsageAggregationRunner) nextRunnableKindLocked() (UsageAggregationKind, bool) {
-	rollupsPending := r.activeRound
-	identityPending := r.identityWorkPendingLocked()
-	switch {
-	case rollupsPending && identityPending:
-		return r.nextKind, true
-	case rollupsPending:
-		return UsageAggregationKindRollups, true
-	case identityPending:
-		return UsageAggregationKindIdentity, true
-	default:
-		return r.nextKind, false
+func (r *UsageAggregationRunner) nextRunnableKindLocked(ignoreActiveThrottle bool) (UsageAggregationKind, bool) {
+	quotaRunnable := r.quotaHistoryPending
+	if quotaRunnable && !ignoreActiveThrottle && !r.quotaHistoryRetryAfter.IsZero() && r.now().Before(r.quotaHistoryRetryAfter) {
+		quotaRunnable = false
 	}
+	pendingByKind := map[UsageAggregationKind]bool{
+		UsageAggregationKindRollups:      r.activeRound,
+		UsageAggregationKindIdentity:     r.identityWorkPendingLocked(),
+		UsageAggregationKindQuotaHistory: quotaRunnable,
+	}
+	order := []UsageAggregationKind{
+		UsageAggregationKindRollups,
+		UsageAggregationKindIdentity,
+		UsageAggregationKindQuotaHistory,
+	}
+	startIdx := 0
+	for i, kind := range order {
+		if kind == r.nextKind {
+			startIdx = i
+			break
+		}
+	}
+	for offset := 0; offset < len(order); offset++ {
+		candidate := order[(startIdx+offset)%len(order)]
+		if pendingByKind[candidate] {
+			return candidate, true
+		}
+	}
+	return r.nextKind, false
+}
+
+func (r *UsageAggregationRunner) runQuotaHistoryTurn(ctx context.Context, writeDB *gorm.DB, now time.Time, ignoreActiveThrottle bool, observationGen uint64) (processed bool, deferred bool, stillPending bool, retryAfter time.Time, err error) {
+	// 1. 先按 usage_events.id 推进标脏游标一页。
+	scanRes, err := repository.AdvanceQuotaHistoryDirtyCursor(ctx, r.db, now, usageAggregationEventPageSize)
+	if err != nil {
+		return false, false, true, time.Time{}, err
+	}
+	if scanRes.ScannedEvents > 0 {
+		processed = true
+	}
+
+	// 2. 写周期统计前先检查 CPA inbox 是否等待落库。
+	if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
+		return processed, deferred, true, time.Time{}, err
+	}
+
+	// 3. 后台模式下对高频进行中周期施加温和节流；RunOnce 跳过节流立即执行。
+	var throttledIDs []int64
+	var earliestThrottleRelease time.Time
+	if !ignoreActiveThrottle && r.quotaHistoryActiveThrottle > 0 {
+		r.mu.Lock()
+		for cycleID, lastRun := range r.quotaHistoryActiveLastRun {
+			releaseAt := lastRun.Add(r.quotaHistoryActiveThrottle)
+			if now.Before(releaseAt) {
+				throttledIDs = append(throttledIDs, cycleID)
+				if earliestThrottleRelease.IsZero() || releaseAt.Before(earliestThrottleRelease) {
+					earliestThrottleRelease = releaseAt
+				}
+			} else {
+				delete(r.quotaHistoryActiveLastRun, cycleID)
+			}
+		}
+		r.mu.Unlock()
+	}
+
+	cycles, hasMoreCycles, err := repository.SelectQuotaCyclesForUsageSync(ctx, r.db, now, usageAggregationQuotaHistoryBatchSize, throttledIDs)
+	if err != nil {
+		return processed, false, true, time.Time{}, err
+	}
+
+	hadUnappliedCycle := false
+	for _, cycle := range cycles {
+		if deferred, err = r.deferForInbox(ctx, writeDB); err != nil || deferred {
+			return processed, deferred, true, time.Time{}, err
+		}
+		computed, computeErr := repository.ComputeQuotaCyclePersistedUsage(ctx, r.db, cycle, now, 0)
+		if computeErr != nil {
+			return processed, false, true, time.Time{}, computeErr
+		}
+		applied, applyErr := repository.ApplyComputedQuotaCycleUsage(ctx, r.db, computed, now, false)
+		if applyErr != nil {
+			return processed, false, true, time.Time{}, applyErr
+		}
+		if applied {
+			processed = true
+			if computed.Active {
+				r.mu.Lock()
+				// 若本 turn 执行期间已有新观测通知到达，不写回旧冷却时间，避免挡住新观测立即重算。
+				if r.quotaHistoryObservationGeneration == observationGen {
+					r.quotaHistoryActiveLastRun[cycle.ID] = now
+				}
+				r.mu.Unlock()
+			}
+		} else {
+			// 并发 boundary_version 变更或周期删改导致本次未落库，保持待处理以供下一 turn 重算。
+			hadUnappliedCycle = true
+		}
+	}
+
+	if scanRes.HasMore || hasMoreCycles || hadUnappliedCycle {
+		return processed, false, true, time.Time{}, nil
+	}
+	// 若本轮跳过了节流中的进行中周期，检查它们是否仍为 dirty，避免静默丢失更新。
+	if len(throttledIDs) > 0 {
+		pending, checkErr := repository.HasPendingQuotaHistoryWork(ctx, r.db, now)
+		if checkErr != nil {
+			return processed, false, true, time.Time{}, checkErr
+		}
+		if pending {
+			return processed, false, true, earliestThrottleRelease, nil
+		}
+	}
+	return processed, false, false, time.Time{}, nil
 }
 
 func (r *UsageAggregationRunner) runRollupsTurn(ctx context.Context, writeDB *gorm.DB, activeRound bool, targetEventID int64, now time.Time) (bool, bool, bool, error) {
@@ -634,6 +877,8 @@ func (r *UsageAggregationRunner) advanceAfterFailure(kind UsageAggregationKind) 
 	case UsageAggregationKindRollups:
 		r.nextKind = UsageAggregationKindIdentity
 	case UsageAggregationKindIdentity:
+		r.nextKind = UsageAggregationKindQuotaHistory
+	case UsageAggregationKindQuotaHistory:
 		r.nextKind = UsageAggregationKindRollups
 	}
 }
