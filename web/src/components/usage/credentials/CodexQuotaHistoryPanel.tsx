@@ -755,7 +755,7 @@ const CycleCard = memo(function CycleCard({
           <IconTrash2 size={15} aria-hidden="true" />
         </Button>
       </div>
-      <div id={detailsId} hidden={!expanded}>
+      <div id={detailsId} hidden={!expanded} className={styles.transitionSection}>
         {expanded ? <>
           <div className={styles.transitionHeader} aria-hidden="true">
             <span>{t('usage_stats.credentials_quota_history_change')}</span>

@@ -74,4 +74,12 @@ describe('Codex quota history styles', () => {
     expect(mobileStyles).not.toContain('.transitionRow')
     expect(quotaHistoryStyles).not.toMatch(/\.transitionRow\s*\{\s*grid-template-columns:\s*1fr;/)
   })
+
+  it('aligns expanded transition table header with rounded secondary bar and tabular numeric columns', () => {
+    const headerRule = scssRule('.transitionHeader {')
+    expect(headerRule).toContain('border-radius: 8px;')
+    expect(headerRule).toContain('background: var(--bg-secondary);')
+    const valueCellRule = scssRule('\n\n.valueCell {')
+    expect(valueCellRule).toContain('text-align: right;')
+  })
 })
