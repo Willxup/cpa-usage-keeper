@@ -438,11 +438,13 @@ function QuotaSummaryRow({
   label,
   metrics,
   leadingMetric = 'requests',
+  emphasis = 'secondary',
 }: {
   kind: QuotaSummaryKind
   label: string
   metrics: QuotaSummaryMetrics | null
   leadingMetric?: 'requests' | 'percentage'
+  emphasis?: 'primary' | 'secondary'
 }) {
   const { t } = useTranslation()
   const values = metrics ? {
@@ -452,7 +454,11 @@ function QuotaSummaryRow({
     cost: metrics.costAvailable ? formatUsd(metrics.cost) : t('usage_stats.credentials_quota_history_cost_missing'),
   } : null
   return (
-    <div className={styles.chartSummaryRow} data-codex-quota-summary={kind}>
+    <div
+      className={`${styles.chartSummaryRow} ${emphasis === 'primary' ? styles.primarySummaryRow : styles.secondarySummaryRow}`.trim()}
+      data-codex-quota-summary={kind}
+      data-emphasis={emphasis}
+    >
       <dt>{label}</dt>
       <dd>{values ? <>
         {leadingMetric === 'requests' ? <QuotaSummaryMetric
@@ -697,26 +703,35 @@ const CycleCard = memo(function CycleCard({
       <div className={styles.cycleSelection} onClick={() => onSelect(cycle.id)}>
         <button type="button" className={`${styles.boundaryRow} ${styles.startBoundary}`.trim()}
           aria-pressed={selected} data-codex-quota-cycle-select="true">
-          <span>{t('usage_stats.credentials_quota_history_cycle_label')}</span>
-          <strong>
-            <span className={styles.cycleTimeRange}>
-              {formatTime(cycle.effective_started_at)}
-              {' → '}
-              {formatTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at)}
+          <span className={styles.screenReaderOnly}>{t('usage_stats.credentials_quota_history_cycle_label')}</span>
+          <div className={styles.cycleHeaderMain}>
+            <strong>
+              <span className={styles.cycleTimeRange}>
+                {formatTime(cycle.effective_started_at)}
+                {' → '}
+                {formatTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at)}
+              </span>
+              <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
+              {selected ? <span className={styles.selectedIndicator}><IconCheck size={11} aria-hidden="true" />{t('usage_stats.credentials_quota_history_selected')}</span> : null}
+            </strong>
+            <small className={styles.cycleHeaderMeta}>
+              {formatCycleWindowLabel(cycle.window_seconds, t)}
+              {' · '}
+              {t('usage_stats.credentials_quota_history_first_observed', { value: formatTime(cycle.first_observed_at) })}
+            </small>
+          </div>
+          <div className={styles.cycleHeaderPercent} data-status={quotaRemainingStatus(cycle.last_remaining_percent)}>
+            <span className={styles.cycleRemainingValue}>
+              {cycle.last_remaining_percent ?? '—'}
+              {cycle.last_remaining_percent !== null ? <small>%</small> : null}
             </span>
-            <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
-            {selected ? <span className={styles.selectedIndicator}><IconCheck size={11} aria-hidden="true" />{t('usage_stats.credentials_quota_history_selected')}</span> : null}
-          </strong>
-          <small>
-            {formatCycleWindowLabel(cycle.window_seconds, t)}
-            {' · '}
-            {t('usage_stats.credentials_quota_history_first_observed', { value: formatTime(cycle.first_observed_at) })}
-            {' · '}
-            {t('usage_stats.credentials_quota_history_percent_summary', {
-              percent: cycle.last_remaining_percent ?? '—',
-              count: cycle.observation_count,
-            })}
-          </small>
+            <small className={styles.cycleObservationMeta}>
+              {t('usage_stats.credentials_quota_history_percent_summary', {
+                percent: cycle.last_remaining_percent ?? '—',
+                count: cycle.observation_count,
+              })}
+            </small>
+          </div>
         </button>
         <div className={styles.cycleSummaryContainer}>
           <CycleQuotaSummary status={cycle.status} summary={summary} />
@@ -773,23 +788,26 @@ function CycleQuotaSummary({
       className={`${styles.cycleSummary} ${isCurrent ? styles.currentCycleSummary : styles.completedCycleSummary}`.trim()}
       data-codex-quota-cycle-summary="true"
     >
-      <QuotaSummaryRow kind="median" label={t('usage_stats.credentials_quota_history_median_per_point')} metrics={summary?.median ?? null} />
+      <QuotaSummaryRow kind="median" emphasis="primary" label={t('usage_stats.credentials_quota_history_median_per_point')} metrics={summary?.median ?? null} />
       {isCurrent ? <>
         <QuotaSummaryRow
           kind="used"
+          emphasis="primary"
           label={t('usage_stats.credentials_quota_history_used')}
           metrics={summary?.used ?? null}
         />
-        <QuotaSummaryRow kind="full-estimate" label={t('usage_stats.credentials_quota_history_full_estimate')} metrics={summary?.fullEstimate ?? null} />
+        <QuotaSummaryRow kind="full-estimate" emphasis="secondary" label={t('usage_stats.credentials_quota_history_full_estimate')} metrics={summary?.fullEstimate ?? null} />
       </> : <>
-        <QuotaSummaryRow kind="full-estimate" label={t('usage_stats.credentials_quota_history_full_estimate')} metrics={summary?.fullEstimate ?? null} />
+        <QuotaSummaryRow kind="full-estimate" emphasis="secondary" label={t('usage_stats.credentials_quota_history_full_estimate')} metrics={summary?.fullEstimate ?? null} />
         <QuotaSummaryRow
           kind="used"
+          emphasis="primary"
           label={t('usage_stats.credentials_quota_history_used')}
           metrics={summary?.used ?? null}
         />
         <QuotaSummaryRow
           kind="estimated-unused"
+          emphasis="secondary"
           label={t('usage_stats.credentials_quota_history_estimated_unused')}
           metrics={summary?.estimatedUnused ?? null}
           leadingMetric="percentage"

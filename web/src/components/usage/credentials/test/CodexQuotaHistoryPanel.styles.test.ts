@@ -45,7 +45,7 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?container:\s*quota-cycle-card \/ inline-size;/)
     expect(cycleSummaryStyles).toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
     expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?\.chartSummaryRow:nth-child\(n \+ 3\)\s*\{[\s\S]*?border-top:\s*1px solid var\(--border-color\);/)
+    expect(scssRule('\n.completedCycleSummary')).not.toContain('border-top:')
     expect(cycleSummaryStyles).toMatch(/\.currentCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
     expect(cycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
     expect(cycleSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;/)
@@ -56,6 +56,11 @@ describe('Codex quota history styles', () => {
     expect(narrowCycleSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*center;/)
     expect(narrowCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?column-gap:\s*inherit;/)
     expect(narrowCycleSummaryStyles).not.toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
+  })
+
+  it('removes heavy drawer shadow from the main chart card', () => {
+    const cardRule = scssRule('.card {')
+    expect(cardRule).not.toContain('box-shadow: var(--shadow-lg)')
   })
 
   it('keeps transition details four-column until the cycle card narrows, then two-column at every viewport', () => {
