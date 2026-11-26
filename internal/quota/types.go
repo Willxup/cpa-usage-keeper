@@ -218,6 +218,14 @@ type ClaudeUsagePayload struct {
 	SevenDayCowork    *ClaudeUsageWindow      `json:"sevenDayCowork,omitempty"`
 	IguanaNecktie     *ClaudeUsageWindow      `json:"iguanaNecktie,omitempty"`
 	ExtraUsage        *ClaudeExtraUsage       `json:"extraUsage,omitempty"`
+	// ModelWeeklyLimits 来自官方 limits[] 中按模型限定的周额度（如 Fable），与共享 seven_day 独立计数。
+	ModelWeeklyLimits []ClaudeModelWeeklyLimit `json:"modelWeeklyLimits,omitempty"`
+}
+
+// ClaudeModelWeeklyLimit 是单个模型的独立周额度；耗尽时只限制该模型，不影响账号其它模型。
+type ClaudeModelWeeklyLimit struct {
+	Model  string            `json:"model"`
+	Window ClaudeUsageWindow `json:"window"`
 }
 
 type ClaudeProfileAccount struct {

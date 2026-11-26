@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -226,5 +227,35 @@ func TestClaudeProviderBoundsOptionalProfileContext(t *testing.T) {
 				t.Fatalf("unexpected profile deadline remaining %s", remaining)
 			}
 		})
+	}
+}
+
+func TestClaudeModelWeeklyLimitsBecomeModelRows(t *testing.T) {
+	// limits[] 取自真实 /api/oauth/usage 响应：weekly_all 与 seven_day 重复，weekly_scoped 是独立的 Fable 周额度。
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		quotaAPIResponse(200, `{"seven_day":{"utilization":100,"resets_at":"2026-11-20T12:59:59Z"},"seven_day_opus":{"utilization":30,"resets_at":"2026-11-20T12:59:59Z"},"limits":[`+
+			`{"kind":"weekly_all","group":"weekly","percent":100,"resets_at":"2026-11-20T12:59:59Z","scope":null},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":42,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":30,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":"opus","display_name":null},"surface":null}},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":99,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":"fable","display_name":null},"surface":null}},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":7,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":{"id":null,"display_name":"Haiku"},"surface":{"id":"cowork"}}},`+
+			`{"kind":"weekly_scoped","group":"weekly","percent":5,"resets_at":"2026-11-20T12:59:59Z","scope":{"model":null,"surface":{"id":"cowork"}}}]}`),
+	}}
+	configs := quota.DefaultProviderConfigs()
+	output, err := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile).Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "claude-auth"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := quota.NormalizeQuotaRows(output)
+	var labels []string
+	for _, row := range rows {
+		labels = append(labels, row.Label)
+	}
+	if want := []string{"Weekly", "7d Opus", "7d Fable"}; !reflect.DeepEqual(labels, want) {
+		t.Fatalf("row labels = %v, want %v (models must not repeat across fields, names and ids; surface-scoped limits are not model-wide)", labels, want)
+	}
+	fable := findQuotaRow(t, rows, "seven_day_model.fable")
+	if fable.Scope != "model" || fable.UsedPercent == nil || *fable.UsedPercent != 42 || fable.ResetAt != "2026-11-20T12:59:59Z" || fable.Window == nil || fable.Window.Seconds == nil || *fable.Window.Seconds != 604800 {
+		t.Fatalf("unexpected Fable row: %+v", fable)
 	}
 }
