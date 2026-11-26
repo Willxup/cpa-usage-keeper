@@ -31,6 +31,8 @@ type ServiceOptions struct {
 type Service struct {
 	db       *gorm.DB
 	registry ProviderRegistry
+	// routingRecovery 为 nil 时刷新结果不触发 CPA 路由恢复（如测试注入的自定义 registry）。
+	routingRecovery routingRecoveryClient
 	// quotaUpstreamResponsesEnabled 控制刷新任务是否把 CPA 转发的完整上游响应写入最新限额缓存。
 	quotaUpstreamResponsesEnabled bool
 
@@ -130,6 +132,8 @@ type CheckResponse struct {
 	RateLimitResetCreditsAvailableCount *int                    `json:"rateLimitResetCreditsAvailableCount,omitempty"`
 	ClaudeResetGrants                   *ClaudeResetGrantStatus `json:"claudeResetGrants,omitempty"`
 	antigravityHasSeparateArgon         bool
+	// sharedQuotaAvailable 只供刷新后的 CPA 路由恢复使用，不进入缓存 JSON。
+	sharedQuotaAvailable bool
 }
 
 // NewService 构造额度服务；窗口费用读取已存事件金额，不需要价格目录。
@@ -138,10 +142,13 @@ func NewService(db *gorm.DB, caller ManagementClient) *Service {
 }
 
 func NewServiceWithOptions(db *gorm.DB, caller ManagementClient, options ServiceOptions) *Service {
+	routingRecovery, _ := caller.(routingRecoveryClient)
 	if options.QuotaUpstreamResponsesEnabled {
 		caller = upstreamResponseRecordingCaller{ManagementClient: caller}
 	}
-	return NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
+	service := NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
+	service.routingRecovery = routingRecovery
+	return service
 }
 
 // NewServiceWithRegistry 注入上游 provider 注册表，历史费用仍由存储事实提供。
@@ -374,6 +381,7 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		Quota:                       NormalizeQuotaRows(providerOutput),
 		Subscription:                NormalizeSubscription(providerOutput),
 		antigravityHasSeparateArgon: antigravitySeparateArgonObserved(providerOutput),
+		sharedQuotaAvailable:        sharedQuotaAvailable(providerOutput),
 	}
 	if result, ok := providerOutput.Result.(ClaudeResult); ok && result.Usage != nil {
 		response.ClaudeResetGrants = result.Usage.ResetGrants
