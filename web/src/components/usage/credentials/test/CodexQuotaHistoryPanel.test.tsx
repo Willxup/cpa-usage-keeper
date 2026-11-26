@@ -266,7 +266,7 @@ describe('CodexQuotaHistoryPanel', () => {
       'usage_stats.credentials_quota_history_cost_per_point: $1.00*',
     )
     const missingDirectAfterBody = latestChartOptions?.plugins?.tooltip?.callbacks?.afterBody as (items: Array<{ dataIndex: number }>) => string[]
-    expect(missingDirectAfterBody([{ dataIndex: 0 }])).toContain('usage_stats.credentials_models_cost_incomplete')
+    expect(missingDirectAfterBody([{ dataIndex: 0 }])).toContain('usage_stats.credentials_quota_history_cost_incomplete')
     expect(container.querySelectorAll('[data-testid="quota-efficiency-chart"]')).toHaveLength(1)
     expect(cycleCard(1).querySelector('[data-codex-quota-cycle-select]')?.getAttribute('aria-pressed')).toBe('true')
     expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
@@ -372,7 +372,7 @@ describe('CodexQuotaHistoryPanel', () => {
     await act(async () => {
       incompleteTarget.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('usage_stats.credentials_models_cost_incomplete')
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('usage_stats.credentials_quota_history_cost_incomplete')
     await act(async () => {
       incompleteTarget.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
     })
@@ -970,7 +970,7 @@ describe('CodexQuotaHistoryPanel', () => {
       'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 → Aug 20, 11:30',
       'usage_stats.total_tokens: 3.00K Token',
       'usage_stats.total_cost: $3.00*',
-      'usage_stats.credentials_models_cost_incomplete',
+      'usage_stats.credentials_quota_history_cost_incomplete',
     ])
   })
 

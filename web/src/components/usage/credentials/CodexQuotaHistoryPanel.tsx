@@ -491,7 +491,7 @@ function QuotaSummaryRow({
 }) {
   const { t } = useTranslation()
   const formattedCost = metrics ? formatUsd(metrics.cost) : ''
-  const incompleteNote = t('usage_stats.credentials_models_cost_incomplete')
+  const incompleteNote = t('usage_stats.credentials_quota_history_cost_incomplete')
   const values = metrics ? {
     requests: formatQuotaSummaryRequests(metrics.requests),
     percentage: metrics.percentage == null ? '—' : formatQuotaSummaryPercentage(metrics.percentage),
@@ -551,7 +551,7 @@ function QuotaCostValue({
   const tooltipCtx = useContext(QuotaHistoryTooltipContext)
   if (stale) return <>{t('usage_stats.credentials_quota_history_cost_missing')}</>
   if (available) return <>{text}</>
-  const incompleteHint = t('usage_stats.credentials_models_cost_incomplete')
+  const incompleteHint = t('usage_stats.credentials_quota_history_cost_incomplete')
   return (
     <span
       className={styles.incompleteCostTarget}
@@ -1113,7 +1113,7 @@ function buildEfficiencyChart(
               // Direct 与跨百分点样本统一显示真实观察时间；跨百分点再补充整段变化和总用量。
               if (point.transition.is_direct) {
                 lines.push(interval)
-                if (incompleteCost) lines.push(t('usage_stats.credentials_models_cost_incomplete'))
+                if (incompleteCost) lines.push(t('usage_stats.credentials_quota_history_cost_incomplete'))
                 return lines
               }
               lines.push(
@@ -1124,7 +1124,7 @@ function buildEfficiencyChart(
                   ? t('usage_stats.credentials_quota_history_cost_missing')
                   : `${formatUsd(point.transition.usage.total_cost_usd)}${point.transition.usage.cost_available ? '' : '*'}`}`,
               )
-              if (incompleteCost) lines.push(t('usage_stats.credentials_models_cost_incomplete'))
+              if (incompleteCost) lines.push(t('usage_stats.credentials_quota_history_cost_incomplete'))
               return lines
             },
           },
