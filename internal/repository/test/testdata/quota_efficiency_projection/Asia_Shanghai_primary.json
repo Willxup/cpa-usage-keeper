@@ -38,17 +38,18 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
-        "Requests": 6,
-        "SuccessfulRequests": 3,
-        "FailedRequests": 3,
-        "InputTokens": 242,
-        "OutputTokens": 154,
-        "ReasoningTokens": 66,
-        "CacheReadTokens": 110,
-        "CacheCreationTokens": 44,
-        "TotalTokens": 3333,
-        "TotalCostUSD": 1.03125,
+        "Requests": 3,
+        "SuccessfulRequests": 1,
+        "FailedRequests": 2,
+        "InputTokens": 154,
+        "OutputTokens": 98,
+        "ReasoningTokens": 42,
+        "CacheReadTokens": 70,
+        "CacheCreationTokens": 28,
+        "TotalTokens": 2121,
+        "TotalCostUSD": 0.65625,
         "CostAvailable": false
       },
       "Transitions": [
@@ -59,6 +60,7 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-21T18:00:00.234567891+08:00",
           "IntervalEndedAt": "2026-08-21T19:00:00.345678912+08:00",
+          "UsageReady": true,
           "Usage": {
             "Requests": 2,
             "SuccessfulRequests": 1,
@@ -91,6 +93,7 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
         "Requests": 0,
         "SuccessfulRequests": 0,
@@ -112,6 +115,7 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-21T00:01:00.123456789+08:00",
           "IntervalEndedAt": "2026-08-21T02:00:00.123456789+08:00",
+          "UsageReady": true,
           "Usage": {
             "Requests": 0,
             "SuccessfulRequests": 0,

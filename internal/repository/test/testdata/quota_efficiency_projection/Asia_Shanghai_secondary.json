@@ -38,17 +38,18 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
-        "Requests": 4,
-        "SuccessfulRequests": 2,
-        "FailedRequests": 2,
-        "InputTokens": 209,
-        "OutputTokens": 133,
-        "ReasoningTokens": 57,
-        "CacheReadTokens": 95,
-        "CacheCreationTokens": 38,
-        "TotalTokens": 2626,
-        "TotalCostUSD": 0.8125,
+        "Requests": 1,
+        "SuccessfulRequests": 0,
+        "FailedRequests": 1,
+        "InputTokens": 88,
+        "OutputTokens": 56,
+        "ReasoningTokens": 24,
+        "CacheReadTokens": 40,
+        "CacheCreationTokens": 16,
+        "TotalTokens": 808,
+        "TotalCostUSD": 0.25,
         "CostAvailable": false
       },
       "Transitions": [
@@ -59,21 +60,22 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-21T18:00:00.234567891+08:00",
           "IntervalEndedAt": "2026-08-21T19:00:00.345678912+08:00",
+          "UsageReady": true,
           "Usage": {
-            "Requests": 2,
-            "SuccessfulRequests": 1,
+            "Requests": 1,
+            "SuccessfulRequests": 0,
             "FailedRequests": 1,
             "InputTokens": 88,
             "OutputTokens": 56,
             "ReasoningTokens": 24,
             "CacheReadTokens": 40,
             "CacheCreationTokens": 16,
-            "TotalTokens": 1515,
-            "TotalCostUSD": 0.46875,
+            "TotalTokens": 808,
+            "TotalCostUSD": 0.25,
             "CostAvailable": false
           },
-          "TokensPerPoint": 1515,
-          "CostPerPoint": 0.46875,
+          "TokensPerPoint": 808,
+          "CostPerPoint": 0.25,
           "CostPerPointAvailable": false
         }
       ]
@@ -91,6 +93,7 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
         "Requests": 1,
         "SuccessfulRequests": 1,
@@ -112,6 +115,7 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-21T00:01:00.123456789+08:00",
           "IntervalEndedAt": "2026-08-21T02:00:00.123456789+08:00",
+          "UsageReady": true,
           "Usage": {
             "Requests": 0,
             "SuccessfulRequests": 0,

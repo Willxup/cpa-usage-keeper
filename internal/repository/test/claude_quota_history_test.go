@@ -67,6 +67,7 @@ func TestQuotaHistoryUsageIsolatedByProvider(t *testing.T) {
 		event.Provider = provider
 		seedCodexQuotaEfficiencyUsage(t, db, event)
 	}
+	syncAllQuotaCyclesForTest(t, db, now)
 	for i, provider := range []string{"codex", "claude"} {
 		result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{Provider: provider, AuthIndex: "shared-auth", Now: now, RangeStart: now.Add(-24 * time.Hour)})
 		if err != nil || len(result.Cycles) != 1 {

@@ -69,6 +69,8 @@ type CodexQuotaEfficiencyCycle struct {
 	LastRemainingPercent  *int
 	// ObservationCount 是本周期所有整数百分比状态段的真实观察次数总和。
 	ObservationCount int64
+	// UsageReady 表示该周期已完成至少一次后台持久化结算；false 时前端应展示空值占位而非 0。
+	UsageReady bool
 	// Usage 聚合整个周期边界内的 OAuth UsageEvent，包括百分比稳定期间的事件。
 	Usage CodexQuotaEfficiencyUsage
 	// Transitions 只包含真实相邻剩余百分比状态形成的效率样本。
@@ -89,7 +91,9 @@ type CodexQuotaEfficiencyTransition struct {
 	IntervalStartedAt time.Time
 	// IntervalEndedAt 取后一状态段 first_observed_at，属于区间。
 	IntervalEndedAt time.Time
-	// Usage 是这个观察间隔内动态回溯出的 OAuth 用量。
+	// UsageReady 表示该下降区间已完成持久化结算；false 时不参与图表与中位数计算。
+	UsageReady bool
+	// Usage 是这个观察间隔内持久化聚合出的 OAuth 用量。
 	Usage CodexQuotaEfficiencyUsage
 	// TokensPerPoint 是区间 TotalTokens 除以真实下降百分点后的平均值。
 	TokensPerPoint float64

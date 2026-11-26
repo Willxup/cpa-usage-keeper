@@ -124,6 +124,15 @@ func TestDeleteCodexQuotaCyclePreservesOtherCyclesAndUsage(t *testing.T) {
 		t.Fatalf("remaining cycles: %+v", after)
 	}
 	for i := range before {
+		if before[i].AuthIndex == bad.AuthIndex && before[i].QuotaKey == bad.QuotaKey {
+			// 同账号同角色重叠周期的有效右边界被恢复，仅标脏并递增边界/脏版本，观测边界不得被改写。
+			if !after[i].Dirty || after[i].BoundaryVersion != before[i].BoundaryVersion+1 || after[i].DirtyVersion != before[i].DirtyVersion+1 ||
+				after[i].WindowStartedAt != before[i].WindowStartedAt || after[i].ResetAt != before[i].ResetAt ||
+				after[i].FirstObservedAt != before[i].FirstObservedAt || after[i].LastObservedAt != before[i].LastObservedAt {
+				t.Fatalf("overlapping sibling cycle mutated unexpectedly: before=%+v after=%+v", before[i], after[i])
+			}
+			continue
+		}
 		if before[i] != after[i] {
 			t.Fatalf("unrelated cycle changed: %+v", after[i])
 		}
