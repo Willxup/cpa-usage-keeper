@@ -241,7 +241,6 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
         <PillSwitcher
           variant="toolbar"
           className={styles.windowSwitcher}
-          optionClassName={styles.segmentButton}
           ariaLabel={t('usage_stats.credentials_quota_history_window_selector')}
           value={history.selected_window?.window_role ?? null}
           onChange={(windowRole) => void loadHistory({ windowRole })}

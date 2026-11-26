@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 const quotaHistoryStylesUrl = new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url)
 const quotaHistoryStyles = readFileSync(quotaHistoryStylesUrl, 'utf8')
+const pillSwitcherStylesUrl = new URL('../../../ui/PillSwitcher.module.scss', import.meta.url)
+const pillSwitcherStyles = readFileSync(pillSwitcherStylesUrl, 'utf8')
 
 const scssRule = (selector: string) => {
   const start = quotaHistoryStyles.indexOf(selector)
@@ -19,8 +21,8 @@ const scssRule = (selector: string) => {
 
 describe('Codex quota history styles', () => {
 
-  it('gives the window selector a visible keyboard focus indicator', () => {
-    expect(quotaHistoryStyles).toMatch(/&:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-color\);[\s\S]*?outline-offset:\s*2px;/)
+  it('gives the window selector a visible keyboard focus indicator via PillSwitcher', () => {
+    expect(pillSwitcherStyles).toMatch(/\.option[\s\S]*?&:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-color\);[\s\S]*?outline-offset:\s*(?:0|1px);/)
   })
 
   it('keeps chart facts available to screen readers', () => {
