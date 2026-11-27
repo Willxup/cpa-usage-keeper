@@ -1793,6 +1793,45 @@ func TestCodexQuotaHistoryRunnerInheritsSameCycleHeaderStartForZeroUsageActiveRe
 			t.Fatalf("expected newer 98%% Header segment preserved, got %+v", segments)
 		}
 	})
+
+	t.Run("weekly_to_five_hour_switch_with_same_batch_header_and_zero_refresh", func(t *testing.T) {
+		db := openQuotaTestDatabase(t)
+		seedUsageIdentity(t, db, codexHistoryUsageIdentity("window-switch-auth"))
+		base := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+		weeklyReset := base.Add(6 * 24 * time.Hour)
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{{
+			Provider: "codex", AuthIndex: "window-switch-auth", WindowRole: "primary", WindowSeconds: 604_800,
+			ResetAtSource: "absolute", ResetAt: weeklyReset, RemainingPercent: 75,
+			FirstObservedAt: base, LastObservedAt: base, ObservationCount: 1,
+		}}); err != nil {
+			t.Fatalf("seed active weekly cycle: %v", err)
+		}
+
+		// 旧 Weekly 尚未到期，但账号主窗口已切到 5h：首个 5h 请求返回 100% Header，紧随的主动刷新也报 0% 已用。
+		fiveReset := base.Add(5 * time.Hour)
+		handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
+			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, fiveReset.Add(3*time.Second))},
+		}}}}
+		service := newCodexHistoryService(db, handler)
+		timers := newCodexHistoryManualTimers(service, 1)
+
+		fiveHeader := codexHistoryPrimarySnapshot("window-switch-auth", base.Add(time.Minute), 100, fiveReset)
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(fiveHeader)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected 5h Header to enter queue")
+		}
+		waitForCodexQuotaHistoryManualTimer(t, timers)
+		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "window-switch-auth", Source: RefreshSourceManual}); err != nil {
+			service.StopRefreshTasks()
+			t.Fatalf("manual refresh after window switch failed: %v", err)
+		}
+		service.StopRefreshTasks()
+
+		cycles := loadCodexQuotaCycles(t, db, "window-switch-auth")
+		if len(cycles) != 2 || cycles[0].WindowSeconds != 18_000 || cycles[1].WindowSeconds != 604_800 {
+			t.Fatalf("expected new 5h cycle created alongside prior Weekly cycle, got %+v", cycles)
+		}
+	})
 }
 
 func TestCodexQuotaHistoryRunnerPreservesPreviousCycleTailHeaderAcrossCycleBoundary(t *testing.T) {

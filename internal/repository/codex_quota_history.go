@@ -206,8 +206,8 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 	created := false
 	reusedEarlierCycle := false
 	if !found {
-		// 非 Header 的 0% 已用主动刷新仅在同批真实 Header 证明新周期已启动且无未到期旧周期时才允许建周期。
-		if observation.NonHeaderZeroUsage && (!observation.HeaderStarted || (latestFound && latestCycle.ResetAt.After(observation.FirstObservedAt))) {
+		// 非 Header 的 0% 已用主动刷新仅在同批真实 Header 证明新周期已启动、且不存在未到期的同窗口时长周期时才允许建周期。
+		if observation.NonHeaderZeroUsage && (!observation.HeaderStarted || (latestFound && latestCycle.WindowSeconds == observation.WindowSeconds && latestCycle.ResetAt.After(observation.FirstObservedAt))) {
 			return nil
 		}
 		cycle = newQuotaCycle(observation, quotaKey)

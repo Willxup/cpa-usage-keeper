@@ -288,9 +288,9 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 	}
 
 	if current.Found {
-		// 窗口变化代表角色切换；未到期的已有周期不得被 0% 主动刷新截断切换。
+		// 窗口变化代表角色切换；同批存在真实 Header 证明新窗口已启动时允许提前切窗（如未到期的 Weekly 切到 5h）。
 		if current.WindowSeconds != observation.WindowSeconds {
-			if isNonHeaderZero && (!observation.HeaderStarted || current.ResetAt.After(observation.FirstObservedAt)) {
+			if isNonHeaderZero && !observation.HeaderStarted {
 				return false
 			}
 			if current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt) {
