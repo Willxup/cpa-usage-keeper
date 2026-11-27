@@ -26,6 +26,8 @@ func quotaHistoryProviderFromResult(result any) string {
 		return "codex"
 	case ClaudeResult, *ClaudeResult:
 		return "claude"
+	case AntigravityResult, *AntigravityResult:
+		return "antigravity"
 	default:
 		return ""
 	}

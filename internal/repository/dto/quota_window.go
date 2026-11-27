@@ -28,6 +28,7 @@ type quotaWindowLookupKey struct {
 var quotaHistoryProviderSpecs = []QuotaHistoryProviderSpec{
 	codexQuotaHistoryProviderSpec,
 	claudeQuotaHistoryProviderSpec,
+	antigravityQuotaHistoryProviderSpec,
 }
 
 var (

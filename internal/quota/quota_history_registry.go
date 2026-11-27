@@ -11,8 +11,9 @@ import (
 type QuotaHistoryExtractor func(authIndex string, output ProviderOutput, observedAt time.Time) []repositorydto.CodexMainQuotaObservation
 
 var quotaHistoryExtractors = map[string]QuotaHistoryExtractor{
-	"codex":  extractCodexQuotaHistoryObservations,
-	"claude": extractClaudeQuotaHistoryObservations,
+	"codex":       extractCodexQuotaHistoryObservations,
+	"claude":      extractClaudeQuotaHistoryObservations,
+	"antigravity": extractAntigravityQuotaHistoryObservations,
 }
 
 func hasQuotaHistoryProvider(provider string) bool {

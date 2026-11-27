@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/repository"
+	repositorydto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 )
 
@@ -62,7 +63,7 @@ func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIn
 			result, cached := groupedStatsByWindow[key]
 			if !cached {
 				var err error
-				result.stats, err = statsProvider.SumGroupsByAuthIndex(ctx, authIndex, windowStart, &windowEnd, antigravityUsageGroupForModel)
+				result.stats, err = statsProvider.SumGroupsByAuthIndex(ctx, authIndex, windowStart, &windowEnd, repositorydto.AntigravityUsageGroupForModel)
 				result.failed = err != nil
 				// 失败结果也按窗口缓存，避免同一响应内重复查询后只发布部分模型组。
 				groupedStatsByWindow[key] = result
@@ -152,18 +153,6 @@ func antigravityQuotaUsageGroupKey(row QuotaRow) (string, bool) {
 	switch groupKey {
 	case antigravityGeminiGroupKey, antigravityClaudeGPTGroupKey:
 		return groupKey, true
-	default:
-		return "", false
-	}
-}
-
-func antigravityUsageGroupForModel(model string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case strings.HasPrefix(normalized, "gemini-"):
-		return antigravityGeminiGroupKey, true
-	case strings.HasPrefix(normalized, "claude-"), strings.HasPrefix(normalized, "gpt-"):
-		return antigravityClaudeGPTGroupKey, true
 	default:
 		return "", false
 	}
