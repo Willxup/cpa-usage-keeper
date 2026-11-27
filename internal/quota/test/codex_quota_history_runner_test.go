@@ -1752,6 +1752,47 @@ func TestCodexQuotaHistoryRunnerInheritsSameCycleHeaderStartForZeroUsageActiveRe
 			t.Fatalf("expected existing 90%% segment preserved, got %+v", segments)
 		}
 	})
+
+	t.Run("early_active_zero_refresh_does_not_drop_newer_started_header", func(t *testing.T) {
+		db := openQuotaTestDatabase(t)
+		seedUsageIdentity(t, db, codexHistoryUsageIdentity("early-active-auth"))
+		t0 := time.Now().Add(-10 * time.Second).Truncate(time.Second)
+		preStartReset := t0.Add(5 * time.Hour)
+		startedAt := t0.Add(3 * time.Second)
+		startedReset := startedAt.Add(5 * time.Hour)
+
+		// 模拟主动查询在 t0 先拿到未启动 0% 响应，等待附属接口期间 t0+3s 首个真实请求产生 98% Header。
+		handler := &recordingProviderHandler{output: ProviderOutput{
+			Provider:   "codex",
+			ObservedAt: t0,
+			Result: CodexResult{Usage: &CodexUsagePayload{
+				RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, preStartReset)},
+			}},
+		}}
+		service := newCodexHistoryService(db, handler)
+		timers := newCodexHistoryManualTimers(service, 1)
+
+		newerHeader := codexHistoryPrimarySnapshot("early-active-auth", startedAt, 98, startedReset)
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(newerHeader)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected newer Header to enter queue")
+		}
+		waitForCodexQuotaHistoryManualTimer(t, timers)
+		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "early-active-auth", Source: RefreshSourceManual}); err != nil {
+			service.StopRefreshTasks()
+			t.Fatalf("manual refresh failed: %v", err)
+		}
+		service.StopRefreshTasks()
+
+		cycles := loadCodexQuotaCycles(t, db, "early-active-auth")
+		if len(cycles) != 1 || !cycles[0].ResetAt.Equal(startedReset) {
+			t.Fatalf("expected newer Header cycle at %s to survive earlier zero-usage poll, got %+v", startedReset, cycles)
+		}
+		segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+		if len(segments) != 1 || segments[0].RemainingPercent != 98 {
+			t.Fatalf("expected newer 98%% Header segment preserved, got %+v", segments)
+		}
+	})
 }
 
 func TestCodexQuotaHistoryRunnerPreservesPreviousCycleTailHeaderAcrossCycleBoundary(t *testing.T) {

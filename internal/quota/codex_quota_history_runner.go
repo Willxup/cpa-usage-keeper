@@ -148,11 +148,14 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 		if codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
 			continue
 		}
-		// 可信查询仅覆盖与之同周期的待处理候选，避免新周期刷新误删上一已结束周期的尾端 Header。
+		// 可信查询仅覆盖与之同周期且观察时刻不晚于自身的待处理候选，避免误删上一周期尾端 Header 或附属请求等待期间新到达的真实 Header。
 		key := codexQuotaHistoryCandidateStateKey(candidate)
 		superseded := false
 		for _, trustedIndex := range trustedByKey[key] {
 			if !codexQuotaHistoryObservationsSameCycle(trusted[trustedIndex].Observation, candidate.Observation) {
+				continue
+			}
+			if trusted[trustedIndex].Observation.LastObservedAt.Before(candidate.Observation.LastObservedAt) {
 				continue
 			}
 			superseded = true
