@@ -82,9 +82,11 @@ interface CodexQuotaHistoryPanelProps {
 
 type QuotaHistoryTooltipController = {
   tooltipId: string
-  showOnMouseEnter: (lines: string[], anchor: HTMLElement) => void
+  activeTargetId: string | null
+  isOpen: boolean
+  showOnMouseEnter: (lines: string[], anchor: HTMLElement, targetId?: string) => void
   hideOnMouseLeave: (anchor: HTMLElement) => void
-  showOnFocus: (lines: string[], anchor: HTMLElement) => void
+  showOnFocus: (lines: string[], anchor: HTMLElement, targetId?: string) => void
   hideOnBlur: (anchor: HTMLElement) => void
   dismiss: () => boolean
 }
@@ -111,23 +113,64 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
   const controllerRef = useRef<AbortController | null>(null)
   const lastRequestOptionsRef = useRef<FetchCodexQuotaHistoryOptions>({})
   const chartRef = useRef<HTMLElement | null>(null)
+  const activeAnchorRef = useRef<HTMLElement | null>(null)
+  const [activeTargetId, setActiveTargetId] = useState<string | null>(null)
   const tooltipId = `quota-history-tooltip-${useId()}`
   const {
     tooltip,
-    showOnMouseEnter,
+    showOnMouseEnter: rawShowOnMouseEnter,
     hideOnMouseLeave,
-    showOnFocus,
+    showOnFocus: rawShowOnFocus,
     hideOnBlur,
-    dismiss: dismissTooltip,
+    dismiss: rawDismissTooltip,
   } = usePortalTooltip({ trackAnchor: true })
+  const showOnMouseEnter = useCallback((lines: string[], anchor: HTMLElement, targetId?: string) => {
+    activeAnchorRef.current = anchor
+    setActiveTargetId(targetId ?? null)
+    rawShowOnMouseEnter(lines, anchor)
+  }, [rawShowOnMouseEnter])
+  const showOnFocus = useCallback((lines: string[], anchor: HTMLElement, targetId?: string) => {
+    activeAnchorRef.current = anchor
+    setActiveTargetId(targetId ?? null)
+    rawShowOnFocus(lines, anchor)
+  }, [rawShowOnFocus])
+  const dismissTooltip = useCallback(() => {
+    activeAnchorRef.current = null
+    setActiveTargetId(null)
+    return rawDismissTooltip()
+  }, [rawDismissTooltip])
+  const tooltipOpen = tooltip !== null
+  useEffect(() => {
+    if (!tooltipOpen) return
+    // 在 document 捕获阶段处理 Escape 与外部点击，确保焦点停留在抽屉标签栏时按 Escape 只关浮层而不误关抽屉。
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!activeAnchorRef.current?.contains(event.target as Node)) {
+        dismissTooltip()
+      }
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && dismissTooltip()) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleEscape, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleEscape, true)
+    }
+  }, [tooltipOpen, dismissTooltip])
   const tooltipController = useMemo<QuotaHistoryTooltipController>(() => ({
     tooltipId,
+    activeTargetId,
+    isOpen: tooltipOpen,
     showOnMouseEnter,
     hideOnMouseLeave,
     showOnFocus,
     hideOnBlur,
     dismiss: dismissTooltip,
-  }), [tooltipId, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismissTooltip])
+  }), [tooltipId, activeTargetId, tooltipOpen, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismissTooltip])
 
   const loadHistory = useCallback(async (options: FetchCodexQuotaHistoryOptions = {}) => {
     const normalizedAuthIndex = authIndex.trim()
@@ -267,16 +310,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
 
   return (
     <QuotaHistoryTooltipContext.Provider value={tooltipController}>
-      <div
-        className={styles.panel}
-        data-codex-quota-history-panel="true"
-        onKeyDownCapture={(event) => {
-          if (event.key === 'Escape' && dismissTooltip()) {
-            event.preventDefault()
-            event.stopPropagation()
-          }
-        }}
-      >
+      <div className={styles.panel} data-codex-quota-history-panel="true">
       {history && history.windows.length > 1 ? (
         <PillSwitcher
           variant="toolbar"
@@ -492,11 +526,20 @@ function QuotaSummaryRow({
   const { t } = useTranslation()
   const formattedCost = metrics ? formatUsd(metrics.cost) : ''
   const incompleteNote = t('usage_stats.credentials_quota_history_cost_incomplete')
+  const costLabel = t('usage_stats.total_cost')
+  const costInteractive = Boolean(metrics && !metrics.costStale && !metrics.costAvailable)
   const values = metrics ? {
     requests: formatQuotaSummaryRequests(metrics.requests),
     percentage: metrics.percentage == null ? '—' : formatQuotaSummaryPercentage(metrics.percentage),
     tokens: formatCompactNumber(metrics.tokens),
-    cost: <QuotaCostValue text={formattedCost} available={metrics.costAvailable} stale={metrics.costStale} />,
+    cost: (
+      <QuotaCostValue
+        text={formattedCost}
+        available={metrics.costAvailable}
+        stale={metrics.costStale}
+        labelPrefix={costLabel}
+      />
+    ),
     costAria: metrics.costStale
       ? t('usage_stats.credentials_quota_history_cost_missing')
       : metrics.costAvailable ? formattedCost : `${formattedCost} (${incompleteNote})`,
@@ -529,9 +572,10 @@ function QuotaSummaryRow({
         <QuotaSummaryMetric
           kind="cost"
           icon={quotaCostIcon}
-          label={t('usage_stats.total_cost')}
+          label={costLabel}
           value={values.cost}
           ariaValue={values.costAria}
+          interactive={costInteractive}
         />
       </> : <span className={styles.summaryUnavailable}>—</span>}</dd>
     </div>
@@ -542,22 +586,53 @@ function QuotaCostValue({
   text,
   available,
   stale = false,
+  labelPrefix,
 }: {
   text: string
   available: boolean
   stale?: boolean
+  labelPrefix?: string
 }) {
   const { t } = useTranslation()
   const tooltipCtx = useContext(QuotaHistoryTooltipContext)
+  const targetId = useId()
+  const pointerTypeRef = useRef<string | null>(null)
   if (stale) return <>{t('usage_stats.credentials_quota_history_cost_missing')}</>
   if (available) return <>{text}</>
   const incompleteHint = t('usage_stats.credentials_quota_history_cost_incomplete')
+  const ariaLabel = labelPrefix ? `${labelPrefix}: ${text} (${incompleteHint})` : `${text} (${incompleteHint})`
+  const isTargetOpen = Boolean(tooltipCtx?.isOpen && tooltipCtx.activeTargetId === targetId)
   return (
     <span
       className={styles.incompleteCostTarget}
       data-codex-quota-cost-incomplete="true"
-      onMouseEnter={(event) => tooltipCtx?.showOnMouseEnter([incompleteHint], event.currentTarget)}
-      onMouseLeave={(event) => tooltipCtx?.hideOnMouseLeave(event.currentTarget)}
+      tabIndex={0}
+      aria-label={ariaLabel}
+      aria-describedby={isTargetOpen ? tooltipCtx?.tooltipId : undefined}
+      onPointerDown={(event) => { pointerTypeRef.current = event.pointerType }}
+      onMouseEnter={(event) => {
+        if (pointerTypeRef.current !== 'touch') tooltipCtx?.showOnMouseEnter([incompleteHint], event.currentTarget, targetId)
+      }}
+      onMouseLeave={(event) => {
+        if (pointerTypeRef.current !== 'touch') tooltipCtx?.hideOnMouseLeave(event.currentTarget)
+      }}
+      onFocus={(event) => {
+        if (!pointerTypeRef.current) tooltipCtx?.showOnFocus([incompleteHint], event.currentTarget, targetId)
+      }}
+      onBlur={(event) => {
+        pointerTypeRef.current = null
+        tooltipCtx?.hideOnBlur(event.currentTarget)
+      }}
+      onClick={(event) => {
+        if (pointerTypeRef.current === 'touch' || pointerTypeRef.current === 'pen') {
+          event.stopPropagation()
+          if (isTargetOpen) {
+            tooltipCtx?.dismiss()
+          } else {
+            tooltipCtx?.showOnFocus([incompleteHint], event.currentTarget, targetId)
+          }
+        }
+      }}
     >
       {text}
       <span className={styles.costIncomplete} aria-hidden="true">*</span>
@@ -571,19 +646,21 @@ function QuotaSummaryMetric({
   label,
   value,
   ariaValue,
+  interactive = false,
 }: {
   kind: 'requests' | 'percentage' | 'tokens' | 'cost'
   icon: string
   label: string
   value: ReactNode
   ariaValue?: string
+  interactive?: boolean
 }) {
   return (
     <span
       className={styles.chartSummaryMetric}
       data-codex-quota-summary-metric={kind}
-      role="img"
-      aria-label={`${label}: ${ariaValue ?? String(value)}`}
+      role={interactive ? undefined : 'img'}
+      aria-label={interactive ? undefined : `${label}: ${ariaValue ?? String(value)}`}
     >
       <img src={icon} alt="" aria-hidden="true" />
       <span>{value}</span>
@@ -701,14 +778,14 @@ function CycleAccessibleSummary({
           <span>
             {t('usage_stats.credentials_quota_history_cost_per_point')}: {costStale
               ? t('usage_stats.credentials_quota_history_cost_missing')
-              : `${formatUsd(transition.cost_per_point)}/1%${transition.cost_per_point_available ? '' : '*'}`}.
+              : `${formatUsd(transition.cost_per_point)}/1%${transition.cost_per_point_available ? '' : ` (${t('usage_stats.credentials_quota_history_cost_incomplete')})`}`}.
           </span>{' '}
           {!transition.is_direct ? (
             <span>
               {t('usage_stats.total_tokens')}: {formatCompactNumber(transition.usage.total_tokens)} Token.{' '}
               {t('usage_stats.total_cost')}: {costStale
                 ? t('usage_stats.credentials_quota_history_cost_missing')
-                : `${formatUsd(transition.usage.total_cost_usd)}${transition.usage.cost_available ? '' : '*'}`}.
+                : `${formatUsd(transition.usage.total_cost_usd)}${transition.usage.cost_available ? '' : ` (${t('usage_stats.credentials_quota_history_cost_incomplete')})`}`}.
             </span>
           ) : null}
         </li>

@@ -369,13 +369,33 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(used.querySelector('[data-codex-quota-summary-metric="cost"]')?.textContent).toBe('$6.40*')
     const incompleteTarget = used.querySelector<HTMLElement>('[data-codex-quota-cost-incomplete="true"]')!
     expect(incompleteTarget.getAttribute('title')).toBeNull()
+    expect(incompleteTarget.tabIndex).toBe(0)
+    expect(incompleteTarget.getAttribute('aria-label')).toContain('usage_stats.credentials_quota_history_cost_incomplete')
+    // 即使焦点位于面板外部（如抽屉顶部标签栏），悬停打开浮层后按 Escape 也必须在 document 捕获阶段拦截关闭浮层而不误关抽屉。
     await act(async () => {
       incompleteTarget.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('usage_stats.credentials_quota_history_cost_incomplete')
+    let escapeWhileOpen!: KeyboardEvent
     await act(async () => {
-      incompleteTarget.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+      escapeWhileOpen = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      document.body.dispatchEvent(escapeWhileOpen)
     })
+    expect(escapeWhileOpen.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    // 浮层已关闭后再次按 Escape 不拦截，正常放行给外层抽屉。
+    const escapeWhenClosed = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.body.dispatchEvent(escapeWhenClosed)
+    expect(escapeWhenClosed.defaultPrevented).toBe(false)
+    // 键盘 focus / blur 同样可唤出与关闭浮层。
+    await act(async () => {
+      incompleteTarget.focus()
+    })
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('usage_stats.credentials_quota_history_cost_incomplete')
+    await act(async () => {
+      incompleteTarget.blur()
+    })
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     expect(card().querySelector('[data-codex-quota-transition]')?.textContent).toContain('Aug 10, 04:00')
     expect(card().querySelector('[data-codex-quota-transition]')?.textContent).toContain('$7.25/1%')
     expect(latestChartData?.datasets[0].data).toEqual([2400])
