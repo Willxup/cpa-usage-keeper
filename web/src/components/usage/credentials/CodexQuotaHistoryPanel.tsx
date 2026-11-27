@@ -324,7 +324,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
             const duplicate = history.windows.some((other) => other.window_role !== window.window_role && formatWindowLabel(other, t) === baseLabel)
             return {
               value: window.window_role,
-              label: `${baseLabel}${duplicate ? ` · ${window.window_role === 'primary' ? 'Primary' : 'Secondary'}` : ''}`,
+              label: `${baseLabel}${duplicate ? ` · ${formatWindowRoleFallback(window.window_role)}` : ''}`,
               disabled: deleting || (loading && selected),
             }
           })}
@@ -353,7 +353,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
           />
           </ChartLifecycleProvider>
           <CyclesList key={history.selected_window?.window_role ?? 'empty'}
-            cycles={history.cycles} formatTime={formatTime} summaries={cycleSummaries}
+            cycles={history.cycles} groupLabel={history.selected_window?.group_label} formatTime={formatTime} summaries={cycleSummaries}
             selectedCycleId={selectedCycle?.id ?? null}
             onSelect={selectCycle}
             onReturnToChart={returnToChart}
@@ -429,7 +429,7 @@ function CycleEfficiencyChart({
         <div className={styles.chartHeading}>
           <h3 id={titleId}>
             {t('usage_stats.credentials_quota_history_efficiency_title')}
-            {cycle ? ` · ${formatCycleWindowLabel(cycle.window_seconds, t)}` : window ? ` · ${formatWindowLabel(window, t)}` : ''}
+            {cycle ? ` · ${formatCycleWindowLabel(cycle.window_seconds, t, window?.group_label)}` : window ? ` · ${formatWindowLabel(window, t)}` : ''}
             {cycle ? <span className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</span> : null}
           </h3>
           <p className={styles.chartMeta}>
@@ -796,6 +796,7 @@ function CycleAccessibleSummary({
 
 function CyclesList({
   cycles,
+  groupLabel,
   formatTime,
   summaries,
   onDelete,
@@ -805,6 +806,7 @@ function CyclesList({
   onReturnToChart,
 }: {
   cycles: CodexQuotaHistoryCycle[]
+  groupLabel?: string
   formatTime: QuotaHistoryTimeFormatter
   summaries: Map<number, QuotaCycleSummary>
   onDelete: (cycle: CodexQuotaHistoryCycle) => void
@@ -821,7 +823,7 @@ function CyclesList({
       ) : (
         <>
           {cycles.map((cycle) => (
-            <CycleCard key={cycle.id} cycle={cycle} formatTime={formatTime} summary={summaries.get(cycle.id) ?? null}
+            <CycleCard key={cycle.id} cycle={cycle} groupLabel={groupLabel} formatTime={formatTime} summary={summaries.get(cycle.id) ?? null}
               selected={selectedCycleId === cycle.id} onSelect={onSelect} onReturnToChart={onReturnToChart}
               onDelete={onDelete} deleteDisabled={deleteDisabled} />
           ))}
@@ -833,6 +835,7 @@ function CyclesList({
 
 const CycleCard = memo(function CycleCard({
   cycle,
+  groupLabel,
   formatTime,
   summary,
   onDelete,
@@ -842,6 +845,7 @@ const CycleCard = memo(function CycleCard({
   onReturnToChart,
 }: {
   cycle: CodexQuotaHistoryCycle
+  groupLabel?: string
   formatTime: QuotaHistoryTimeFormatter
   summary: QuotaCycleSummary | null
   onDelete: (cycle: CodexQuotaHistoryCycle) => void
@@ -881,7 +885,7 @@ const CycleCard = memo(function CycleCard({
               {selected ? <span className={styles.selectedIndicator}><IconCheck size={11} aria-hidden="true" />{t('usage_stats.credentials_quota_history_selected')}</span> : null}
             </strong>
             <small className={styles.cycleHeaderMeta}>
-              {formatCycleWindowLabel(cycle.window_seconds, t)}
+              {formatCycleWindowLabel(cycle.window_seconds, t, groupLabel)}
               {' · '}
               {t('usage_stats.credentials_quota_history_first_observed', { value: formatTime(cycle.first_observed_at) })}
             </small>
@@ -1295,21 +1299,43 @@ function sameQuotaWindow(left: CodexQuotaHistoryWindow, right: CodexQuotaHistory
 }
 
 function formatWindowLabel(window: CodexQuotaHistoryWindow, t: (key: string) => string): string {
-  return window.window_kind ? t(`usage_stats.credentials_quota_history_window_${window.window_kind}`) : formatWindowDuration(window.window_seconds)
+  const baseLabel = window.window_kind
+    ? t(`usage_stats.credentials_quota_history_window_${window.window_kind}`)
+    : formatWindowDuration(window.window_seconds)
+  const groupLabel = window.group_label?.trim()
+  return groupLabel ? `${groupLabel} · ${baseLabel}` : baseLabel
 }
 
-function formatCycleWindowLabel(seconds: number, t: (key: string) => string): string {
+function formatWindowRoleFallback(windowRole: string): string {
+  switch (windowRole) {
+    case 'primary':
+      return 'Primary'
+    case 'secondary':
+      return 'Secondary'
+    default:
+      return windowRole
+  }
+}
+
+function formatCycleWindowLabel(seconds: number, t: (key: string) => string, groupLabel?: string): string {
+  let baseLabel: string
   switch (seconds) {
     case 5 * 60 * 60:
-      return t('usage_stats.credentials_quota_history_window_five_hour')
+      baseLabel = t('usage_stats.credentials_quota_history_window_five_hour')
+      break
     case 7 * 24 * 60 * 60:
-      return t('usage_stats.credentials_quota_history_window_weekly')
+      baseLabel = t('usage_stats.credentials_quota_history_window_weekly')
+      break
     case 30 * 24 * 60 * 60:
     case 365 * 24 * 60 * 60 / 12:
-      return t('usage_stats.credentials_quota_history_window_monthly')
+      baseLabel = t('usage_stats.credentials_quota_history_window_monthly')
+      break
     default:
-      return formatWindowDuration(seconds)
+      baseLabel = formatWindowDuration(seconds)
+      break
   }
+  const normalizedGroup = groupLabel?.trim()
+  return normalizedGroup ? `${normalizedGroup} · ${baseLabel}` : baseLabel
 }
 
 function formatWindowDuration(seconds: number): string {

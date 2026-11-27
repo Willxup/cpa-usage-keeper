@@ -636,9 +636,11 @@ export interface UsageQuotaCacheResponse {
   items: UsageQuotaCacheItem[]
 }
 
-// CodexQuotaHistoryWindow 以最近响应存在的 Primary/Secondary 角色为稳定键，并携带最新周期标题。
+// CodexQuotaHistoryWindow 以渠道窗口角色为稳定键，并携带可选模型池标签与最新周期标题。
 export interface CodexQuotaHistoryWindow {
-  window_role: 'primary' | 'secondary'
+  window_role: string
+  group_key?: string
+  group_label?: string
   window_kind?: 'five_hour' | 'weekly' | 'monthly'
   window_seconds: number
   has_current_cycle: boolean
