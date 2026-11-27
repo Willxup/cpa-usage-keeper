@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ const (
 type quotaCostStaleEventRow struct {
 	Provider  string
 	AuthIndex string
+	Model     string
 	Timestamp codexQuotaEfficiencyEventTime
 }
 
@@ -31,32 +31,41 @@ func markQuotaCyclesCostStaleInTx(tx *gorm.DB, changedEventIDs []int64) error {
 	if tx == nil || len(changedEventIDs) == 0 {
 		return nil
 	}
+	supportedProviders := supportedQuotaHistoryProviders()
+	if len(supportedProviders) == 0 {
+		return nil
+	}
 
-	timestampsByAccount := make(map[quotaHistoryProviderAuthKey][]time.Time)
+	eventsByAccount := make(map[quotaHistoryProviderAuthKey][]quotaHistoryEventMoment)
 	for start := 0; start < len(changedEventIDs); start += usageCostRecalculationIDChunk {
 		end := min(start+usageCostRecalculationIDChunk, len(changedEventIDs))
 		rows, err := tx.Table("usage_events").
-			Select("provider, auth_index, +timestamp AS timestamp").
+			Select("COALESCE(provider, ''), COALESCE(auth_index, ''), COALESCE(model, ''), +timestamp AS timestamp").
 			Where("id IN ? AND auth_type = ? AND provider IN ? AND auth_index <> ''",
-				changedEventIDs[start:end], "oauth", []string{"codex", "claude"}).
+				changedEventIDs[start:end], "oauth", supportedProviders).
 			Rows()
 		if err != nil {
 			return fmt.Errorf("load changed oauth usage events for quota cost stale: %w", err)
 		}
 		for rows.Next() {
 			var row quotaCostStaleEventRow
-			if err := rows.Scan(&row.Provider, &row.AuthIndex, &row.Timestamp); err != nil {
+			if err := rows.Scan(&row.Provider, &row.AuthIndex, &row.Model, &row.Timestamp); err != nil {
 				_ = rows.Close()
 				return fmt.Errorf("scan changed oauth usage event for quota cost stale: %w", err)
 			}
-			key := quotaHistoryProviderAuthKey{
-				Provider:  strings.ToLower(strings.TrimSpace(row.Provider)),
-				AuthIndex: strings.TrimSpace(row.AuthIndex),
-			}
-			if key.AuthIndex == "" {
+			provider := strings.ToLower(strings.TrimSpace(row.Provider))
+			if _, ok := lookupQuotaHistoryProvider(provider); !ok {
 				continue
 			}
-			timestampsByAccount[key] = append(timestampsByAccount[key], timeutil.NormalizeStorageTime(row.Timestamp.Time))
+			authIndex := strings.TrimSpace(row.AuthIndex)
+			if authIndex == "" {
+				continue
+			}
+			key := quotaHistoryProviderAuthKey{Provider: provider, AuthIndex: authIndex}
+			eventsByAccount[key] = append(eventsByAccount[key], quotaHistoryEventMoment{
+				Timestamp: timeutil.NormalizeStorageTime(row.Timestamp.Time),
+				Model:     row.Model,
+			})
 		}
 		if err := rows.Err(); err != nil {
 			_ = rows.Close()
@@ -65,48 +74,15 @@ func markQuotaCyclesCostStaleInTx(tx *gorm.DB, changedEventIDs []int64) error {
 		_ = rows.Close()
 	}
 
-	if len(timestampsByAccount) == 0 {
-		return nil
-	}
-
-	affectedSet := make(map[int64]struct{})
-	affectedCycleIDs := make([]int64, 0)
-	for key, timestamps := range timestampsByAccount {
-		minAt, maxAt := timestamps[0], timestamps[0]
-		for _, ts := range timestamps[1:] {
-			if ts.Before(minAt) {
-				minAt = ts
-			}
-			if ts.After(maxAt) {
-				maxAt = ts
-			}
-		}
-		var candidates []entities.QuotaCycle
-		if err := tx.Select("id, window_started_at, reset_at").
-			Where("provider = ? AND auth_index = ? AND reset_at > ? AND window_started_at <= ?",
-				key.Provider, key.AuthIndex,
-				timeutil.FormatSortableStorageTime(minAt),
-				timeutil.FormatSortableStorageTime(maxAt)).
-			Find(&candidates).Error; err != nil {
-			return fmt.Errorf("find quota cycles affected by pricing recalculation: %w", err)
-		}
-		for _, cycle := range candidates {
-			if _, exists := affectedSet[cycle.ID]; exists {
-				continue
-			}
-			for _, ts := range timestamps {
-				if !ts.Before(cycle.WindowStartedAt) && ts.Before(cycle.ResetAt) {
-					affectedSet[cycle.ID] = struct{}{}
-					affectedCycleIDs = append(affectedCycleIDs, cycle.ID)
-					break
-				}
-			}
-		}
+	affectedCycleIDs, err := collectAffectedQuotaCycleIDs(eventsByAccount, func() *gorm.DB {
+		return tx.Session(&gorm.Session{})
+	})
+	if err != nil {
+		return fmt.Errorf("find quota cycles affected by pricing recalculation: %w", err)
 	}
 	if len(affectedCycleIDs) == 0 {
 		return nil
 	}
-	sort.Slice(affectedCycleIDs, func(i, j int) bool { return affectedCycleIDs[i] < affectedCycleIDs[j] })
 
 	formattedNow := timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(time.Now()))
 	for start := 0; start < len(affectedCycleIDs); start += quotaCycleUpdateIDBatchSize {
