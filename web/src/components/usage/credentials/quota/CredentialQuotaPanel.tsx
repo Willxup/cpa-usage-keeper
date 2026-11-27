@@ -7,7 +7,7 @@ import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialQuota.module.scss'
 import { capitalize } from '../credentialMetrics'
 import type { CredentialRow, DisplayQuota } from '../credentialViewModels'
-import { ANTIGRAVITY_ARGON_GROUP_KEY, credentialQuotaPanelItems, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, formatQuotaBillingUsageAriaLabel, formatQuotaBillingUsageText, quotaWindowUsageForMode, type AntigravityQuotaGroupItem } from './quotaPresentation'
+import { credentialQuotaPanelItems, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, formatQuotaBillingUsageAriaLabel, formatQuotaBillingUsageText, quotaWindowUsageForMode, type AntigravityQuotaGroupItem } from './quotaPresentation'
 
 export type QuotaUsageMode = 'current' | 'estimated'
 
@@ -54,7 +54,7 @@ function AntigravityQuotaGroup({ group, quotaUsageMode, timeZone, compact = fals
   return (
     <div className={styles.credentialQuotaGroupBlock} data-quota-group={group.groupKey}>
       <div className={styles.credentialQuotaGroupHeader}>
-        <QuotaGroupLabel label={group.groupLabel} description={group.groupKey === ANTIGRAVITY_ARGON_GROUP_KEY ? undefined : group.groupDescription} />
+        <QuotaGroupLabel label={group.groupLabel} description={group.groupDescription} />
       </div>
       <div className={styles.credentialQuotaGroupBars}>
         {group.quotas.map((quota, index) => (

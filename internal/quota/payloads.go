@@ -40,18 +40,19 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 			DisplayName: stringField(groupObject, "displayName", "display_name"),
 			Description: stringField(groupObject, "description"),
 		}
-		// 独立组即使没有可展示比例，也必须影响本次窗口统计归属。
-		if groupKey, known := knownAntigravityQuotaGroupKey(group.DisplayName); known && groupKey == antigravityArgonGroupKey {
-			payload.hasSeparateArgon = true
+		if isDeprecatedAntigravityArgonGroup(group) {
+			continue
 		}
+		deprecatedArgon := false
 		for _, rawBucket := range arrayField(groupObject, "buckets") {
 			bucketObject := rawObject(rawBucket)
 			if bucketObject == nil {
 				continue
 			}
 			bucketID := stringField(bucketObject, "bucketId", "bucket_id")
-			if strings.EqualFold(strings.TrimSpace(bucketID), antigravityArgonWeeklyBucketID) {
-				payload.hasSeparateArgon = true
+			if isDeprecatedAntigravityArgonBucketID(bucketID) {
+				deprecatedArgon = true
+				break
 			}
 			remainingFraction := quotaFractionPtrField(bucketObject, "remainingFraction", "remaining_fraction")
 			if remainingFraction == nil {
@@ -64,6 +65,9 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 				RemainingFraction: remainingFraction,
 				ResetTime:         stringField(bucketObject, "resetTime", "reset_time"),
 			})
+		}
+		if deprecatedArgon {
+			continue
 		}
 		if len(group.Buckets) > 0 {
 			payload.Groups = append(payload.Groups, group)

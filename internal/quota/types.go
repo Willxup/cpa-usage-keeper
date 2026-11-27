@@ -101,8 +101,7 @@ type AntigravityQuotaGroup struct {
 }
 
 type AntigravityQuotaPayload struct {
-	Groups           []AntigravityQuotaGroup `json:"groups,omitempty"`
-	hasSeparateArgon bool
+	Groups []AntigravityQuotaGroup `json:"groups,omitempty"`
 }
 
 type CodexUsageWindow struct {

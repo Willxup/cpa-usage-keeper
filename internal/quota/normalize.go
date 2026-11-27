@@ -17,8 +17,6 @@ const (
 	quotaWindowAverageMonthSeconds int64 = 365 * 24 * 60 * 60 / 12
 	antigravityGeminiGroupKey            = "antigravity-gemini-models"
 	antigravityClaudeGPTGroupKey         = "antigravity-claude-and-gpt-models"
-	antigravityArgonGroupKey             = "antigravity-gemini-4-argon"
-	antigravityArgonWeeklyBucketID       = "gemini-argon-wtu-weekly"
 )
 
 func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
@@ -325,23 +323,15 @@ func appendGeminiCLICredits(rows []QuotaRow, keyPrefix string, tier *GeminiCliUs
 	return rows
 }
 
-func antigravitySeparateArgonObserved(output ProviderOutput) bool {
-	var result *AntigravityResult
-	switch value := output.Result.(type) {
-	case AntigravityResult:
-		result = &value
-	case *AntigravityResult:
-		result = value
-	}
-	return result != nil && result.Quota != nil && result.Quota.hasSeparateArgon
-}
-
 func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	if result.Quota == nil {
 		return nil
 	}
 	rows := make([]QuotaRow, 0)
 	for groupIndex, group := range result.Quota.Groups {
+		if isDeprecatedAntigravityArgonGroup(group) {
+			continue
+		}
 		groupKey := antigravityQuotaGroupKey(group, groupIndex)
 		groupLabel := firstNonEmpty(group.DisplayName, fmt.Sprintf("Quota Group %d", groupIndex+1))
 		groupRows := make([]QuotaRow, 0, len(group.Buckets))
@@ -372,13 +362,30 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	return rows
 }
 
-func antigravityQuotaGroupKey(group AntigravityQuotaGroup, groupIndex int) string {
-	// 具体 bucket ID 比可变显示名更能证明是独立 Argon 额度组。
+func antigravityNormalizedWords(displayName string) []string {
+	return strings.FieldsFunc(strings.ToLower(strings.TrimSpace(displayName)), func(value rune) bool {
+		return (value < 'a' || value > 'z') && (value < '0' || value > '9')
+	})
+}
+
+func isDeprecatedAntigravityArgonBucketID(bucketID string) bool {
+	return strings.EqualFold(strings.TrimSpace(bucketID), "gemini-argon-wtu-weekly")
+}
+
+// isDeprecatedAntigravityArgonGroup 识别已下线的独立 Argon 组，避免其回退误命中 Gemini Models 组键产生冲突。
+func isDeprecatedAntigravityArgonGroup(group AntigravityQuotaGroup) bool {
+	if strings.Join(antigravityNormalizedWords(group.DisplayName), " ") == "gemini 4 argon" {
+		return true
+	}
 	for _, bucket := range group.Buckets {
-		if strings.EqualFold(strings.TrimSpace(bucket.BucketID), antigravityArgonWeeklyBucketID) {
-			return antigravityArgonGroupKey
+		if isDeprecatedAntigravityArgonBucketID(bucket.BucketID) {
+			return true
 		}
 	}
+	return false
+}
+
+func antigravityQuotaGroupKey(group AntigravityQuotaGroup, groupIndex int) string {
 	displayName := group.DisplayName
 	if knownKey, ok := knownAntigravityQuotaGroupKey(displayName); ok {
 		return knownKey
@@ -405,13 +412,7 @@ func antigravityQuotaGroupKey(group AntigravityQuotaGroup, groupIndex int) strin
 }
 
 func knownAntigravityQuotaGroupKey(displayName string) (string, bool) {
-	words := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(displayName)), func(value rune) bool {
-		return (value < 'a' || value > 'z') && (value < '0' || value > '9')
-	})
-	// 已确认的 Argon 名称先于旧的宽松词匹配，避免并进 Gemini 组。
-	if strings.Join(words, " ") == "gemini 4 argon" {
-		return antigravityArgonGroupKey, true
-	}
+	words := antigravityNormalizedWords(displayName)
 	hasGemini := false
 	hasClaude := false
 	hasGPT := false
