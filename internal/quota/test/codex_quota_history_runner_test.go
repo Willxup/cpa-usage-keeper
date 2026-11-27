@@ -1428,12 +1428,12 @@ func TestCodexQuotaHistoryRunnerAnchorsAbsoluteResetDuringFrequentZeroUsageRefre
 			service.StopRefreshTasks()
 			t.Fatalf("scheduled zero-usage refresh step %d failed: %v", step, err)
 		}
+		waitForCodexQuotaHistoryTrustedDrain(t, service)
 	}
 	// 随后用一条非零消耗的 Header（reset_at 距 anchoredReset 为 +3m，距假设漂移后的 +2m 仅 +1m）验证内存 ResetAt 未漂移。
 	splitReset := anchoredReset.Add(3 * time.Minute)
 	splitHeader := codexHistoryPrimarySnapshot("anchor-auth", time.Now().Add(time.Second).Truncate(time.Second), 99, splitReset)
-	// 先确保 4 次 0% 定时刷新均未因 Immediate 提前刷库。
-	time.Sleep(30 * time.Millisecond)
+	// 确认 4 次 0% 定时刷新消费后均未因 Immediate 提前刷库。
 	if got := writes.Load(); got != 0 {
 		service.StopRefreshTasks()
 		t.Fatalf("expected 0%% scheduled refreshes not to break stable heartbeat, got %d writes", got)
@@ -1487,13 +1487,19 @@ func TestCodexQuotaHistoryRunnerZeroUsageAllowsRelativeUpgradeAndTailCorrectionW
 			t.Fatalf("first active refresh failed: %v", err)
 		}
 		// 等待首次升级落库后再发送第二次顺延 60 秒的 0% 刷新，验证已升级的 absolute 不再漂移。
+		upgraded := false
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) {
 			cycles := loadCodexQuotaCycles(t, db, "rel-upgrade-auth")
 			if len(cycles) == 1 && cycles[0].ResetAtSource == entities.QuotaResetAtSourceAbsolute {
+				upgraded = true
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
+		}
+		if !upgraded {
+			service.StopRefreshTasks()
+			t.Fatal("expected first active refresh to upgrade cycle reset_at_source to absolute before deadline")
 		}
 		handler.output = ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
 			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, upgradedReset.Add(60*time.Second))},
@@ -1589,10 +1595,7 @@ func TestCodexQuotaHistoryRunnerZeroUsageAllowsRelativeUpgradeAndTailCorrectionW
 			service.StopRefreshTasks()
 			t.Fatalf("manual zero-usage refresh failed: %v", err)
 		}
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) && quotaServiceField(service, "codexQuotaHistoryTrustedQueue").Len() > 0 {
-			time.Sleep(5 * time.Millisecond)
-		}
+		waitForCodexQuotaHistoryTrustedDrain(t, service)
 
 		// 用 +140s 的 99% 新周期 Header（距原锚点 >120s，若漂移到 +30s 则 <=120s）同时验证内存与数据库边界均未漂移。
 		splitReset := anchoredReset.Add(140 * time.Second)
@@ -1979,6 +1982,22 @@ func waitForCodexQuotaCycleCount(t *testing.T, db *gorm.DB, expected int64) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("expected %d Codex quota cycles before deadline", expected)
+}
+
+func waitForCodexQuotaHistoryTrustedDrain(t *testing.T, service *Service) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if quotaServiceField(service, "codexQuotaHistoryTrustedQueue").Len() == 0 &&
+			quotaServiceField(service, "codexQuotaHistoryTrustedWake").Len() == 0 {
+			// 让出一次调度使刚取走输入的 runner 完成本批内存状态合并。
+			time.Sleep(5 * time.Millisecond)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	service.StopRefreshTasks()
+	t.Fatal("expected trusted quota history queue to drain before deadline")
 }
 
 type blockingCodexHistoryProviderHandler struct {
