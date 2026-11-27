@@ -42,9 +42,15 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		usageEventForQuotaEfficiency("wrong-auth-index", "oauth", "another-auth", now.Add(-2*time.Hour-45*time.Minute), 9_000_000),
 	)
 
+	syncAllQuotaCyclesForTest(t, db, now)
 	streamQueryCount := 0
 	queryDB := db.Session(&gorm.Session{Logger: codexQuotaEfficiencyQueryLogger{Interface: logger.Default.LogMode(logger.Silent), streamQueries: &streamQueryCount}})
-	result := buildCodexQuotaEfficiencyForTest(t, queryDB, "codex-auth", now)
+	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), queryDB, repositorydto.CodexQuotaEfficiencyQuery{
+		AuthIndex: "codex-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("BuildCodexQuotaEfficiencyHistory: %v", err)
+	}
 
 	if len(result.Windows) != 1 || result.SelectedWindow == nil {
 		t.Fatalf("expected one selected Weekly window, got %+v", result.Windows)
@@ -91,8 +97,8 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		t.Fatalf("unexpected cross per-point values: %+v", cross)
 	}
 	assertCodexQuotaEfficiencyUsage(t, result.Cycles[1].Usage, 2_000_000, 2, true)
-	if streamQueryCount != 1 {
-		t.Fatalf("expected current and completed Weekly cycles to share one ordered UsageEvent stream, got %d", streamQueryCount)
+	if streamQueryCount != 0 {
+		t.Fatalf("expected persisted quota history read to execute 0 UsageEvent streams, got %d", streamQueryCount)
 	}
 }
 
@@ -396,15 +402,20 @@ func TestCodexQuotaEfficiencyRejectsUnbackfilledCostAndPreservesZeroAvailability
 			event := usageEventForQuotaEfficiency("stored-state", "oauth", "codex-auth", now.Add(-2*time.Hour), 1_000_000)
 			event.CostUSD, event.CostAvailable = testCase.cost, testCase.available
 			seedCodexQuotaEfficiencyUsage(t, db, event)
-			result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
-				AuthIndex: "codex-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
-			})
 			if testCase.wantError {
-				if err == nil {
-					t.Fatalf("unbackfilled fee returned a usable history: %+v", result.Cycles)
+				var cycles []entities.QuotaCycle
+				if err := db.Find(&cycles).Error; err != nil {
+					t.Fatal(err)
+				}
+				if _, err := repository.RecomputeAndPersistQuotaCycles(context.Background(), db, cycles, now, 0, false); err == nil {
+					t.Fatalf("unbackfilled fee should fail persisted recomputation")
 				}
 				return
 			}
+			syncAllQuotaCyclesForTest(t, db, now)
+			result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
+				AuthIndex: "codex-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -521,8 +532,20 @@ func assertCodexQuotaEfficiencyUsage(t *testing.T, usage repositorydto.CodexQuot
 	}
 }
 
+func syncAllQuotaCyclesForTest(t testing.TB, db *gorm.DB, now time.Time) {
+	t.Helper()
+	var cycles []entities.QuotaCycle
+	if err := db.Order("id ASC").Find(&cycles).Error; err != nil {
+		t.Fatalf("load quota cycles for test sync: %v", err)
+	}
+	if _, err := repository.RecomputeAndPersistQuotaCycles(context.Background(), db, cycles, now, 0, false); err != nil {
+		t.Fatalf("recompute quota cycles for test sync: %v", err)
+	}
+}
+
 func buildCodexQuotaEfficiencyForTest(t *testing.T, db *gorm.DB, authIndex string, now time.Time) repositorydto.CodexQuotaEfficiencyHistory {
 	t.Helper()
+	syncAllQuotaCyclesForTest(t, db, now)
 	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
 		AuthIndex: authIndex, Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
 	})

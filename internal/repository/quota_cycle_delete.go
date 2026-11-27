@@ -68,7 +68,11 @@ func DeleteQuotaCycle(ctx context.Context, db *gorm.DB, provider string, authInd
 		if err := tx.Where("cycle_id = ?", cycle.ID).Delete(&entities.QuotaPercentSegment{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(cycle).Error
+		if err := tx.Delete(cycle).Error; err != nil {
+			return err
+		}
+		// 删除周期可能恢复更早同角色周期被裁剪的有效右边界，在同事务内一并标脏。
+		return markOverlappingSiblingQuotaCyclesDirty(tx, cycle.Provider, cycle.AuthIndex, cycle.QuotaKey, 0, cycle.WindowStartedAt)
 	})
 	return deletion, err
 }

@@ -38,6 +38,7 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
         "Requests": 6,
         "SuccessfulRequests": 3,
@@ -59,6 +60,7 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-21T10:00:00.234567891Z",
           "IntervalEndedAt": "2026-08-21T11:00:00.345678912Z",
+          "UsageReady": true,
           "Usage": {
             "Requests": 2,
             "SuccessfulRequests": 1,
@@ -91,6 +93,7 @@
       "FirstRemainingPercent": 100,
       "LastRemainingPercent": 99,
       "ObservationCount": 6,
+      "UsageReady": true,
       "Usage": {
         "Requests": 2,
         "SuccessfulRequests": 1,
@@ -112,6 +115,7 @@
           "IsDirect": true,
           "IntervalStartedAt": "2026-08-20T16:01:00.123456789Z",
           "IntervalEndedAt": "2026-08-20T18:00:00.123456789Z",
+          "UsageReady": true,
           "Usage": {
             "Requests": 1,
             "SuccessfulRequests": 0,

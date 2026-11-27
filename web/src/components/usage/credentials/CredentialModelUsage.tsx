@@ -72,7 +72,6 @@ function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialMo
           {RANGES.map(option => (
             <button key={option} type="button" data-model-range={option} aria-pressed={(data?.range ?? range) === option}
               aria-busy={enabled && loading && range === option ? true : undefined}
-              title={enabled && loading && range === option ? t('common.loading') : undefined}
               onClick={() => setSelection(current => current.range === option ? current : { range: option, revision: current.revision + 1 })}>
               {option === 'today' ? t('usage_stats.range_today') : t('usage_stats.range_last_days', { count: option === '30d' ? 30 : 7 })}
             </button>
@@ -109,7 +108,7 @@ function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialMo
                       </div>
                     </td>
                     <td className={styles.cacheCell}><span className={styles.mobileLabel}>{t('usage_stats.cache_rate')} </span><ModelCacheRate totals={model} /></td>
-                    <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} /></td>
+                    <td className={styles.costCell}><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={model} enabled={enabled && !loading} /></td>
                   </tr>
                 })}</tbody>
                 <tfoot><tr><th scope="row">{totalName}</th>
@@ -122,7 +121,7 @@ function ModelUsage({ identityId, onAuthRequired, enabled = true }: CredentialMo
                     </div>}
                   </td>
                   <td><span className={styles.mobileLabel}>{t('usage_stats.cache_rate')} </span><ModelCacheRate totals={data.summary} /></td>
-                  <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} /></td>
+                  <td><span className={styles.mobileLabel}>{t('usage_stats.credentials_models_cost')} </span><ModelCost totals={data.summary} enabled={enabled && !loading} /></td>
                 </tr>{isMobile ? <tr className={styles.summaryBreakdownRow}><td colSpan={5}><TokenBreakdown model={data.summary} name={totalName} enabled={enabled && !loading} /></td></tr> : null}</tfoot>
               </table>
             </> : null}
@@ -194,9 +193,52 @@ function ModelCacheRate({ totals }: { totals: UsageIdentityModelTotals }) {
   return <span data-model-cache-rate className={credentialToneClassName('credentialMetricValue', cacheReadRateTone(rate))}>{formatCredentialPercent(rate)}</span>
 }
 
-function ModelCost({ totals }: { totals: UsageIdentityModelTotals }) {
+function ModelCost({ totals, enabled }: { totals: UsageIdentityModelTotals; enabled: boolean }) {
   const { t } = useTranslation()
-  return <>{formatUsd(totals.cost_usd)}{!totals.cost_available ? <abbr className={styles.costIncomplete} title={t('usage_stats.credentials_models_cost_incomplete')} aria-label={t('usage_stats.credentials_models_cost_incomplete')}>*</abbr> : null}</>
+  const id = `model-cost-${useId()}`
+  const anchor = useRef<HTMLSpanElement>(null)
+  const pointerType = useRef<string | null>(null)
+  const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip({ trackAnchor: true })
+  const formatted = formatUsd(totals.cost_usd)
+  const hint = t('usage_stats.credentials_models_cost_incomplete')
+  const interactive = enabled && !totals.cost_available
+
+  useEffect(() => {
+    if (!interactive) dismiss()
+  }, [interactive, dismiss])
+  useEffect(() => {
+    if (!interactive || !tooltip) return
+    const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node)) dismiss() }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && dismiss()) { event.preventDefault(); event.stopPropagation() }
+    }
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('keydown', escape, true)
+    return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true) }
+  }, [interactive, tooltip, dismiss])
+
+  if (totals.cost_available) return <>{formatted}</>
+
+  return <>
+    <span
+      ref={anchor}
+      className={styles.incompleteCostTarget}
+      data-model-cost-incomplete="true"
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={`${formatted} (${hint})`}
+      aria-describedby={interactive && tooltip ? id : undefined}
+      onPointerDown={event => { pointerType.current = event.pointerType }}
+      onPointerEnter={event => { if (interactive && event.pointerType !== 'touch') showOnMouseEnter([hint], event.currentTarget) }}
+      onPointerLeave={event => { if (event.pointerType !== 'touch') hideOnMouseLeave(event.currentTarget) }}
+      onFocus={event => { if (interactive && !pointerType.current) showOnFocus([hint], event.currentTarget) }}
+      onBlur={event => { pointerType.current = null; hideOnBlur(event.currentTarget) }}
+      onClick={event => { if (interactive && (pointerType.current === 'touch' || pointerType.current === 'pen')) { if (tooltip) dismiss(); else showOnFocus([hint], event.currentTarget) } }}
+    >
+      {formatted}
+      <span className={styles.costIncomplete} aria-hidden="true">*</span>
+    </span>
+    <PortalTooltip id={id} tooltip={interactive ? tooltip : null} />
+  </>
 }
 
 function TokenLegend() {

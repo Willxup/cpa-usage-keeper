@@ -27,6 +27,7 @@ func TestQuotaEfficiencySegmentProjectionPreservesCompleteResponse(t *testing.T)
 					setAnalysisLatencyTestTimezone(t, zone)
 					db := openTestDatabase(t)
 					now, ids := seedQuotaEfficiencyProjectionHistory(t, db, provider)
+					syncAllQuotaCyclesForTest(t, db, now)
 					var statements []quotaEfficiencyProjectionStatement
 					queryDB := db.Session(&gorm.Session{Logger: quotaEfficiencyProjectionLogger{
 						Interface: logger.Default.LogMode(logger.Silent), statements: &statements,
@@ -141,23 +142,23 @@ func (l quotaEfficiencyProjectionLogger) Trace(ctx context.Context, begin time.T
 
 func assertQuotaEfficiencySegmentProjection(t *testing.T, statements []quotaEfficiencyProjectionStatement, cycleIDs []int64, rows int64) {
 	t.Helper()
-	if len(statements) != 3 {
-		t.Fatalf("expected one parent, one segment and one event read, got %+v", statements)
+	if len(statements) != 2 {
+		t.Fatalf("expected one parent and one segment read (zero usage_events reads), got %+v", statements)
 	}
 	statement := statements[1]
-	columns := "id, cycle_id, remaining_percent, +first_observed_at AS first_observed_at, +last_observed_at AS last_observed_at, observation_count"
 	var ids []string
 	for _, id := range cycleIDs {
 		ids = append(ids, fmt.Sprint(id))
 	}
-	want := "SELECT " + columns + " FROM `quota_percent_segments` WHERE cycle_id IN (" + strings.Join(ids, ",") + ") ORDER BY quota_percent_segments.cycle_id ASC, quota_percent_segments.first_observed_at ASC, quota_percent_segments.id ASC"
-	if statement.sql != want || statement.rows != rows {
-		t.Fatalf("expected only returned cycles and six stored columns (%d rows):\nwant %s\ngot  %s (%d rows)", rows, want, statement.sql, statement.rows)
+	wantPrefix := "SELECT id, cycle_id, remaining_percent, +first_observed_at AS first_observed_at, +last_observed_at AS last_observed_at, observation_count,"
+	wantSuffix := "FROM `quota_percent_segments` WHERE cycle_id IN (" + strings.Join(ids, ",") + ") ORDER BY quota_percent_segments.cycle_id ASC, quota_percent_segments.first_observed_at ASC, quota_percent_segments.id ASC"
+	if !strings.HasPrefix(statement.sql, wantPrefix) || !strings.HasSuffix(statement.sql, wantSuffix) || statement.rows != rows {
+		t.Fatalf("expected only returned cycles and persisted segment columns (%d rows):\ngot  %s (%d rows)", rows, statement.sql, statement.rows)
 	}
-	if !slices.ContainsFunc(statements, func(statement quotaEfficiencyProjectionStatement) bool {
-		return strings.Contains(statement.sql, "FROM usage_events INDEXED BY idx_usage_events_auth_index_timestamp_id")
+	if slices.ContainsFunc(statements, func(statement quotaEfficiencyProjectionStatement) bool {
+		return strings.Contains(statement.sql, "usage_events")
 	}) {
-		t.Fatalf("missing indexed event read: %+v", statements)
+		t.Fatalf("persisted quota history read must not query usage_events: %+v", statements)
 	}
 }
 
@@ -184,6 +185,7 @@ func BenchmarkCodexQuotaEfficiencyHistoryCoveredCycles(b *testing.B) {
 	seedQuotaEfficiencyBenchmarkEvents(b, db, start, eventCount, func(index int, at time.Time) entities.UsageEvent {
 		return usageEventForQuotaEfficiency(fmt.Sprintf("covered-event-%d", index), "oauth", "codex-auth", at, 1000)
 	})
+	syncAllQuotaCyclesForTest(b, db, now)
 	query := repositorydto.CodexQuotaEfficiencyQuery{AuthIndex: "codex-auth", Now: now, RangeStart: start}
 	var statements []quotaEfficiencyProjectionStatement
 	warmupDB := db.Session(&gorm.Session{Logger: quotaEfficiencyProjectionLogger{

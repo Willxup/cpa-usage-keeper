@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -16,16 +15,6 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-// codexQuotaEfficiencyCycleWork 把公开周期 DTO 与本次 UsageEvent 流的查询边界放在一起。
-type codexQuotaEfficiencyCycleWork struct {
-	// record 是后续同时累加周期总量和区间量的唯一对象。
-	record *repositorydto.CodexQuotaEfficiencyCycle
-	// queryStart 遵循周期理论起点及相邻周期切分边界，不用首次观察时间冒充周期开始。
-	queryStart time.Time
-	// queryEnd 对已结束周期等于角色有效终点，对当前周期固定截到 GeneratedAt。
-	queryEnd time.Time
-}
-
 // codexQuotaEfficiencyCyclePeriod 保存一个角色周期在查询层实际生效的半开时间边界。
 type codexQuotaEfficiencyCyclePeriod struct {
 	start   time.Time
@@ -33,14 +22,26 @@ type codexQuotaEfficiencyCyclePeriod struct {
 	current bool
 }
 
-// codexQuotaEfficiencySegmentRow 仅保留百分比摘要和下降区间所需的持久字段。
+// codexQuotaEfficiencySegmentRow 保留百分比摘要、下降区间及持久化统计所需的字段。
 type codexQuotaEfficiencySegmentRow struct {
-	ID               int64
-	CycleID          int64
-	RemainingPercent int
-	FirstObservedAt  codexQuotaEfficiencyObservedTime
-	LastObservedAt   codexQuotaEfficiencyObservedTime
-	ObservationCount int64
+	ID                             int64
+	CycleID                        int64
+	RemainingPercent               int
+	FirstObservedAt                codexQuotaEfficiencyObservedTime
+	LastObservedAt                 codexQuotaEfficiencyObservedTime
+	ObservationCount               int64
+	TransitionRequests             int64
+	TransitionSuccessfulRequests   int64
+	TransitionFailedRequests       int64
+	TransitionInputTokens          int64
+	TransitionOutputTokens         int64
+	TransitionReasoningTokens      int64
+	TransitionCacheReadTokens      int64
+	TransitionCacheCreationTokens  int64
+	TransitionTotalTokens          int64
+	TransitionCostUSD              float64
+	TransitionUnavailableCostCount int64
+	TransitionUsageReady           bool
 }
 
 // codexQuotaEfficiencyUsageEventRow 只保存周期和区间累计所需的已存请求事实。
@@ -153,7 +154,11 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	var segments []codexQuotaEfficiencySegmentRow
 	if err := db.WithContext(ctx).Clauses(dbresolver.Read).
 		Table("quota_percent_segments").
-		Select("id, cycle_id, remaining_percent, +first_observed_at AS first_observed_at, +last_observed_at AS last_observed_at, observation_count").
+		Select(`id, cycle_id, remaining_percent, +first_observed_at AS first_observed_at, +last_observed_at AS last_observed_at, observation_count,
+			transition_requests, transition_successful_requests, transition_failed_requests,
+			transition_input_tokens, transition_output_tokens, transition_reasoning_tokens,
+			transition_cache_read_tokens, transition_cache_creation_tokens, transition_total_tokens,
+			transition_cost_usd, transition_unavailable_cost_count, transition_usage_ready`).
 		Where("cycle_id IN ?", cycleIDs).
 		Order("quota_percent_segments.cycle_id ASC, quota_percent_segments.first_observed_at ASC, quota_percent_segments.id ASC").
 		Find(&segments).Error; err != nil {
@@ -170,18 +175,16 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 		start = end
 	}
 
-	// 先建立全部指针对象再聚合；统一列表状态完全由本次固定的 now 判定。
-	works := make([]codexQuotaEfficiencyCycleWork, 0, len(returnedCycles))
-	records := make([]*repositorydto.CodexQuotaEfficiencyCycle, 0, len(returnedCycles))
+	// 纯表读取：直接从 quota_cycles 与 quota_percent_segments 持久化列组装响应，不访问 usage_events 或 usage_events_archive。
+	result.Cycles = make([]repositorydto.CodexQuotaEfficiencyCycle, 0, len(returnedCycles))
 	for _, cycle := range returnedCycles {
 		period := periods[cycle.ID]
-		active := period.current
 		status := "completed"
-		if active {
+		if period.current {
 			status = "current"
 		}
 		firstPercent, lastPercent, observationCount := quotaCyclePercentSummary(segmentsByCycle[cycle.ID])
-		record := &repositorydto.CodexQuotaEfficiencyCycle{
+		record := repositorydto.CodexQuotaEfficiencyCycle{
 			ID:                    cycle.ID,
 			Status:                status,
 			WindowSeconds:         cycle.WindowSeconds,
@@ -194,28 +197,25 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 			FirstRemainingPercent: firstPercent,
 			LastRemainingPercent:  lastPercent,
 			ObservationCount:      observationCount,
-			Usage:                 repositorydto.CodexQuotaEfficiencyUsage{CostAvailable: true},
-			Transitions:           buildCodexQuotaEfficiencyTransitions(segmentsByCycle[cycle.ID]),
+			UsageReady:            cycle.UsageReady,
+			CostStale:             cycle.CostStale,
+			Usage: repositorydto.CodexQuotaEfficiencyUsage{
+				Requests:            cycle.Requests,
+				SuccessfulRequests:  cycle.SuccessfulRequests,
+				FailedRequests:      cycle.FailedRequests,
+				InputTokens:         cycle.InputTokens,
+				OutputTokens:        cycle.OutputTokens,
+				ReasoningTokens:     cycle.ReasoningTokens,
+				CacheReadTokens:     cycle.CacheReadTokens,
+				CacheCreationTokens: cycle.CacheCreationTokens,
+				TotalTokens:         cycle.TotalTokens,
+				TotalCostUSD:        cycle.CostUSD,
+				CostAvailable:       cycle.UnavailableCostCount == 0 && !cycle.CostStale,
+			},
+			Transitions: buildPersistedCodexQuotaEfficiencyTransitions(segmentsByCycle[cycle.ID], cycle.CostStale),
 		}
-		queryEnd := period.end
-		if active {
-			queryEnd = query.Now
-		}
-		records = append(records, record)
-		works = append(works, codexQuotaEfficiencyCycleWork{record: record, queryStart: period.start, queryEnd: queryEnd})
-	}
-
-	// 按时区段流式读取已存费用，首个额度观察前的请求仍计入周期。
-	if err := streamCodexQuotaEfficiencyUsage(ctx, db, query.Provider, query.AuthIndex, works); err != nil {
-		return result, err
-	}
-	// 流式聚合结束后再计算每百分点值，保证可用性已吸收区间内所有事件。
-	for _, work := range works {
-		finalizeCodexQuotaEfficiencyTransitions(work.record)
-	}
-	result.Cycles = make([]repositorydto.CodexQuotaEfficiencyCycle, 0, len(records))
-	for _, record := range records {
-		result.Cycles = append(result.Cycles, *record)
+		finalizeCodexQuotaEfficiencyTransitions(&record)
+		result.Cycles = append(result.Cycles, record)
 	}
 	// 当前周期固定优先；历史按角色实际结束时间倒序，窗口切换不会继续沿用更远的原始 reset。
 	sort.SliceStable(result.Cycles, func(left, right int) bool {
@@ -375,7 +375,7 @@ func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, current
 	return periods
 }
 
-func buildCodexQuotaEfficiencyTransitions(segments []codexQuotaEfficiencySegmentRow) []repositorydto.CodexQuotaEfficiencyTransition {
+func buildPersistedCodexQuotaEfficiencyTransitions(segments []codexQuotaEfficiencySegmentRow, cycleCostStale bool) []repositorydto.CodexQuotaEfficiencyTransition {
 	transitions := make([]repositorydto.CodexQuotaEfficiencyTransition, 0, max(0, len(segments)-1))
 	for index := 1; index < len(segments); index++ {
 		previous := segments[index-1]
@@ -385,79 +385,34 @@ func buildCodexQuotaEfficiencyTransitions(segments []codexQuotaEfficiencySegment
 		if points <= 0 {
 			continue
 		}
+		costAvailable := current.TransitionUnavailableCostCount == 0 && !cycleCostStale
 		transition := repositorydto.CodexQuotaEfficiencyTransition{
 			FromRemainingPercent: previous.RemainingPercent,
 			ToRemainingPercent:   current.RemainingPercent,
 			PercentagePoints:     points,
 			IsDirect:             points == 1,
 			// 前一百分比首次出现后的请求共同消耗这一档额度；重复观察不能把区间起点向后推。
-			IntervalStartedAt:     previous.FirstObservedAt.Time,
-			IntervalEndedAt:       current.FirstObservedAt.Time,
-			Usage:                 repositorydto.CodexQuotaEfficiencyUsage{CostAvailable: true},
-			CostPerPointAvailable: true,
+			IntervalStartedAt: previous.FirstObservedAt.Time,
+			IntervalEndedAt:   current.FirstObservedAt.Time,
+			UsageReady:        current.TransitionUsageReady,
+			Usage: repositorydto.CodexQuotaEfficiencyUsage{
+				Requests:            current.TransitionRequests,
+				SuccessfulRequests:  current.TransitionSuccessfulRequests,
+				FailedRequests:      current.TransitionFailedRequests,
+				InputTokens:         current.TransitionInputTokens,
+				OutputTokens:        current.TransitionOutputTokens,
+				ReasoningTokens:     current.TransitionReasoningTokens,
+				CacheReadTokens:     current.TransitionCacheReadTokens,
+				CacheCreationTokens: current.TransitionCacheCreationTokens,
+				TotalTokens:         current.TransitionTotalTokens,
+				TotalCostUSD:        current.TransitionCostUSD,
+				CostAvailable:       costAvailable,
+			},
+			CostPerPointAvailable: costAvailable,
 		}
 		transitions = append(transitions, transition)
 	}
 	return transitions
-}
-
-// streamCodexQuotaEfficiencyUsage 按时间索引流式归属周期与区间，费用仅取事件持久列。
-func streamCodexQuotaEfficiencyUsage(ctx context.Context, db *gorm.DB, provider string, authIndex string, works []codexQuotaEfficiencyCycleWork) error {
-	if len(works) == 0 {
-		return nil
-	}
-	// 周期边界保持真实时间有序，正常事件沿时间线前进，文本倒序事件可二分重新定位。
-	sort.Slice(works, func(left, right int) bool {
-		if !works[left].queryStart.Equal(works[right].queryStart) {
-			return works[left].queryStart.Before(works[right].queryStart)
-		}
-		if !works[left].queryEnd.Equal(works[right].queryEnd) {
-			return works[left].queryEnd.Before(works[right].queryEnd)
-		}
-		return works[left].record.ID < works[right].record.ID
-	})
-	globalStart := works[0].queryStart
-	globalEnd := works[0].queryEnd
-	for _, work := range works[1:] {
-		if work.queryStart.Before(globalStart) {
-			globalStart = work.queryStart
-		}
-		if work.queryEnd.After(globalEnd) {
-			globalEnd = work.queryEnd
-		}
-	}
-
-	cursor := codexQuotaEfficiencyUsageCursor{works: works}
-	for _, read := range usageEventTimeReads(globalStart, globalEnd, false) {
-		if err := streamCodexQuotaEfficiencyUsageRead(ctx, db, provider, authIndex, read, &cursor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// addCodexQuotaEfficiencyUsage 只累计已存费用与原 Token，并使不可用状态逐事件传播。
-func addCodexQuotaEfficiencyUsage(target *repositorydto.CodexQuotaEfficiencyUsage, event codexQuotaEfficiencyUsageEventRow) error {
-	target.Requests++
-	if event.Failed {
-		target.FailedRequests++
-	} else {
-		target.SuccessfulRequests++
-	}
-	target.InputTokens += event.InputTokens
-	target.OutputTokens += event.OutputTokens
-	target.ReasoningTokens += event.ReasoningTokens
-	target.CacheReadTokens += event.CacheReadTokens
-	target.CacheCreationTokens += event.CacheCreationTokens
-	target.TotalTokens += event.TotalTokens
-	target.TotalCostUSD += event.CostUSD
-	if math.IsInf(target.TotalCostUSD, 0) {
-		return fmt.Errorf("stored cost overflow")
-	}
-	if !event.CostAvailable {
-		target.CostAvailable = false
-	}
-	return nil
 }
 
 func finalizeCodexQuotaEfficiencyTransitions(cycle *repositorydto.CodexQuotaEfficiencyCycle) {

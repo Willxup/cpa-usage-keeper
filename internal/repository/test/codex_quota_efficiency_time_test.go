@@ -35,7 +35,9 @@ func TestQuotaEfficiencyTimeReadMatchesIndependentInstants(t *testing.T) {
 				db := openTestDatabase(t)
 				cycle := seedQuotaEfficiencyTimeCycle(t, db, provider, "primary", tc.start, tc.reset, tc.observed)
 				events := seedQuotaEfficiencyRawTimeEvents(t, db, provider, tc.events)
-				result := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, quotaEfficiencyInstant(t, tc.now))
+				now := quotaEfficiencyInstant(t, tc.now)
+				syncAllQuotaCyclesForTest(t, db, now)
+				result := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, now)
 				if len(result.Cycles) != 1 {
 					t.Fatalf("expected one cycle, got %+v", result.Cycles)
 				}
@@ -143,7 +145,9 @@ func TestQuotaEfficiencyTimeReadRelocatesAcrossGapsAndCoveredCycles(t *testing.T
 				"2026-10-21T00:35:00.25Z", "2026-10-21T00:35:00.5Z", "2026-10-21T00:35:00Z", "2026-10-21T00:39:59.75Z", "2026-10-21T00:40:00Z", "2026-10-21T00:50:00Z",
 				"2026-10-21T00:59:59.9Z", "2026-10-21T00:59:59Z", "2026-10-21T00:59:59.749999999Z", "2026-10-21T00:59:59.75Z",
 			})
-			result := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, quotaEfficiencyInstant(t, "2026-10-21T01:00:00Z"))
+			now := quotaEfficiencyInstant(t, "2026-10-21T01:00:00Z")
+			syncAllQuotaCyclesForTest(t, db, now)
+			result := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, now)
 			if len(result.Cycles) != 3 {
 				t.Fatalf("covered cycle %d must be omitted: %+v", covered.ID, result.Cycles)
 			}
@@ -190,13 +194,19 @@ func TestQuotaEfficiencyTimeReadClipsCandidatesBeforeCostValidation(t *testing.T
 					t.Fatal(err)
 				}
 			}
-			got := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, quotaEfficiencyInstant(t, "2026-10-21T01:00:00.5Z"))
+			now := quotaEfficiencyInstant(t, "2026-10-21T01:00:00.5Z")
+			syncAllQuotaCyclesForTest(t, db, now)
+			got := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, now)
 			want := referenceQuotaEfficiencyTimeUsage(events[1:2], events[1].Timestamp.Add(-time.Second), events[1].Timestamp.Add(time.Second), nil, nil)
 			assertQuotaEfficiencyTimeUsage(t, got.Cycles[0].Usage, want)
 			if err := db.Model(&entities.UsageEvent{}).Where("event_key = ?", events[1].EventKey).Update("cost_usd", nil).Error; err != nil {
 				t.Fatal(err)
 			}
-			_, err = repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{Provider: provider, AuthIndex: "time-auth", Now: quotaEfficiencyInstant(t, "2026-10-21T01:00:00.5Z"), RangeStart: quotaEfficiencyInstant(t, "2026-09-21T01:00:00.5Z")})
+			var cycles []entities.QuotaCycle
+			if err := db.Find(&cycles).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err = repository.ComputeQuotaCyclePersistedUsage(context.Background(), db, cycles[0], now, 0)
 			if err == nil || !strings.Contains(err.Error(), "invalid stored cost") {
 				t.Fatalf("in-range unbackfilled cost must still fail, got %v", err)
 			}
@@ -233,6 +243,7 @@ func TestQuotaEfficiencyTimeReadFallbackAcrossCycles(t *testing.T) {
 				"2026-11-01T01:17:00-08:00", "2026-11-01T01:20:00-08:00", "2026-11-01T01:30:00-08:00",
 			})
 			now := quotaEfficiencyInstant(t, "2026-11-01T03:00:00-08:00")
+			syncAllQuotaCyclesForTest(t, db, now)
 			result := queryQuotaEfficiencyTimeHistory(t, db, provider, nil, now)
 			if len(result.Cycles) != len(periods) {
 				t.Fatalf("cycles = %d, want %d", len(result.Cycles), len(periods))
@@ -264,15 +275,14 @@ func TestQuotaEfficiencyTimeReadQueriesAreBoundedAndIndexed(t *testing.T) {
 				setAnalysisLatencyTestTimezone(t, tc.zone)
 				db := openTestDatabase(t)
 				start := quotaEfficiencyInstant(t, tc.start).In(time.Local)
-				for index := range 12 {
-					cycleStart := start.Add(time.Duration(index) * 5 * time.Hour)
-					seedQuotaEfficiencyTimeCycle(t, db, provider, "primary", cycleStart.Format(time.RFC3339Nano), cycleStart.Add(5*time.Hour).Format(time.RFC3339Nano), []string{cycleStart.Format(time.RFC3339Nano), cycleStart.Add(time.Hour).Format(time.RFC3339Nano)})
-				}
+				cycle := seedQuotaEfficiencyTimeCycle(t, db, provider, "primary", start.Format(time.RFC3339Nano), start.Add(60*time.Hour).Format(time.RFC3339Nano), []string{start.Format(time.RFC3339Nano), start.Add(time.Hour).Format(time.RFC3339Nano)})
 				var statements []string
 				queryDB := db.Session(&gorm.Session{Logger: quotaEfficiencyTimeQueryLogger{Interface: logger.Default.LogMode(logger.Silent), statements: &statements}})
-				queryQuotaEfficiencyTimeHistory(t, queryDB, provider, nil, start.Add(60*time.Hour))
+				if _, err := repository.ComputeQuotaCyclePersistedUsage(context.Background(), queryDB, cycle, start.Add(60*time.Hour), 0); err != nil {
+					t.Fatal(err)
+				}
 				if len(statements) != tc.reads {
-					t.Fatalf("12 cycles require %d timezone reads, got %d: %v", tc.reads, len(statements), statements)
+					t.Fatalf("cycle recompute requires %d timezone reads, got %d: %v", tc.reads, len(statements), statements)
 				}
 				for _, statement := range statements {
 					if !strings.Contains(statement, "ORDER BY usage_events.timestamp ASC, usage_events.id ASC") {
@@ -300,13 +310,13 @@ func TestQuotaEfficiencyTimeReadCancellationClosesReader(t *testing.T) {
 	setAnalysisLatencyTestTimezone(t, "America/Los_Angeles")
 	db, _, readerSQL := openTestDatabasePools(t, "quota-cancellation.db")
 	readerSQL.SetMaxOpenConns(1)
-	seedQuotaEfficiencyTimeCycle(t, db, "codex", "primary", "2026-11-01T00:00:00-07:00", "2026-11-01T04:00:00-08:00", []string{"2026-11-01T00:00:00-07:00", "2026-11-01T02:00:00-08:00"})
+	cycle := seedQuotaEfficiencyTimeCycle(t, db, "codex", "primary", "2026-11-01T00:00:00-07:00", "2026-11-01T04:00:00-08:00", []string{"2026-11-01T00:00:00-07:00", "2026-11-01T02:00:00-08:00"})
 	seedQuotaEfficiencyRawTimeEvents(t, db, "codex", []string{"2026-11-01T01:45:00-07:00", "2026-11-01T01:15:00-08:00"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var statements []string
 	queryDB := db.Session(&gorm.Session{Logger: quotaEfficiencyTimeQueryLogger{Interface: logger.Default.LogMode(logger.Silent), statements: &statements, onRead: cancel}})
-	_, err := repository.BuildCodexQuotaEfficiencyHistory(ctx, queryDB, repositorydto.CodexQuotaEfficiencyQuery{Provider: "codex", AuthIndex: "time-auth", Now: quotaEfficiencyInstant(t, "2026-11-01T03:00:00-08:00"), RangeStart: quotaEfficiencyInstant(t, "2026-10-02T03:00:00-07:00")})
+	_, err := repository.ComputeQuotaCyclePersistedUsage(ctx, queryDB, cycle, quotaEfficiencyInstant(t, "2026-11-01T03:00:00-08:00"), 0)
 	if !errors.Is(err, context.Canceled) || len(statements) != 1 {
 		t.Fatalf("canceled read must stop before another timezone query: err=%v queries=%d", err, len(statements))
 	}
@@ -326,15 +336,29 @@ func TestQuotaEfficiencyTimeReadUsesReaderPool(t *testing.T) {
 			observed := []string{"2026-11-01T00:00:00-07:00", "2026-11-01T01:20:00-08:00"}
 			cycle := seedQuotaEfficiencyTimeCycle(t, db, provider, "primary", observed[0], "2026-11-01T04:00:00-08:00", observed)
 			events := seedQuotaEfficiencyRawTimeEvents(t, db, provider, []string{"2026-11-01T01:45:00-07:00", "2026-11-01T01:15:00-08:00"})
-			// 占满唯一 writer 后，父行、百分比段和两个事件读取段都必须通过 reader 完成。
+			now := quotaEfficiencyInstant(t, "2026-11-01T01:30:00-08:00")
+			// 占满唯一 writer 后，Reader 池重算必须不依赖 writer 完成。
 			heldWriter, err := writerSQL.Conn(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer heldWriter.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			now := quotaEfficiencyInstant(t, "2026-11-01T01:30:00-08:00")
+			computed, err := repository.ComputeQuotaCyclePersistedUsage(ctx, db, cycle, now, 0)
+			if err != nil {
+				_ = heldWriter.Close()
+				t.Fatalf("quota cycle recompute did not use the reader pool: %v", err)
+			}
+			_ = heldWriter.Close()
+			if _, err := repository.ApplyComputedQuotaCycleUsage(ctx, db, computed, now, false); err != nil {
+				t.Fatalf("apply computed quota cycle usage: %v", err)
+			}
+			// 再次占满唯一 writer，验证持久化后的详情读取全程走 reader 池。
+			heldWriter2, err := writerSQL.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer heldWriter2.Close()
 			result, err := repository.BuildCodexQuotaEfficiencyHistory(ctx, db, repositorydto.CodexQuotaEfficiencyQuery{Provider: provider, AuthIndex: "time-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour)})
 			if err != nil {
 				t.Fatalf("quota history did not use the reader pool: %v", err)
@@ -363,6 +387,7 @@ func TestQuotaEfficiencyTimeReadOrdinaryResponseBaseline(t *testing.T) {
 				if err := db.Model(&entities.UsageEvent{}).Where("event_key = ?", events[2].EventKey).Updates(map[string]any{"failed": nil, "input_tokens": nil, "output_tokens": nil, "reasoning_tokens": nil, "total_tokens": nil}).Error; err != nil {
 					t.Fatal(err)
 				}
+				syncAllQuotaCyclesForTest(t, db, now)
 				for _, role := range []string{"default", "primary", "secondary"} {
 					var selected *string
 					if role != "default" {
@@ -423,6 +448,8 @@ func seedQuotaEfficiencyTimeCycle(t testing.TB, db *gorm.DB, provider, role, sta
 	if err := db.Model(&entities.QuotaCycle{}).Where("id = ?", cycle.ID).Updates(map[string]any{"provider": provider, "quota_key": key}).Error; err != nil {
 		t.Fatal(err)
 	}
+	cycle.Provider = provider
+	cycle.QuotaKey = key
 	return cycle
 }
 

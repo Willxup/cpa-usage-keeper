@@ -79,6 +79,10 @@ type CodexQuotaHistoryCycle struct {
 	LastRemainingPercent  *int `json:"last_remaining_percent"`
 	// ObservationCount 是周期内所有百分比段的累计采样次数。
 	ObservationCount int64 `json:"observation_count"`
+	// UsageReady 表示该周期已完成至少一次后台持久化结算；false 时前端应显示占位符而非 0。
+	UsageReady bool `json:"usage_ready"`
+	// CostStale 表示显式价格重算中断导致费用未对齐；true 时隐藏金额，false 且 cost_available=false 时显示已算金额加缺价星号。
+	CostStale bool `json:"cost_stale,omitempty"`
 	// Usage 包含稳定段在内的整个周期 UsageEvent 已存费用与 Token 总量。
 	Usage CodexQuotaHistoryUsage `json:"usage"`
 	// Transitions 只列真实相邻剩余百分比变化，不补造跨档中间点。
@@ -99,6 +103,8 @@ type CodexQuotaHistoryTransition struct {
 	IntervalStartedAt time.Time `json:"interval_started_at"`
 	// IntervalEndedAt 是后一百分比首次出现时间，属于统计区间且只归前一次下降。
 	IntervalEndedAt time.Time `json:"interval_ended_at"`
+	// UsageReady 表示该下降区间已完成持久化结算；false 时不参与图表与估算。
+	UsageReady bool `json:"usage_ready"`
 	// Usage 是该观察间隔内的请求、Token 与已存费用。
 	Usage CodexQuotaHistoryUsage `json:"usage"`
 	// TokensPerPoint 是区间总 Token 除以真实下降百分点。
@@ -238,6 +244,8 @@ func codexQuotaHistoryCycleFromRepository(cycle repositorydto.CodexQuotaEfficien
 		FirstRemainingPercent: cloneCodexQuotaHistoryInt(cycle.FirstRemainingPercent),
 		LastRemainingPercent:  cloneCodexQuotaHistoryInt(cycle.LastRemainingPercent),
 		ObservationCount:      cycle.ObservationCount,
+		UsageReady:            cycle.UsageReady,
+		CostStale:             cycle.CostStale,
 		Usage:                 codexQuotaHistoryUsageFromRepository(cycle.Usage),
 		Transitions:           make([]CodexQuotaHistoryTransition, 0, len(cycle.Transitions)),
 	}
@@ -249,6 +257,7 @@ func codexQuotaHistoryCycleFromRepository(cycle repositorydto.CodexQuotaEfficien
 			IsDirect:              transition.IsDirect,
 			IntervalStartedAt:     transition.IntervalStartedAt,
 			IntervalEndedAt:       transition.IntervalEndedAt,
+			UsageReady:            transition.UsageReady,
 			Usage:                 codexQuotaHistoryUsageFromRepository(transition.Usage),
 			TokensPerPoint:        transition.TokensPerPoint,
 			CostPerPoint:          transition.CostPerPoint,

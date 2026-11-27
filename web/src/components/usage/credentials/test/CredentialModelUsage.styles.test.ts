@@ -13,5 +13,6 @@ describe('CredentialModelUsage range button styles', () => {
     expect(rangeGroup).toMatch(/transition:\s*background-color 160ms ease, color 160ms ease;/)
     expect(rangeGroup).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*transition:\s*none;/)
     expect(rangeGroup).toMatch(/&:focus-visible\s*\{\s*outline:/)
+    expect(styles).not.toContain('cursor: help')
   })
 })

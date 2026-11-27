@@ -161,6 +161,7 @@ func BenchmarkCodexQuotaEfficiencyHistory(b *testing.B) {
 				event.ReasoningEffort = []string{"low", "medium", "high"}[index%3]
 				return event
 			})
+			syncAllQuotaCyclesForTest(b, db, now)
 			query := repositorydto.CodexQuotaEfficiencyQuery{AuthIndex: "codex-auth", Now: now, RangeStart: start}
 			b.ReportAllocs()
 			b.ResetTimer()

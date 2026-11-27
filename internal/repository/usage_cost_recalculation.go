@@ -143,6 +143,7 @@ func ApplyUsageCostRecalculationBatch(ctx context.Context, writer *gorm.DB, scop
 		}
 		hourly := make(map[overview.BucketKey]usageCostRecalculationDelta)
 		daily := make(map[overview.BucketKey]usageCostRecalculationDelta)
+		changedEventIDs := make([]int64, 0)
 		for _, event := range events {
 			old, exists := oldFees[event.ID]
 			if !exists || old.CostUSD == nil || old.CostAvailable == nil || !finiteUsageRecalculationCost(*old.CostUSD) {
@@ -159,6 +160,9 @@ func ApplyUsageCostRecalculationBatch(ctx context.Context, writer *gorm.DB, scop
 			}
 			if !*old.CostAvailable {
 				unavailableDelta--
+			}
+			if newFee.cost != *old.CostUSD || newFee.available != *old.CostAvailable {
+				changedEventIDs = append(changedEventIDs, event.ID)
 			}
 			hourKey, dayKey := overview.BucketKeysForEvent(event)
 			if err := addUsageRecalculationDelta(hourly, hourKey, delta, unavailableDelta); err != nil {
@@ -189,7 +193,7 @@ func ApplyUsageCostRecalculationBatch(ctx context.Context, writer *gorm.DB, scop
 				}
 			}
 		}
-		return nil
+		return markQuotaCyclesCostStaleInTx(tx, changedEventIDs)
 	})
 }
 

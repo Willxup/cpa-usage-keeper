@@ -97,12 +97,16 @@ describe('CredentialModelUsage', () => {
     const rows = [...container.querySelectorAll('tbody tr')]
     expect(rows.map(row => row.querySelector('th')?.textContent)).toEqual(['upstream', 'another'])
     expect(rows[0].textContent).toContain('75.0%')
-    expect(rows[0].textContent).toContain('$0.4000')
+    expect(rows[0].textContent).toContain('$0.4000*')
     expect(rows[1].textContent).toContain('$0.0000')
-    expect(rows[1].querySelector('abbr')).toBeNull()
-    expect(rows[0].querySelector('abbr')?.getAttribute('title')).toContain('zero does not mean free')
+    expect(rows[1].querySelector('[data-model-cost-incomplete]')).toBeNull()
+    const incompleteCost = rows[0].querySelector<HTMLElement>('[data-model-cost-incomplete="true"]')!
+    expect(incompleteCost.getAttribute('title')).toBeNull()
+    await act(async () => pointer(incompleteCost, 'pointerover', 'mouse'))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('Some requests lack pricing')
+    await act(async () => pointer(incompleteCost, 'pointerout', 'mouse'))
     expect(container.querySelector('tfoot')?.textContent).toContain('4.00K')
-    expect(container.querySelector('tfoot abbr')).not.toBeNull()
+    expect(container.querySelector('tfoot [data-model-cost-incomplete="true"]')).not.toBeNull()
     const parts = [...rows[0].querySelectorAll('[data-token-part]')]
     expect(parts.map(part => [part.getAttribute('data-token-part'), part.getAttribute('data-token-value')])).toEqual([
       ['input', '500'], ['cacheRead', '200'], ['cacheCreation', '300'], ['output', '1500'], ['reasoning', '500'],
@@ -264,8 +268,8 @@ describe('CredentialModelUsage', () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(json(data)).mockReturnValueOnce(pending.promise)
     await render()
     const row = container.querySelector('tbody tr')!
-    expect(row.textContent).toContain('$0.0000')
-    expect(row.querySelector('abbr')?.getAttribute('title')).toContain('zero does not mean free')
+    expect(row.textContent).toContain('$0.0000*')
+    expect(row.querySelector('[data-model-cost-incomplete="true"]')?.getAttribute('aria-label')).toContain('Some requests lack pricing')
     await selectRange('today')
     expect(container.textContent).toContain('upstream')
     expect(container.querySelector('[data-model-range="7d"]')?.getAttribute('aria-pressed')).toBe('true')

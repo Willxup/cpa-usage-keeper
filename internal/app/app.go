@@ -136,10 +136,13 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	costReadGate := service.NewCostReadGate()
 	usageEventsLive := service.NewUsageEventsNotifier()
 
+	// 单 writer aggregation runner 维护 rollups、Identity 与限额历史持久化，并在 App.Run 时主动追平。
+	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
+		QuotaHistoryChangeNotifier:    usageAggregationRunner,
 	})
 	prepared := false
 	defer func() {
@@ -149,8 +152,6 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 			recentUsageCache.Close()
 		}
 	}()
-	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
-	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	pluginAPIKeyRunner := poller.NewPluginAPIKeyRunner(db)
 	// 同一个版本协调器连接后台快照与所有凭据修改入口，网络调用仍使用原有路径锁。
 	credentialMetadata := &service.CredentialMetadataCoordinator{}

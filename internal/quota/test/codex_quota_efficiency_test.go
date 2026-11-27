@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/repository"
 
 	"gorm.io/gorm"
 )
@@ -78,6 +79,9 @@ func TestGetCodexQuotaHistoryReturnsStoredCycleAndTransitionCost(t *testing.T) {
 	cost, available := 7.25, true
 	if err := db.Create(&entities.UsageEvent{EventKey: "stored-codex", Provider: "codex", Model: "unpriced-model", AuthType: "oauth", AuthIndex: "codex-auth", Timestamp: now.Add(-time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available, CreatedAt: now.Add(-time.Hour)}).Error; err != nil {
 		t.Fatal(err)
+	}
+	if _, err := repository.RecomputeAndPersistQuotaCycles(context.Background(), db, []entities.QuotaCycle{cycle}, now, 0, false); err != nil {
+		t.Fatalf("recompute persisted quota cycle: %v", err)
 	}
 	service := newQuotaServiceWithRegistry(t, db, quota.NewProviderRegistry(nil))
 	response, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "codex-auth", Now: now})

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 const quotaHistoryStylesUrl = new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url)
 const quotaHistoryStyles = readFileSync(quotaHistoryStylesUrl, 'utf8')
+const pillSwitcherStylesUrl = new URL('../../../ui/PillSwitcher.module.scss', import.meta.url)
+const pillSwitcherStyles = readFileSync(pillSwitcherStylesUrl, 'utf8')
 
 const scssRule = (selector: string) => {
   const start = quotaHistoryStyles.indexOf(selector)
@@ -19,8 +21,8 @@ const scssRule = (selector: string) => {
 
 describe('Codex quota history styles', () => {
 
-  it('gives the window selector a visible keyboard focus indicator', () => {
-    expect(quotaHistoryStyles).toMatch(/&:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-color\);[\s\S]*?outline-offset:\s*2px;/)
+  it('gives the window selector a visible keyboard focus indicator via PillSwitcher', () => {
+    expect(pillSwitcherStyles).toMatch(/\.option[\s\S]*?&:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-color\);[\s\S]*?outline-offset:\s*(?:0|1px);/)
   })
 
   it('keeps chart facts available to screen readers', () => {
@@ -43,9 +45,9 @@ describe('Codex quota history styles', () => {
       quotaHistoryStyles.indexOf('.currentStatus,'),
     )
     expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?container:\s*quota-cycle-card \/ inline-size;/)
-    expect(cycleSummaryStyles).toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
+    expect(cycleSummaryStyles).not.toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
     expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?\.chartSummaryRow:nth-child\(n \+ 3\)\s*\{[\s\S]*?border-top:\s*1px solid var\(--border-color\);/)
+    expect(scssRule('\n.completedCycleSummary')).not.toContain('border-top:')
     expect(cycleSummaryStyles).toMatch(/\.currentCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
     expect(cycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
     expect(cycleSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;/)
@@ -58,6 +60,11 @@ describe('Codex quota history styles', () => {
     expect(narrowCycleSummaryStyles).not.toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
   })
 
+  it('removes heavy drawer shadow from the main chart card', () => {
+    const cardRule = scssRule('.card {')
+    expect(cardRule).not.toContain('box-shadow: var(--shadow-lg)')
+  })
+
   it('keeps transition details four-column until the cycle card narrows, then two-column at every viewport', () => {
     const transitionGrid = scssRule('.transitionHeader,')
     const compactTransitionGrid = scssRule('@container quota-cycle-card (max-width: 720px)')
@@ -68,5 +75,14 @@ describe('Codex quota history styles', () => {
     expect(compactTransitionGrid).toMatch(/\.transitionRow\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(mobileStyles).not.toContain('.transitionRow')
     expect(quotaHistoryStyles).not.toMatch(/\.transitionRow\s*\{\s*grid-template-columns:\s*1fr;/)
+  })
+
+  it('aligns expanded transition table header with rounded secondary bar and tabular numeric columns', () => {
+    const headerRule = scssRule('.transitionHeader {')
+    expect(headerRule).toContain('border-radius: 8px;')
+    expect(headerRule).toContain('background: var(--bg-secondary);')
+    const valueCellRule = scssRule('\n\n.valueCell {')
+    expect(valueCellRule).toContain('text-align: right;')
+    expect(quotaHistoryStyles).not.toContain('cursor: help')
   })
 })

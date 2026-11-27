@@ -253,9 +253,11 @@ func (s *pricingService) executePricingRecalculation(ctx context.Context, taskID
 		return err
 	}
 	s.setPricingRecalculationTotal(taskID, total)
-	// 空目标不重放任何无关旧事件，也不推动原 Overview 水位。
+	// 空目标不重放任何无关旧事件，也不推动原 Overview 水位；仍需修复上次可能遗留的 cost_stale 限额周期。
 	if total == 0 {
-		return nil
+		s.setPricingRecalculationStage(taskID, servicedto.RecalculationUpdatingStats)
+		_, err := repository.RecomputeCostStaleQuotaCycles(ctx, s.db, s.recalculation.Now(), scope.MaxEventID)
+		return err
 	}
 	if err := s.recalculation.Aggregation.CatchUpOverviewTo(ctx, maxEventID); err != nil {
 		return err
@@ -279,7 +281,11 @@ func (s *pricingService) executePricingRecalculation(ctx context.Context, taskID
 		cursor = next
 	}
 	s.setPricingRecalculationStage(taskID, servicedto.RecalculationUpdatingStats)
-	return repository.FinalizeUsageCostRecalculationStats(ctx, s.db, s.db, scope)
+	if err := repository.FinalizeUsageCostRecalculationStats(ctx, s.db, s.db, scope); err != nil {
+		return err
+	}
+	_, err = repository.RecomputeCostStaleQuotaCycles(ctx, s.db, s.recalculation.Now(), scope.MaxEventID)
+	return err
 }
 
 // setPricingRecalculationTotal 在目标集合固定后公布真实分母，追平完成前仍保持准备阶段。
