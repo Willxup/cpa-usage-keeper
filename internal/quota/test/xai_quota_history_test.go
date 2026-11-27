@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 )
@@ -153,5 +154,68 @@ func TestXAIActiveRefreshSkipsZeroUsageAndMissingTotalPercent(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected 0 cycles for missing total percent and zero-usage xAI refreshes, got %d", count)
+	}
+}
+
+type delayedMonthlyXAICaller struct {
+	weeklyBody   string
+	weeklyDoneCh chan struct{}
+	monthlyEnter chan struct{}
+	monthlyAllow chan struct{}
+}
+
+func (c *delayedMonthlyXAICaller) CallManagementAPI(_ context.Context, req apicall.Request) (*apicall.Response, error) {
+	if strings.Contains(req.URL, "format=credits") {
+		resp := quotaAPIResponse(200, c.weeklyBody)
+		c.weeklyDoneCh <- struct{}{}
+		return resp, nil
+	}
+	c.monthlyEnter <- struct{}{}
+	<-c.monthlyAllow
+	return quotaAPIResponse(200, `{"config":{"monthlyLimit":{"val":20000},"used":{"val":100},"billingPeriodEnd":"2026-12-01T00:00:00Z"}}`), nil
+}
+
+func TestXAIActiveRefreshFixesObservedAtBeforeSlowMonthlyFinishes(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{
+		Identity: "xai-obs-time",
+		Provider: "xai",
+		Type:     "xai",
+		AuthType: entities.UsageIdentityAuthTypeCredential,
+	})
+
+	weeklyEnd := time.Now().Add(5 * 24 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	caller := &delayedMonthlyXAICaller{
+		weeklyBody:   `{"config":{"currentPeriod":{"type":"weekly","end":"` + weeklyEnd + `"},"creditUsagePercent":15}}`,
+		weeklyDoneCh: make(chan struct{}, 1),
+		monthlyEnter: make(chan struct{}, 1),
+		monthlyAllow: make(chan struct{}),
+	}
+	configs := quota.DefaultProviderConfigs()
+	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
+	service := quota.NewServiceWithRegistry(db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"xai": provider}))
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "xai-obs-time", Source: quota.RefreshSourceManual})
+		done <- err
+	}()
+	<-caller.monthlyEnter
+	<-caller.weeklyDoneCh
+	time.Sleep(120 * time.Millisecond)
+	releasedAt := time.Now()
+	close(caller.monthlyAllow)
+	if err := <-done; err != nil {
+		service.StopRefreshTasks()
+		t.Fatalf("xai check failed: %v", err)
+	}
+	service.StopRefreshTasks()
+
+	var cycle entities.QuotaCycle
+	if err := db.Where("provider = ? AND auth_index = ?", "xai", "xai-obs-time").Take(&cycle).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !cycle.FirstObservedAt.Before(releasedAt) {
+		t.Fatalf("expected FirstObservedAt (%s) captured before slow monthly billing release (%s)", cycle.FirstObservedAt, releasedAt)
 	}
 }

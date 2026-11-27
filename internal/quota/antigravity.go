@@ -42,8 +42,13 @@ func (p antigravityProvider) Check(ctx context.Context, input ProviderInput) (Pr
 		<-subscriptionDone
 		return ProviderOutput{}, err
 	}
+	observedAt := time.Now()
 	subscription := <-subscriptionDone
-	return ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: quota, Subscription: subscription}}, nil
+	return ProviderOutput{
+		Provider:   "antigravity",
+		Result:     AntigravityResult{Quota: quota, Subscription: subscription},
+		ObservedAt: observedAt,
+	}, nil
 }
 
 func (p antigravityProvider) checkQuota(ctx context.Context, input ProviderInput) (*AntigravityQuotaPayload, error) {

@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -23,6 +24,8 @@ type ProviderInput struct {
 type ProviderOutput struct {
 	Provider string
 	Result   any
+	// ObservedAt 记录主额度响应到达时刻，避免订阅或月账单等附带请求耗时推迟限额历史采样时间。
+	ObservedAt time.Time `json:"-"`
 }
 
 type ProviderResetOutput struct {

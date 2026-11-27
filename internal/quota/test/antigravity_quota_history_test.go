@@ -3,9 +3,11 @@ package test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
@@ -183,5 +185,69 @@ func TestAntigravityActiveRefreshSkipsUnstartedFullBucketsWithSlidingReset(t *te
 	}
 	if count != 0 {
 		t.Fatalf("expected 0 cycles for unstarted remainingFraction>=1 Antigravity refreshes, got %d", count)
+	}
+}
+
+type delayedSubscriptionAntigravityCaller struct {
+	quotaBody         string
+	quotaDoneCh       chan struct{}
+	subscriptionEnter chan struct{}
+	subscriptionAllow chan struct{}
+}
+
+func (c *delayedSubscriptionAntigravityCaller) CallManagementAPI(_ context.Context, req apicall.Request) (*apicall.Response, error) {
+	if strings.HasSuffix(req.URL, ":loadCodeAssist") {
+		c.subscriptionEnter <- struct{}{}
+		<-c.subscriptionAllow
+		return quotaAPIResponse(200, `{"paidTier":{"id":"g1-pro-tier","name":"Pro"}}`), nil
+	}
+	resp := quotaAPIResponse(200, c.quotaBody)
+	c.quotaDoneCh <- struct{}{}
+	return resp, nil
+}
+
+func TestAntigravityActiveRefreshFixesObservedAtBeforeSlowSubscriptionFinishes(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{
+		Identity:  "ag-obs-time",
+		Provider:  "antigravity",
+		Type:      "antigravity",
+		AuthType:  entities.UsageIdentityAuthTypeCredential,
+		ProjectID: new("project-obs"),
+	})
+
+	resetTime := time.Now().Add(4 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	caller := &delayedSubscriptionAntigravityCaller{
+		quotaBody:         `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.8,"resetTime":"` + resetTime + `"}]}]}`,
+		quotaDoneCh:       make(chan struct{}, 1),
+		subscriptionEnter: make(chan struct{}, 1),
+		subscriptionAllow: make(chan struct{}),
+	}
+	configs := quota.DefaultProviderConfigs()
+	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions[:1])
+	service := quota.NewServiceWithRegistry(db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"antigravity": provider}))
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "ag-obs-time", Source: quota.RefreshSourceManual})
+		done <- err
+	}()
+	<-caller.subscriptionEnter
+	<-caller.quotaDoneCh
+	time.Sleep(120 * time.Millisecond)
+	releasedAt := time.Now()
+	close(caller.subscriptionAllow)
+	if err := <-done; err != nil {
+		service.StopRefreshTasks()
+		t.Fatalf("antigravity check failed: %v", err)
+	}
+	service.StopRefreshTasks()
+
+	var cycle entities.QuotaCycle
+	if err := db.Where("provider = ? AND auth_index = ?", "antigravity", "ag-obs-time").Take(&cycle).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !cycle.FirstObservedAt.Before(releasedAt) {
+		t.Fatalf("expected FirstObservedAt (%s) captured before slow subscription release (%s)", cycle.FirstObservedAt, releasedAt)
 	}
 }

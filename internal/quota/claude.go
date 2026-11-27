@@ -34,8 +34,13 @@ func (p claudeProvider) Check(ctx context.Context, input ProviderInput) (Provide
 	if err != nil {
 		return ProviderOutput{}, err
 	}
+	observedAt := time.Now()
 	profile := p.checkProfile(ctx, input)
-	return ProviderOutput{Provider: "claude", Result: ClaudeResult{Usage: usage, Profile: profile}}, nil
+	return ProviderOutput{
+		Provider:   "claude",
+		Result:     ClaudeResult{Usage: usage, Profile: profile},
+		ObservedAt: observedAt,
+	}, nil
 }
 
 func (p claudeProvider) checkProfile(ctx context.Context, input ProviderInput) *ClaudeProfileResponse {

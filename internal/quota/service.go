@@ -364,9 +364,13 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		}
 		return CheckResponse{}, false, err
 	}
-	// 主动查询以 identity.Type 为权威凭证类型，经注册表提取并投递限额历史观测。
+	// 主动查询以 identity.Type 为权威凭证类型，经注册表提取并投递限额历史观测；优先采用主额度响应到达时刻。
 	if provider := normalizeIdentityType(identity.Type); hasQuotaHistoryProvider(provider) {
-		observations := BuildQuotaHistoryObservations(provider, authIndex, providerOutput, time.Now())
+		observedAt := providerOutput.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = time.Now()
+		}
+		observations := BuildQuotaHistoryObservations(provider, authIndex, providerOutput, observedAt)
 		if len(observations) > 0 && !s.tryAppendCodexQuotaHistoryObservations(observations, request.Source) {
 			// history 是 best-effort 统计链路，队列满或 shutdown 不能改变手动/定时/巡检刷新结果。
 			logrus.WithFields(logrus.Fields{
