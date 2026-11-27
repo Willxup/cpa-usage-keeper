@@ -289,4 +289,23 @@ func TestComputeQuotaCyclePersistedUsageModelScopedIsolatesFastClockAndUnbackfil
 	if !loadQuotaCycleByID(t, db, betaCycle.ID).Dirty {
 		t.Fatalf("expected beta cycle with future event to stay dirty")
 	}
+
+	// 再向结算窗口内插入一条 beta 池的未回填费用（NULL）事件：alpha 池因前置分池过滤仍可正常重算，beta 池自身则必须拦截报错。
+	if err := db.Exec(
+		`INSERT INTO usage_events (event_key, api_group_key, provider, auth_type, auth_index, model, timestamp, total_tokens, cost_usd, cost_available, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+		"beta-in-window-unbackfilled", "key-1", "pooltest", "oauth", "pool-stream", "beta-opus",
+		timeutil.FormatStorageTime(now.Add(-90*time.Minute)), 600, timeutil.FormatStorageTime(now),
+	).Error; err != nil {
+		t.Fatalf("insert beta in-window unbackfilled event: %v", err)
+	}
+	alphaAfterUnbackfilled, err := repository.ComputeQuotaCyclePersistedUsage(ctx, db, alphaCycle, now, 0)
+	if err != nil {
+		t.Fatalf("alpha cycle must ignore in-window unbackfilled event from beta pool, got err: %v", err)
+	}
+	if alphaAfterUnbackfilled.Usage.Requests != 1 || alphaAfterUnbackfilled.Usage.TotalTokens != 2000 {
+		t.Fatalf("unexpected alpha usage after beta unbackfilled insert: %+v", alphaAfterUnbackfilled.Usage)
+	}
+	if _, err := repository.ComputeQuotaCyclePersistedUsage(ctx, db, betaCycle, now, 0); err == nil {
+		t.Fatalf("expected beta cycle computation to reject its own in-window unbackfilled cost event")
+	}
 }
