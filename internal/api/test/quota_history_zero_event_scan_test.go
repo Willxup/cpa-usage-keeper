@@ -131,6 +131,19 @@ func TestAntigravityQuotaHistoryAPINeverQueriesUsageEventsTables(t *testing.T) {
 			if payload.SelectedWindow == nil || payload.SelectedWindow.GroupKey == "" || payload.SelectedWindow.GroupLabel == "" {
 				t.Fatalf("expected group_key/group_label in %s response, got %+v", path, payload.SelectedWindow)
 			}
+			if len(payload.Cycles) != 1 {
+				t.Fatalf("expected 1 cycle in %s response, got %+v", path, payload.Cycles)
+			}
+			if strings.HasSuffix(path, "window_role=gemini_5h") {
+				if payload.SelectedWindow.WindowRole != "gemini_5h" || payload.Cycles[0].CostStale || payload.Cycles[0].Usage.CostAvailable {
+					t.Fatalf("expected gemini_5h incomplete-cost cycle in %s, got window=%+v cycle=%+v", path, payload.SelectedWindow, payload.Cycles[0])
+				}
+			}
+			if strings.HasSuffix(path, "window_role=claude_gpt_weekly") {
+				if payload.SelectedWindow.WindowRole != "claude_gpt_weekly" || !payload.Cycles[0].CostStale || payload.Cycles[0].Usage.CostAvailable {
+					t.Fatalf("expected claude_gpt_weekly cost_stale cycle in %s, got window=%+v cycle=%+v", path, payload.SelectedWindow, payload.Cycles[0])
+				}
+			}
 		}
 	}
 }
@@ -198,6 +211,15 @@ func TestXAIQuotaHistoryAPINeverQueriesUsageEventsTables(t *testing.T) {
 		}
 		if queries := recorder.snapshot(); len(queries) != 0 {
 			t.Fatalf("GET %s must never query usage_events or usage_events_archive, got: %v", path, queries)
+		}
+		if strings.Contains(path, "xai-full") {
+			var payload quota.CodexQuotaHistoryResponse
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode %s response: %v", path, err)
+			}
+			if payload.SelectedWindow == nil || payload.SelectedWindow.WindowRole != "weekly" || len(payload.Cycles) != 1 || payload.Cycles[0].Usage.CostAvailable {
+				t.Fatalf("expected weekly incomplete-cost cycle in %s, got window=%+v cycles=%+v", path, payload.SelectedWindow, payload.Cycles)
+			}
 		}
 	}
 }

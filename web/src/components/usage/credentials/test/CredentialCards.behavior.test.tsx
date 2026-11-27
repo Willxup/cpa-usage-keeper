@@ -158,7 +158,8 @@ describe('credential compact card data', () => {
       }),
     ]
     const row = buildCredentialRows([identity], new Map([[identity.identity, { id: identity.identity, quota: rawQuotas }]]))[0]
-    await act(async () => root.render(<CredentialQuotaPanel row={row} quotaUsageMode="current" variant="compact" timeZone="UTC" />))
+    const render = async (quotaUsageMode: 'current' | 'estimated') => act(async () => root.render(<CredentialQuotaPanel row={row} quotaUsageMode={quotaUsageMode} variant="compact" timeZone="UTC" />))
+    await render('current')
 
     expect(Array.from(container.querySelectorAll('[data-quota-group]'), (group) => group.getAttribute('data-quota-group'))).toEqual([
       'antigravity-gemini-models',
@@ -171,6 +172,12 @@ describe('credential compact card data', () => {
     expect(other.className).toContain('credentialQuotaBarTooltipRight')
     expect(container.textContent).toContain('Gemini explanation')
     expect(container.textContent).toContain('Other group explanation')
+    const gemini = container.querySelector<HTMLElement>('[data-quota-group="antigravity-gemini-models"]')!
+    expect(gemini.textContent).toContain('200')
+    expect(gemini.textContent).toContain('$1.00')
+    await render('estimated')
+    expect(gemini.textContent).toContain('400')
+    expect(gemini.textContent).toContain('$2.00')
   })
 
   it('preserves canonical grouping without provider or row-key restrictions', async () => {
