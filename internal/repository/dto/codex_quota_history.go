@@ -31,6 +31,8 @@ type CodexMainQuotaObservation struct {
 	ZeroUsage bool
 	// NonHeaderZeroUsage 仅在运行期标识非 Header 主动查询返回的 0 已用观测，用于跳过未启动周期并锚定已有边界；不写入数据库。
 	NonHeaderZeroUsage bool
+	// HeaderStarted 仅在运行期标识同批同周期存在真实 UsageHeader 证明窗口已启动；仅允许无活跃周期时建新周期，不解除已有锚点；不写入数据库。
+	HeaderStarted bool
 }
 
 // CodexQuotaHistoryState 是 runner 缓存缺失时从 writer 数据库恢复的当前周期和尾段状态。

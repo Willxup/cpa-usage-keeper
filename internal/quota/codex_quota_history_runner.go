@@ -157,7 +157,7 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 			}
 			superseded = true
 			if candidate.Source == RefreshSourceUsageHeader {
-				trusted[trustedIndex].Observation.ZeroUsage = false
+				trusted[trustedIndex].Observation.HeaderStarted = true
 			}
 		}
 		if superseded {

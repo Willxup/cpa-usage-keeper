@@ -1679,6 +1679,79 @@ func TestCodexQuotaHistoryRunnerInheritsSameCycleHeaderStartForZeroUsageActiveRe
 			t.Fatalf("expected direct Check not to unblock zero-usage active refresh, got %+v", cycles)
 		}
 	})
+
+	t.Run("existing_cycle_same_batch_header_and_zero_refresh_keeps_anchored_reset", func(t *testing.T) {
+		db := openQuotaTestDatabase(t)
+		seedUsageIdentity(t, db, codexHistoryUsageIdentity("same-batch-anchor-auth"))
+		base := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+		anchoredReset := base.Add(5 * time.Hour)
+		seed := codexHistoryPrimarySnapshot("same-batch-anchor-auth", base, 100, anchoredReset)
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, seed.MainQuotaObservations); err != nil {
+			t.Fatalf("seed existing cycle: %v", err)
+		}
+
+		handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
+			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, anchoredReset.Add(20*time.Second))},
+		}}}}
+		service := newCodexHistoryService(db, handler)
+		timers := newCodexHistoryManualTimers(service, 1)
+
+		header := codexHistoryPrimarySnapshot("same-batch-anchor-auth", base.Add(time.Minute), 100, anchoredReset.Add(2*time.Second))
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(header)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected Header to enter queue")
+		}
+		waitForCodexQuotaHistoryManualTimer(t, timers)
+		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "same-batch-anchor-auth", Source: RefreshSourceScheduled}); err != nil {
+			service.StopRefreshTasks()
+			t.Fatalf("scheduled zero-usage refresh failed: %v", err)
+		}
+		service.StopRefreshTasks()
+
+		cycles := loadCodexQuotaCycles(t, db, "same-batch-anchor-auth")
+		if len(cycles) != 1 || !cycles[0].ResetAt.Equal(anchoredReset) {
+			t.Fatalf("expected existing cycle ResetAt to stay anchored at %s, got %+v", anchoredReset, cycles)
+		}
+	})
+
+	t.Run("existing_cycle_same_batch_header_and_borderline_zero_refresh_does_not_split_cycle", func(t *testing.T) {
+		db := openQuotaTestDatabase(t)
+		seedUsageIdentity(t, db, codexHistoryUsageIdentity("borderline-anchor-auth"))
+		base := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+		anchoredReset := base.Add(5 * time.Hour)
+		seed := codexHistoryPrimarySnapshot("borderline-anchor-auth", base, 90, anchoredReset)
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, seed.MainQuotaObservations); err != nil {
+			t.Fatalf("seed existing cycle: %v", err)
+		}
+
+		// Header 为 R+2s，主动 0% 刷新为 R+121s（与 Header 相差 119s <= 120s，但距库内锚点 R 为 121s > 120s）：不得拆出新 100% 空周期并截短原周期。
+		handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
+			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, anchoredReset.Add(121*time.Second))},
+		}}}}
+		service := newCodexHistoryService(db, handler)
+		timers := newCodexHistoryManualTimers(service, 1)
+
+		header := codexHistoryPrimarySnapshot("borderline-anchor-auth", base.Add(time.Minute), 90, anchoredReset.Add(2*time.Second))
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(header)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected Header to enter queue")
+		}
+		waitForCodexQuotaHistoryManualTimer(t, timers)
+		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "borderline-anchor-auth", Source: RefreshSourceScheduled}); err != nil {
+			service.StopRefreshTasks()
+			t.Fatalf("scheduled borderline zero-usage refresh failed: %v", err)
+		}
+		service.StopRefreshTasks()
+
+		cycles := loadCodexQuotaCycles(t, db, "borderline-anchor-auth")
+		if len(cycles) != 1 || !cycles[0].ResetAt.Equal(anchoredReset) {
+			t.Fatalf("expected existing cycle to remain unsplit and anchored at %s, got %+v", anchoredReset, cycles)
+		}
+		segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+		if len(segments) != 1 || segments[0].RemainingPercent != 90 {
+			t.Fatalf("expected existing 90%% segment preserved, got %+v", segments)
+		}
+	})
 }
 
 func TestCodexQuotaHistoryRunnerPreservesPreviousCycleTailHeaderAcrossCycleBoundary(t *testing.T) {

@@ -281,16 +281,16 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 	}
 
 	if !current.Found {
-		// 主动查询返回 0% 已用且尚无已有周期时，说明上游窗口未启动（reset_at 随请求滑动），跳过不建空周期。
-		if isNonHeaderZero {
+		// 主动查询返回 0% 已用且尚无已有周期时，仅当同批真实 Header 已证明窗口启动才允许建首个周期。
+		if isNonHeaderZero && !observation.HeaderStarted {
 			return false
 		}
 	}
 
 	if current.Found {
-		// 窗口变化代表角色切换；先封住旧稳定尾段，再写新周期基线。
+		// 窗口变化代表角色切换；未到期的已有周期不得被 0% 主动刷新截断切换。
 		if current.WindowSeconds != observation.WindowSeconds {
-			if isNonHeaderZero {
+			if isNonHeaderZero && (!observation.HeaderStarted || current.ResetAt.After(observation.FirstObservedAt)) {
 				return false
 			}
 			if current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt) {
@@ -303,7 +303,8 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 
 		sameCycle := codexQuotaHistorySameCycle(current, observation)
 		if !sameCycle {
-			if isNonHeaderZero {
+			// 已有未到期周期存在时，即使同批有轻微抖动的 Header，0% 主动刷新也不得越过两分钟锚点拆出新空周期并截短原周期。
+			if isNonHeaderZero && (!observation.HeaderStarted || current.ResetAt.After(observation.FirstObservedAt)) {
 				return false
 			}
 			// 同窗口只有时间向前且 reset 不倒退时才能建立下一周期。
