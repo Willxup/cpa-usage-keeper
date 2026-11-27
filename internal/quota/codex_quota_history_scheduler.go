@@ -204,9 +204,9 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 			logrus.WithError(err).Warn("codex quota history identity verification failed")
 		} else {
 			for _, identity := range identities {
-				// repository 已限定 Credential；这里再取真实 type，与 observation 来源逐条核对。
+				// repository 已限定 Credential；这里只采信权威 identity.Type，与 observation 来源逐条核对。
 				provider := normalizeIdentityType(identity.Type)
-				if provider != "codex" && provider != "claude" {
+				if _, ok := repositorydto.LookupQuotaHistoryProvider(provider); !ok {
 					continue
 				}
 				authIndex := strings.TrimSpace(identity.Identity)
@@ -465,8 +465,11 @@ func (s *Service) appendDueCodexQuotaHistoryStable(state *codexQuotaHistoryRunne
 			keys = append(keys, key)
 		}
 	}
-	// map 遍历无序；账号和角色排序让测试、日志与 repository 输入保持稳定。
+	// map 遍历无序；渠道、账号和角色排序让测试、日志与 repository 输入保持稳定。
 	sort.Slice(keys, func(left int, right int) bool {
+		if keys[left].Provider != keys[right].Provider {
+			return keys[left].Provider < keys[right].Provider
+		}
 		if keys[left].AuthIndex != keys[right].AuthIndex {
 			return keys[left].AuthIndex < keys[right].AuthIndex
 		}

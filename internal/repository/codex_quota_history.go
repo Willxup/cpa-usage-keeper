@@ -21,9 +21,6 @@ const (
 	codexQuotaHistoryWriteBatchSize = 32
 	// 所有上游重置时间统一使用固定两分钟容差，避免直接时刻的秒级漂移拆分周期。
 	codexQuotaResetTolerance = 120 * time.Second
-	codexQuotaProvider       = "codex"
-	codexPrimaryQuotaKey     = "rate_limit.primary_window"
-	codexSecondaryQuotaKey   = "rate_limit.secondary_window"
 )
 
 // WriteCodexMainQuotaObservations 把 Codex/Claude 主窗口 observation 规范化后写入通用额度历史父子表。
@@ -547,15 +544,4 @@ func updateQuotaCycleObservedTimes(tx *gorm.DB, cycle entities.QuotaCycle, obser
 		return fmt.Errorf("update quota cycle observed times: %w", err)
 	}
 	return nil
-}
-
-func codexQuotaKey(role string) (string, bool) {
-	switch role {
-	case string(entities.CodexQuotaWindowRolePrimary):
-		return codexPrimaryQuotaKey, true
-	case string(entities.CodexQuotaWindowRoleSecondary):
-		return codexSecondaryQuotaKey, true
-	default:
-		return "", false
-	}
 }

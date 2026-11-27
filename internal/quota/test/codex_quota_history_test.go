@@ -77,3 +77,35 @@ func TestBuildCodexMainQuotaObservationsClampsFiniteRawPercentAndRejectsNonFinit
 		t.Fatalf("expected non-finite raw percent to be rejected, got %+v", observations)
 	}
 }
+
+func TestBuildQuotaHistoryObservationsRejectsMismatchedProviderResult(t *testing.T) {
+	observedAt := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
+	codexOutput := quota.ProviderOutput{
+		Provider: "codex",
+		Result: quota.CodexResult{Usage: &quota.CodexUsagePayload{
+			RateLimit: &quota.CodexRateLimitInfo{PrimaryWindow: &quota.CodexUsageWindow{
+				UsedPercent: 10, LimitWindowSeconds: 18_000, ResetAt: observedAt.Add(5 * time.Hour).Unix(),
+				HasUsedPercent: true, HasLimitWindowSeconds: true, HasResetAt: true,
+			}},
+		}},
+	}
+	claudeOutput := quota.ProviderOutput{
+		Provider: "claude",
+		Result: quota.ClaudeResult{Usage: &quota.ClaudeUsagePayload{
+			FiveHour: &quota.ClaudeUsageWindow{Utilization: 10, HasUtilization: true, ResetsAt: observedAt.Add(5 * time.Hour).Format(time.RFC3339)},
+		}},
+	}
+
+	if got := quota.BuildQuotaHistoryObservations("claude", "auth-1", codexOutput, observedAt); len(got) != 0 {
+		t.Fatalf("expected claude extractor to reject CodexResult, got %+v", got)
+	}
+	if got := quota.BuildQuotaHistoryObservations("codex", "auth-1", claudeOutput, observedAt); len(got) != 0 {
+		t.Fatalf("expected codex extractor to reject ClaudeResult, got %+v", got)
+	}
+	if got := quota.BuildQuotaHistoryObservations("unknown", "auth-1", codexOutput, observedAt); len(got) != 0 {
+		t.Fatalf("expected unknown provider to return nil, got %+v", got)
+	}
+	if got := quota.BuildQuotaHistoryObservations("claude", "auth-1", claudeOutput, observedAt); len(got) != 1 || got[0].Provider != "claude" || got[0].QuotaKey != "five_hour" {
+		t.Fatalf("expected matching claude extractor to return five_hour observation, got %+v", got)
+	}
+}

@@ -186,9 +186,10 @@ func codexQuotaHistoryCandidateStateKey(candidate codexQuotaHistoryCandidate) co
 		provider = "codex"
 	}
 	role := strings.ToLower(strings.TrimSpace(candidate.Observation.WindowRole))
-	quotaKey, ok := repositorydto.QuotaWindowKey(provider, role)
-	if !ok || (candidate.Observation.QuotaKey != "" && candidate.Observation.QuotaKey != quotaKey) {
-		quotaKey = ""
+	spec, ok := repositorydto.QuotaWindowSpecByRole(provider, role)
+	quotaKey := ""
+	if ok && (candidate.Observation.QuotaKey == "" || candidate.Observation.QuotaKey == spec.QuotaKey) {
+		quotaKey = spec.QuotaKey
 	}
 	return codexQuotaHistoryStateKey{
 		Provider:   provider,

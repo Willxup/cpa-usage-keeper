@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 
@@ -42,8 +41,12 @@ type CodexQuotaHistoryResponse struct {
 
 // CodexQuotaHistoryWindow 以角色稳定表达窗口，并携带该角色最新的周期标题。
 type CodexQuotaHistoryWindow struct {
-	// WindowRole 是 primary 或 secondary。
+	// WindowRole 是共享 API 的窗口角色键（如 primary/secondary/gemini_5h/weekly）。
 	WindowRole string `json:"window_role"`
+	// GroupKey 是分池渠道的模型池键；单池渠道省略。
+	GroupKey string `json:"group_key,omitempty"`
+	// GroupLabel 是分池渠道的详情页短池名；单池渠道省略。
+	GroupLabel string `json:"group_label,omitempty"`
 	// WindowKind 是 five_hour/weekly/monthly 友好分类；未知窗口省略。
 	WindowKind *string `json:"window_kind,omitempty"`
 	// WindowSeconds 是该角色最近观察到的窗口长度，只用于前端周期标题。
@@ -156,8 +159,8 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 	}
 	if request.WindowRole != nil {
 		role := strings.ToLower(strings.TrimSpace(*request.WindowRole))
-		if role != string(entities.CodexQuotaWindowRolePrimary) && role != string(entities.CodexQuotaWindowRoleSecondary) {
-			return response, fmt.Errorf("%w: window_role must be primary or secondary", ErrValidation)
+		if role == "" {
+			return response, fmt.Errorf("%w: window_role must not be empty", ErrValidation)
 		}
 		request.WindowRole = &role
 	}
@@ -170,8 +173,13 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		return response, fmt.Errorf("get codex quota history identity: %w", err)
 	}
 	provider := normalizeIdentityType(identity.Type)
-	if provider != "codex" && provider != "claude" {
-		return response, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Type))
+	if _, ok := repositorydto.LookupQuotaHistoryProvider(provider); !ok {
+		return response, fmt.Errorf("%w: %s", ErrUnsupportedType, provider)
+	}
+	if request.WindowRole != nil {
+		if _, ok := repositorydto.QuotaWindowSpecByRole(provider, *request.WindowRole); !ok {
+			return response, fmt.Errorf("%w: invalid window_role %q for %s", ErrValidation, *request.WindowRole, provider)
+		}
 	}
 
 	// now 在方法入口固定一次，当前周期截点和响应时间保持一致。
@@ -215,6 +223,8 @@ func codexQuotaHistoryResponseFromRepository(history repositorydto.CodexQuotaEff
 func codexQuotaHistoryWindowFromRepository(window repositorydto.CodexQuotaEfficiencyWindow) CodexQuotaHistoryWindow {
 	return CodexQuotaHistoryWindow{
 		WindowRole:      window.WindowRole,
+		GroupKey:        window.GroupKey,
+		GroupLabel:      window.GroupLabel,
 		WindowKind:      cloneCodexQuotaHistoryString(window.WindowKind),
 		WindowSeconds:   window.WindowSeconds,
 		HasCurrentCycle: window.HasCurrentCycle,

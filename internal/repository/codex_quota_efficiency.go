@@ -74,7 +74,7 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	if query.Provider == "" {
 		query.Provider = "codex"
 	}
-	if _, ok := repositorydto.QuotaWindowKey(query.Provider, "primary"); !ok {
+	if _, ok := repositorydto.LookupQuotaHistoryProvider(query.Provider); !ok {
 		return result, fmt.Errorf("unsupported quota history provider %q", query.Provider)
 	}
 	if query.AuthIndex == "" {
@@ -227,17 +227,6 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	return result, nil
 }
 
-func codexWindowRoleFromQuotaKey(quotaKey string) (string, bool) {
-	switch quotaKey {
-	case codexPrimaryQuotaKey:
-		return string(entities.CodexQuotaWindowRolePrimary), true
-	case codexSecondaryQuotaKey:
-		return string(entities.CodexQuotaWindowRoleSecondary), true
-	default:
-		return "", false
-	}
-}
-
 func codexQuotaEfficiencyWindowKind(windowSeconds int64) *string {
 	var kind string
 	switch windowSeconds {
@@ -272,31 +261,41 @@ func buildCodexQuotaEfficiencyWindows(cycles []entities.QuotaCycle, now time.Tim
 
 func buildQuotaEfficiencyWindows(cycles []entities.QuotaCycle, provider string, now time.Time) []repositorydto.CodexQuotaEfficiencyWindow {
 	// 上游角色是稳定窗口身份；每个角色只保留最近一次观察到的周期长度作为选择器标题。
-	latestCycleByRole := make(map[string]entities.QuotaCycle, 2)
+	latestCycleByRole := make(map[string]entities.QuotaCycle)
+	specByRole := make(map[string]repositorydto.QuotaWindowSpec)
 	for _, cycle := range cycles {
-		role, ok := repositorydto.QuotaWindowRole(provider, cycle.QuotaKey)
+		spec, ok := repositorydto.QuotaWindowSpecByKey(provider, cycle.QuotaKey)
 		if !ok {
 			continue
 		}
-		latest, found := latestCycleByRole[role]
+		latest, found := latestCycleByRole[spec.WindowRole]
 		if !found || cycle.LastObservedAt.After(latest.LastObservedAt) || (cycle.LastObservedAt.Equal(latest.LastObservedAt) && cycle.ID > latest.ID) {
-			latestCycleByRole[role] = cycle
+			latestCycleByRole[spec.WindowRole] = cycle
+			specByRole[spec.WindowRole] = spec
 		}
 	}
 	windows := make([]repositorydto.CodexQuotaEfficiencyWindow, 0, len(latestCycleByRole))
 	for role, cycle := range latestCycleByRole {
+		spec := specByRole[role]
 		// 历史入口只由该角色是否还有记录决定，删除或上游角色变化不能隐藏另一份历史。
 		windows = append(windows, repositorydto.CodexQuotaEfficiencyWindow{
 			WindowRole:      role,
+			GroupKey:        spec.GroupKey,
+			GroupLabel:      spec.GroupLabel,
 			WindowKind:      codexQuotaEfficiencyWindowKind(cycle.WindowSeconds),
 			WindowSeconds:   cycle.WindowSeconds,
 			HasCurrentCycle: !now.Before(cycle.WindowStartedAt) && now.Before(cycle.ResetAt),
 			LastObservedAt:  cycle.LastObservedAt,
 		})
 	}
-	// 确定性顺序让前端键盘切换稳定：Primary 固定优先，Secondary 固定随后。
+	// 按规格声明的 Order 升序确定性排列，同次刷新时间相同时优先选中排在最前的窗口。
 	sort.Slice(windows, func(left, right int) bool {
-		return windows[left].WindowRole == string(entities.CodexQuotaWindowRolePrimary) && windows[right].WindowRole != string(entities.CodexQuotaWindowRolePrimary)
+		leftSpec := specByRole[windows[left].WindowRole]
+		rightSpec := specByRole[windows[right].WindowRole]
+		if leftSpec.Order != rightSpec.Order {
+			return leftSpec.Order < rightSpec.Order
+		}
+		return windows[left].WindowRole < windows[right].WindowRole
 	})
 	return windows
 }
