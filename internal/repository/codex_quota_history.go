@@ -209,6 +209,10 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 	created := false
 	reusedEarlierCycle := false
 	if !found {
+		// 非 Header 的 0% 已用主动刷新不得开启新周期，避免空闲账号随上游滑动 reset_at 刷出大量空记录。
+		if observation.NonHeaderZeroUsage {
+			return nil
+		}
 		cycle = newQuotaCycle(observation, quotaKey)
 		if err := tx.Create(&cycle).Error; err != nil {
 			return fmt.Errorf("create quota cycle: %w", err)
@@ -461,8 +465,8 @@ func newQuotaPercentSegment(cycleID int64, observation repositorydto.CodexMainQu
 }
 
 func upgradeQuotaCycleBoundary(tx *gorm.DB, cycle *entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) error {
-	// 可信来源可替换任意 Header 边界；普通 Header 只允许把 relative 首次升级为 absolute。
-	trustedCalibration := observation.Authoritative &&
+	// 可信来源可替换已有边界（0% 已用主动刷新不平移已有 absolute 边界）；普通 Header 与 0% 刷新仍允许把 relative 首次升级为 absolute。
+	trustedCalibration := observation.Authoritative && !observation.NonHeaderZeroUsage &&
 		(cycle.ResetAtSource != entities.QuotaResetAtSource(observation.ResetAtSource) || !cycle.ResetAt.Equal(observation.ResetAt))
 	directUpgrade := cycle.ResetAtSource == entities.QuotaResetAtSourceRelative && observation.ResetAtSource == string(entities.QuotaResetAtSourceAbsolute)
 	if !trustedCalibration && !directUpgrade {

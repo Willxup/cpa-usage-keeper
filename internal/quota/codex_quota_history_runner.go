@@ -123,18 +123,20 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 	return inputs
 }
 
-// splitPreferredCodexQuotaHistoryCandidates 只丢弃被同账号、同角色可信事实替代的 Header 候选。
+// splitPreferredCodexQuotaHistoryCandidates 仅丢弃被同周期可信事实替代的 Header 候选；
+// 若同周期队列内存在真实 Header，说明服务端窗口已启动，主动候选清零 ZeroUsage 以继承建周期。
 func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) ([]codexQuotaHistoryCandidate, []codexQuotaHistoryCandidate) {
 	trusted := make([]codexQuotaHistoryCandidate, 0, len(candidates))
-	trustedKeys := make(map[codexQuotaHistoryStateKey]struct{})
+	trustedByKey := make(map[codexQuotaHistoryStateKey][]int)
 	for _, candidate := range candidates {
 		if !codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
 			continue
 		}
+		trustedIndex := len(trusted)
 		trusted = append(trusted, candidate)
 		key := codexQuotaHistoryCandidateStateKey(candidate)
 		if key.AuthIndex != "" && key.QuotaKey != "" {
-			trustedKeys[key] = struct{}{}
+			trustedByKey[key] = append(trustedByKey[key], trustedIndex)
 		}
 	}
 	if len(trusted) == 0 {
@@ -146,13 +148,35 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 		if codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
 			continue
 		}
-		// 可信查询只覆盖它实际返回的账号角色；其它账号或同账号另一角色仍保留本轮 Header。
-		if _, superseded := trustedKeys[codexQuotaHistoryCandidateStateKey(candidate)]; superseded {
+		// 可信查询仅覆盖与之同周期的待处理候选，避免新周期刷新误删上一已结束周期的尾端 Header。
+		key := codexQuotaHistoryCandidateStateKey(candidate)
+		superseded := false
+		for _, trustedIndex := range trustedByKey[key] {
+			if !codexQuotaHistoryObservationsSameCycle(trusted[trustedIndex].Observation, candidate.Observation) {
+				continue
+			}
+			superseded = true
+			if candidate.Source == RefreshSourceUsageHeader {
+				trusted[trustedIndex].Observation.ZeroUsage = false
+			}
+		}
+		if superseded {
 			continue
 		}
 		remainingHeaders = append(remainingHeaders, candidate)
 	}
 	return trusted, remainingHeaders
+}
+
+// codexQuotaHistoryObservationsSameCycle 用窗口秒数和固定两分钟容差判断两条观测是否属于同一周期。
+func codexQuotaHistoryObservationsSameCycle(left repositorydto.CodexMainQuotaObservation, right repositorydto.CodexMainQuotaObservation) bool {
+	if left.WindowSeconds <= 0 || left.WindowSeconds != right.WindowSeconds {
+		return false
+	}
+	if left.ResetAt.IsZero() || right.ResetAt.IsZero() {
+		return false
+	}
+	return codexQuotaHistoryTimeDistance(left.ResetAt, right.ResetAt) <= codexQuotaHistoryResetTolerance
 }
 
 // codexQuotaHistoryCandidateStateKey 统一规范 runner 分流与状态缓存使用的账号角色键。

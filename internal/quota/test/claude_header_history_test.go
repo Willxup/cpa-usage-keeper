@@ -255,7 +255,8 @@ func TestClaudeActiveCheckSourcesWriteTrustedHistory(t *testing.T) {
 			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
 			reset := time.Now().Add(5 * time.Hour).Truncate(time.Second)
 			handler := &recordingProviderHandler{output: quota.ProviderOutput{Provider: "claude", Result: quota.ClaudeResult{Usage: &quota.ClaudeUsagePayload{
-				FiveHour: &quota.ClaudeUsageWindow{Utilization: 0, HasUtilization: true, ResetsAt: reset.Format(time.RFC3339)},
+				// 小于 0.5% 的真实消耗（ZeroUsage=false）仍应正常建立周期并记录四舍五入后的 100% 起点段。
+				FiveHour: &quota.ClaudeUsageWindow{Utilization: 0.2, HasUtilization: true, ResetsAt: reset.Format(time.RFC3339)},
 				SevenDay: &quota.ClaudeUsageWindow{Utilization: 25, HasUtilization: false, ResetsAt: reset.Add(7 * 24 * time.Hour).Format(time.RFC3339)},
 			}}}}
 			service := quota.NewServiceWithRegistry(db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"claude": handler}))
@@ -269,14 +270,44 @@ func TestClaudeActiveCheckSourcesWriteTrustedHistory(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(cycles) != 1 || cycles[0].Provider != "claude" || cycles[0].QuotaKey != "five_hour" {
-				t.Fatalf("expected only explicit-zero Claude primary observation, got %+v", cycles)
+				t.Fatalf("expected only non-zero Claude primary observation, got %+v", cycles)
 			}
 			var segment entities.QuotaPercentSegment
 			if err := db.Where("cycle_id = ?", cycles[0].ID).Take(&segment).Error; err != nil {
 				t.Fatal(err)
 			}
 			if segment.RemainingPercent != 100 {
-				t.Fatalf("explicit zero became %+v", segment)
+				t.Fatalf("fractional usage became %+v", segment)
+			}
+		})
+	}
+}
+
+func TestClaudeActiveCheckSourcesSkipUnstartedZeroUsageCycles(t *testing.T) {
+	for _, source := range []quota.RefreshSource{quota.RefreshSourceManual, quota.RefreshSourceScheduled, quota.RefreshSourceInspection} {
+		t.Run(string(source), func(t *testing.T) {
+			db := openQuotaTestDatabase(t)
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-idle", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeCredential})
+			reset := time.Now().Add(5 * time.Hour).Truncate(time.Second)
+			handler := &recordingProviderHandler{}
+			service := quota.NewServiceWithRegistry(db, quota.NewProviderRegistry(map[string]quota.ProviderHandler{"claude": handler}))
+			for step := range 3 {
+				slidingReset := reset.Add(time.Duration(step*5) * time.Minute)
+				handler.output = quota.ProviderOutput{Provider: "claude", Result: quota.ClaudeResult{Usage: &quota.ClaudeUsagePayload{
+					FiveHour: &quota.ClaudeUsageWindow{Utilization: 0, HasUtilization: true, ResetsAt: slidingReset.Format(time.RFC3339)},
+					SevenDay: &quota.ClaudeUsageWindow{Utilization: 0, HasUtilization: true, ResetsAt: slidingReset.Add(7 * 24 * time.Hour).Format(time.RFC3339)},
+				}}}
+				if _, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "claude-idle", Source: source}); err != nil {
+					t.Fatalf("active refresh step %d failed: %v", step, err)
+				}
+			}
+			service.StopRefreshTasks()
+			var cycles []entities.QuotaCycle
+			if err := db.Find(&cycles).Error; err != nil {
+				t.Fatal(err)
+			}
+			if len(cycles) != 0 {
+				t.Fatalf("expected idle zero-usage active refreshes to create no cycles, got %+v", cycles)
 			}
 		})
 	}

@@ -161,6 +161,7 @@ func buildCodexMainQuotaObservation(authIndex string, role string, window *Codex
 		FirstObservedAt:  observedAt,
 		LastObservedAt:   observedAt,
 		ObservationCount: 1,
+		ZeroUsage:        window.UsedPercent <= 0,
 	}
 	return observation, true
 }

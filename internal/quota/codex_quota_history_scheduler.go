@@ -247,6 +247,8 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 	observation.Provider = key.Provider
 	observation.QuotaKey = key.QuotaKey
 	observation.Authoritative = codexQuotaHistorySourceIsAuthoritative(candidate.Source)
+	isNonHeaderZero := candidate.Source != RefreshSourceUsageHeader && observation.ZeroUsage
+	observation.NonHeaderZeroUsage = isNonHeaderZero
 	// 内部 DTO 必须满足基本范围与时间顺序，异常值不能推进内存状态。
 	if observation.WindowSeconds <= 0 || observation.WindowSeconds > math.MaxInt64/int64(time.Second) ||
 		observation.ResetAt.IsZero() || observation.RemainingPercent < 0 || observation.RemainingPercent > 100 ||
@@ -278,9 +280,19 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 		state.Current[key] = current
 	}
 
+	if !current.Found {
+		// 主动查询返回 0% 已用且尚无已有周期时，说明上游窗口未启动（reset_at 随请求滑动），跳过不建空周期。
+		if isNonHeaderZero {
+			return false
+		}
+	}
+
 	if current.Found {
 		// 窗口变化代表角色切换；先封住旧稳定尾段，再写新周期基线。
 		if current.WindowSeconds != observation.WindowSeconds {
+			if isNonHeaderZero {
+				return false
+			}
 			if current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt) {
 				return false
 			}
@@ -291,6 +303,9 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 
 		sameCycle := codexQuotaHistorySameCycle(current, observation)
 		if !sameCycle {
+			if isNonHeaderZero {
+				return false
+			}
 			// 同窗口只有时间向前且 reset 不倒退时才能建立下一周期。
 			if (current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt)) || observation.ResetAt.Before(current.ResetAt) {
 				return false
@@ -305,12 +320,16 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 			return false
 		}
 		boundaryUpgraded := current.ResetAtSource == "relative" && observation.ResetAtSource == "absolute"
-		trustedCalibration := observation.Authoritative &&
+		trustedCalibration := observation.Authoritative && !isNonHeaderZero &&
 			(current.ResetAtSource != observation.ResetAtSource || !current.ResetAt.Equal(observation.ResetAt))
 		boundaryUpdated := boundaryUpgraded || trustedCalibration
 		if boundaryUpdated {
 			current.ResetAtSource = observation.ResetAtSource
 			current.ResetAt = observation.ResetAt
+		} else if isNonHeaderZero {
+			// 已是 absolute 边界的同周期遇到 0% 主动刷新时锚定回原边界，防止高频刷新顺延 ResetAt。
+			observation.ResetAtSource = current.ResetAtSource
+			observation.ResetAt = current.ResetAt
 		}
 
 		// 可信专门额度查询允许纠正错误低尾段；普通 Header 回升仍直接忽略。
@@ -338,6 +357,7 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 					calibrated.ResetAt = observation.ResetAt
 					calibrated.ObservationCount += observation.ObservationCount
 					calibrated.Authoritative = calibrated.Authoritative || observation.Authoritative
+					calibrated.NonHeaderZeroUsage = calibrated.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
 				} else {
 					// 已落库尾段无法原地修改；追加校准后必须让 PendingIndex 指向它，不能再引用旧 relative 条目。
 					observation.RemainingPercent = current.RemainingPercent
@@ -364,9 +384,10 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 				merged.LastObservedAt = observation.LastObservedAt
 				merged.ObservationCount += observation.ObservationCount
 				merged.Authoritative = merged.Authoritative || observation.Authoritative
+				merged.NonHeaderZeroUsage = merged.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
 				materialized = true
 			} else {
-				s.mergeDeferredCodexQuotaHistoryStable(state, key, observation, boundaryUpdated || observation.Authoritative)
+				s.mergeDeferredCodexQuotaHistoryStable(state, key, observation, boundaryUpdated || (observation.Authoritative && !observation.NonHeaderZeroUsage))
 			}
 			current.LastObservedAt = observation.LastObservedAt
 			state.Current[key] = current
@@ -407,7 +428,8 @@ func (s *Service) mergeDeferredCodexQuotaHistoryStable(state *codexQuotaHistoryR
 	deferred.Observation.LastObservedAt = observation.LastObservedAt
 	deferred.Observation.ObservationCount += observation.ObservationCount
 	deferred.Observation.Authoritative = deferred.Observation.Authoritative || observation.Authoritative
-	if observation.Authoritative || deferred.Observation.ResetAtSource == "relative" && observation.ResetAtSource == "absolute" {
+	deferred.Observation.NonHeaderZeroUsage = deferred.Observation.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
+	if (observation.Authoritative && !observation.NonHeaderZeroUsage) || (deferred.Observation.ResetAtSource == "relative" && observation.ResetAtSource == "absolute") {
 		deferred.Observation.ResetAtSource = observation.ResetAtSource
 		deferred.Observation.ResetAt = observation.ResetAt
 	}

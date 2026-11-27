@@ -27,6 +27,10 @@ type CodexMainQuotaObservation struct {
 	ObservationCount int64
 	// Authoritative 仅在运行期标识专门额度接口的可信事实，允许 repository 校准同周期 reset 并纠正错误低值；不写入数据库。
 	Authoritative bool
+	// ZeroUsage 仅在运行期标识上游原始未四舍五入值处于 0 已用状态；不写入数据库。
+	ZeroUsage bool
+	// NonHeaderZeroUsage 仅在运行期标识非 Header 主动查询返回的 0 已用观测，用于跳过未启动周期并锚定已有边界；不写入数据库。
+	NonHeaderZeroUsage bool
 }
 
 // CodexQuotaHistoryState 是 runner 缓存缺失时从 writer 数据库恢复的当前周期和尾段状态。
