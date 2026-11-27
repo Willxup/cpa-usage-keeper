@@ -29,6 +29,7 @@ var quotaHistoryProviderSpecs = []QuotaHistoryProviderSpec{
 	codexQuotaHistoryProviderSpec,
 	claudeQuotaHistoryProviderSpec,
 	antigravityQuotaHistoryProviderSpec,
+	xaiQuotaHistoryProviderSpec,
 }
 
 var (

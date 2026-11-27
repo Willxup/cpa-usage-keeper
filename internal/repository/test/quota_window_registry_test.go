@@ -8,7 +8,7 @@ import (
 )
 
 func TestQuotaHistoryProviderRegistryLookupAndDeterministicOrder(t *testing.T) {
-	wantProviders := []string{"codex", "claude", "antigravity"}
+	wantProviders := []string{"codex", "claude", "antigravity", "xai"}
 	providers := repositorydto.SupportedQuotaHistoryProviders()
 	if !slices.Equal(providers, wantProviders) {
 		t.Fatalf("unexpected supported quota history providers: %v", providers)
@@ -42,6 +42,10 @@ func TestQuotaHistoryProviderRegistryLookupAndDeterministicOrder(t *testing.T) {
 	if _, ok := repositorydto.LookupQuotaHistoryProvider("unknown"); ok {
 		t.Fatal("expected unknown provider lookup to fail")
 	}
+	xaiSpec, ok := repositorydto.LookupQuotaHistoryProvider(" XAI ")
+	if !ok || xaiSpec.Provider != "xai" || xaiSpec.ModelScoped || len(xaiSpec.Windows) != 1 || xaiSpec.Windows[0].WindowRole != "weekly" || xaiSpec.Windows[0].QuotaKey != "billing.weekly" {
+		t.Fatalf("unexpected xai provider spec: ok=%v spec=%+v", ok, xaiSpec)
+	}
 
 	if keys := repositorydto.AllowedQuotaKeys("codex"); !slices.Equal(keys, []string{"rate_limit.primary_window", "rate_limit.secondary_window"}) {
 		t.Fatalf("unexpected codex allowed keys: %v", keys)
@@ -56,6 +60,9 @@ func TestQuotaHistoryProviderRegistryLookupAndDeterministicOrder(t *testing.T) {
 		"bucket.antigravity-claude-and-gpt-models.weekly",
 	}) {
 		t.Fatalf("unexpected antigravity allowed keys: %v", keys)
+	}
+	if keys := repositorydto.AllowedQuotaKeys("xai"); !slices.Equal(keys, []string{"billing.weekly"}) {
+		t.Fatalf("unexpected xai allowed keys: %v", keys)
 	}
 	if keys := repositorydto.AllowedQuotaKeys("unknown"); len(keys) != 0 {
 		t.Fatalf("expected empty allowed keys for unknown provider, got %v", keys)

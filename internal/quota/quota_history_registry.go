@@ -14,6 +14,7 @@ var quotaHistoryExtractors = map[string]QuotaHistoryExtractor{
 	"codex":       extractCodexQuotaHistoryObservations,
 	"claude":      extractClaudeQuotaHistoryObservations,
 	"antigravity": extractAntigravityQuotaHistoryObservations,
+	"xai":         extractXAIQuotaHistoryObservations,
 }
 
 func hasQuotaHistoryProvider(provider string) bool {

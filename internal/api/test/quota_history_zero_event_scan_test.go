@@ -134,3 +134,70 @@ func TestAntigravityQuotaHistoryAPINeverQueriesUsageEventsTables(t *testing.T) {
 		}
 	}
 }
+
+func TestXAIQuotaHistoryAPINeverQueriesUsageEventsTables(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "xai-history-api.db")})
+	if err != nil {
+		t.Fatalf("open api test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, authIndex := range []string{"xai-empty", "xai-full"} {
+		if err := db.Create(&entities.UsageIdentity{
+			Identity: authIndex,
+			Provider: "xai",
+			Type:     "xai",
+			AuthType: entities.UsageIdentityAuthTypeCredential,
+		}).Error; err != nil {
+			t.Fatalf("seed identity %s: %v", authIndex, err)
+		}
+	}
+
+	weeklyReset := now.Add(5 * 24 * time.Hour)
+	if err := repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{
+		{Provider: "xai", AuthIndex: "xai-full", WindowRole: "weekly", WindowSeconds: 7 * 24 * 3600, ResetAtSource: "absolute", ResetAt: weeklyReset, RemainingPercent: 75, FirstObservedAt: now.Add(-time.Hour), LastObservedAt: now.Add(-time.Hour), ObservationCount: 1},
+	}); err != nil {
+		t.Fatalf("seed xAI observation: %v", err)
+	}
+	cost, unavailable := 0.25, false
+	if err := db.Create(&entities.UsageEvent{
+		EventKey: "xai-api-ev", APIGroupKey: "key-1", Provider: "xai", AuthType: "oauth", AuthIndex: "xai-full",
+		Model: "grok-4", Timestamp: now.Add(-30 * time.Minute), TotalTokens: 1200, CostUSD: &cost, CostAvailable: &unavailable, CreatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+	var cycles []entities.QuotaCycle
+	if err := db.Where("provider = ?", "xai").Find(&cycles).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.RecomputeAndPersistQuotaCycles(ctx, db, cycles, now, 0, false); err != nil {
+		t.Fatalf("recompute xAI cycles: %v", err)
+	}
+
+	recorder := &apiUsageEventsSQLRecorder{}
+	observedDB := db.Session(&gorm.Session{Logger: recorder})
+	service := quota.NewServiceWithRegistry(observedDB, quota.NewProviderRegistry(nil))
+	t.Cleanup(service.StopRefreshTasks)
+	router := api.NewRouter(nil, nil, nil, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{Quota: service})
+
+	for _, path := range []string{
+		"/api/v1/quota/history/xai-empty",
+		"/api/v1/quota/history/xai-full",
+		"/api/v1/quota/history/xai-full?window_role=weekly",
+	} {
+		recorder.reset()
+		resp := serveAPIGet(router, path)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d body=%s", path, resp.Code, resp.Body.String())
+		}
+		if queries := recorder.snapshot(); len(queries) != 0 {
+			t.Fatalf("GET %s must never query usage_events or usage_events_archive, got: %v", path, queries)
+		}
+	}
+}
