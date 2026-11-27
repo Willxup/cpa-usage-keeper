@@ -33,7 +33,7 @@ func extractXAIQuotaHistoryObservations(authIndex string, output ProviderOutput,
 		return nil
 	}
 	resetAt, err := timeutil.ParseStorageTime(resetText)
-	if err != nil || resetAt.IsZero() {
+	if err != nil || resetAt.IsZero() || resetAt.Unix() <= 0 {
 		return nil
 	}
 	spec, ok := repositorydto.QuotaWindowSpecByRole("xai", "weekly")

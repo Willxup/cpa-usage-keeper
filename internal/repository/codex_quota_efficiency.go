@@ -255,10 +255,6 @@ func quotaCyclePercentSummary(segments []codexQuotaEfficiencySegmentRow) (*int, 
 	return &first, &last, observationCount
 }
 
-func buildCodexQuotaEfficiencyWindows(cycles []entities.QuotaCycle, now time.Time) []repositorydto.CodexQuotaEfficiencyWindow {
-	return buildQuotaEfficiencyWindows(cycles, "codex", now)
-}
-
 func buildQuotaEfficiencyWindows(cycles []entities.QuotaCycle, provider string, now time.Time) []repositorydto.CodexQuotaEfficiencyWindow {
 	// 上游角色是稳定窗口身份；每个角色只保留最近一次观察到的周期长度作为选择器标题。
 	latestCycleByRole := make(map[string]entities.QuotaCycle)

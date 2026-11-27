@@ -177,6 +177,18 @@ func TestAntigravityActiveRefreshSkipsUnstartedFullBucketsWithSlidingReset(t *te
 			t.Fatalf("antigravity idle refresh step %d failed: %v", step, err)
 		}
 	}
+	// 非正纪元重置时间（如 1970-01-01T00:00:00Z）即使存在消耗也必须忽略，避免脏周期或负年份下溢。
+	handler.output = quota.ProviderOutput{
+		Provider: "antigravity",
+		Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{{
+			DisplayName: "Gemini Models",
+			Buckets:     []quota.AntigravityQuotaBucket{{BucketID: "gemini-5h", Window: "5h", RemainingFraction: new(0.5), ResetTime: "1970-01-01T00:00:00Z"}},
+		}}}},
+	}
+	if _, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "ag-idle", Source: quota.RefreshSourceManual}); err != nil {
+		service.StopRefreshTasks()
+		t.Fatalf("antigravity epoch-zero refresh failed: %v", err)
+	}
 	service.StopRefreshTasks()
 
 	var count int64

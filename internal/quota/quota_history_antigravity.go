@@ -53,7 +53,7 @@ func extractAntigravityQuotaHistoryObservations(authIndex string, output Provide
 				continue
 			}
 			resetAt, err := timeutil.ParseStorageTime(bucket.ResetTime)
-			if err != nil || resetAt.IsZero() {
+			if err != nil || resetAt.IsZero() || resetAt.Unix() <= 0 {
 				continue
 			}
 

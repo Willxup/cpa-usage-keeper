@@ -146,6 +146,18 @@ func TestXAIActiveRefreshSkipsZeroUsageAndMissingTotalPercent(t *testing.T) {
 			t.Fatalf("xai idle refresh step %d failed: %v", step, err)
 		}
 	}
+	// 3. 非正纪元重置时间（如 1970-01-01T00:00:00Z）即使存在消耗也必须跳过。
+	handler.output = quota.ProviderOutput{
+		Provider: "xai",
+		Result: quota.XAIResult{Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", End: "1970-01-01T00:00:00Z"},
+			CreditUsagePercent: floatPtr(25),
+		}}},
+	}
+	if _, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "xai-skip", Source: quota.RefreshSourceManual}); err != nil {
+		service.StopRefreshTasks()
+		t.Fatalf("xai epoch-zero refresh failed: %v", err)
+	}
 	service.StopRefreshTasks()
 
 	var count int64
