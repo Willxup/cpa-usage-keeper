@@ -326,8 +326,8 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 		if boundaryUpdated {
 			current.ResetAtSource = observation.ResetAtSource
 			current.ResetAt = observation.ResetAt
-		} else if isNonHeaderZero {
-			// 已是 absolute 边界的同周期遇到 0% 主动刷新时锚定回原边界，防止高频刷新顺延 ResetAt。
+		} else {
+			// 未触发边界升级或校准的同周期观测统一沿用当前锁定边界，防止未采纳的 Header 抖动时间在跨批合并时借主动刷新标记落库。
 			observation.ResetAtSource = current.ResetAtSource
 			observation.ResetAt = current.ResetAt
 		}

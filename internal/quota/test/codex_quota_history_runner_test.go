@@ -1539,6 +1539,82 @@ func TestCodexQuotaHistoryRunnerZeroUsageAllowsRelativeUpgradeAndTailCorrectionW
 			t.Fatalf("expected bogus 80%% tail removed and 100%% extended, got %+v", segments)
 		}
 	})
+
+	t.Run("cross_batch_jittered_header_then_zero_active_refresh_keeps_anchored_reset", func(t *testing.T) {
+		db := openQuotaTestDatabase(t)
+		seedUsageIdentity(t, db, codexHistoryUsageIdentity("cross-batch-anchor-auth"))
+		base := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+		anchoredReset := base.Add(5 * time.Hour)
+		first := codexHistoryPrimarySnapshot("cross-batch-anchor-auth", base, 100, anchoredReset)
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, first.MainQuotaObservations); err != nil {
+			t.Fatalf("seed anchored baseline: %v", err)
+		}
+
+		handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
+			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, anchoredReset.Add(45*time.Second))},
+		}}}}
+		service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}), ServiceOptions{
+			UsageHeaderSnapshotFlushInterval:   time.Hour,
+			CodexQuotaHistoryFlushInterval:     time.Hour,
+			CodexQuotaHistoryHeartbeatInterval: time.Hour,
+		})
+		loadedCh := make(chan struct{}, 1)
+		setCodexQuotaHistoryLoader(service, func(ctx context.Context, loaderDB *gorm.DB, provider, authIndex, role string) (repositorydto.CodexQuotaHistoryState, error) {
+			state, err := repository.LoadLatestQuotaHistoryState(ctx, loaderDB, provider, authIndex, role)
+			select {
+			case loadedCh <- struct{}{}:
+			default:
+			}
+			return state, err
+		})
+		timers := newCodexHistoryManualTimers(service, 2)
+
+		// 第一批：带 +30s 抖动的同值普通 Header 先独立完成首轮合并并进入 5 分钟延迟缓存 state.Stable。
+		jitteredHeader := codexHistoryPrimarySnapshot("cross-batch-anchor-auth", base.Add(time.Minute), 100, anchoredReset.Add(30*time.Second))
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(jitteredHeader)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected jittered Header to enter queue")
+		}
+		firstTimer := waitForCodexQuotaHistoryManualTimer(t, timers)
+		firstTimer.fire <- time.Now()
+		select {
+		case <-loadedCh:
+		case <-time.After(time.Second):
+			service.StopRefreshTasks()
+			t.Fatal("expected first batch to recover cycle state")
+		}
+
+		// 第二批：0% 已用主动刷新合并进同一稳定尾段，不得把上一批 Header 的 +30s 抖动升级为权威边界。
+		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "cross-batch-anchor-auth", Source: RefreshSourceManual}); err != nil {
+			service.StopRefreshTasks()
+			t.Fatalf("manual zero-usage refresh failed: %v", err)
+		}
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) && quotaServiceField(service, "codexQuotaHistoryTrustedQueue").Len() > 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		// 用 +140s 的 99% 新周期 Header（距原锚点 >120s，若漂移到 +30s 则 <=120s）同时验证内存与数据库边界均未漂移。
+		splitReset := anchoredReset.Add(140 * time.Second)
+		splitHeader := codexHistoryPrimarySnapshot("cross-batch-anchor-auth", time.Now().Add(2*time.Second).Truncate(time.Second), 99, splitReset)
+		if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(splitHeader)) {
+			service.StopRefreshTasks()
+			t.Fatal("expected split probe Header to enter queue")
+		}
+		service.StopRefreshTasks()
+
+		cycles := loadCodexQuotaCycles(t, db, "cross-batch-anchor-auth")
+		if len(cycles) != 2 {
+			t.Fatalf("expected anchored cycle plus split cycle, got %+v", cycles)
+		}
+		if !cycles[0].ResetAt.Equal(anchoredReset) {
+			t.Fatalf("expected DB cycle ResetAt anchored at %s, got %s", anchoredReset, cycles[0].ResetAt)
+		}
+		segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+		if len(segments) != 1 || segments[0].RemainingPercent != 100 || segments[0].ObservationCount != 3 {
+			t.Fatalf("expected 3 merged 100%% observations on anchored cycle, got %+v", segments)
+		}
+	})
 }
 
 func TestCodexQuotaHistoryRunnerInheritsSameCycleHeaderStartForZeroUsageActiveRefresh(t *testing.T) {
