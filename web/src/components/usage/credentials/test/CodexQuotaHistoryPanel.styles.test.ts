@@ -45,7 +45,7 @@ describe('Codex quota history styles', () => {
       quotaHistoryStyles.indexOf('.currentStatus,'),
     )
     expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?container:\s*quota-cycle-card \/ inline-size;/)
-    expect(cycleSummaryStyles).toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
+    expect(cycleSummaryStyles).not.toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
     expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(scssRule('\n.completedCycleSummary')).not.toContain('border-top:')
     expect(cycleSummaryStyles).toMatch(/\.currentCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
