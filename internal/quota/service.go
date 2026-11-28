@@ -138,7 +138,6 @@ type CheckResponse struct {
 	Subscription                        *SubscriptionInfo       `json:"subscription,omitempty"`
 	RateLimitResetCreditsAvailableCount *int                    `json:"rateLimitResetCreditsAvailableCount,omitempty"`
 	ClaudeResetGrants                   *ClaudeResetGrantStatus `json:"claudeResetGrants,omitempty"`
-	antigravityHasSeparateArgon         bool
 }
 
 // NewService 构造额度服务；窗口费用读取已存事件金额，不需要价格目录。
@@ -365,25 +364,26 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		}
 		return CheckResponse{}, false, err
 	}
-	// 主动查询只从真实 provider 的账号主窗口提取可信观察；其它窗口不参与历史。
-	if provider := normalizeIdentityType(identity.Type); provider == "codex" || provider == "claude" {
-		observations := BuildMainQuotaObservations(authIndex, providerOutput, time.Now())
-		if len(observations) > 0 && observations[0].Provider != provider {
-			observations = nil
+	// 主动查询以 identity.Type 为权威凭证类型，经注册表提取并投递限额历史观测；优先采用主额度响应到达时刻。
+	if provider := normalizeIdentityType(identity.Type); hasQuotaHistoryProvider(provider) {
+		observedAt := providerOutput.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = time.Now()
 		}
+		observations := BuildQuotaHistoryObservations(provider, authIndex, providerOutput, observedAt)
 		if len(observations) > 0 && !s.tryAppendCodexQuotaHistoryObservations(observations, request.Source) {
 			// history 是 best-effort 统计链路，队列满或 shutdown 不能改变手动/定时/巡检刷新结果。
 			logrus.WithFields(logrus.Fields{
+				"provider":   provider,
 				"auth_index": authIndex,
 				"source":     refreshSourceLogValue(request.Source),
 			}).Warn("codex quota history active observation append skipped")
 		}
 	}
 	response := CheckResponse{
-		ID:                          authIndex,
-		Quota:                       NormalizeQuotaRows(providerOutput),
-		Subscription:                NormalizeSubscription(providerOutput),
-		antigravityHasSeparateArgon: antigravitySeparateArgonObserved(providerOutput),
+		ID:           authIndex,
+		Quota:        NormalizeQuotaRows(providerOutput),
+		Subscription: NormalizeSubscription(providerOutput),
 	}
 	if result, ok := providerOutput.Result.(ClaudeResult); ok && result.Usage != nil {
 		response.ClaudeResetGrants = result.Usage.ResetGrants

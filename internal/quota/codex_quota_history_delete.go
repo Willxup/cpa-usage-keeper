@@ -39,7 +39,7 @@ func (s *Service) DeleteCodexQuotaHistoryCycle(ctx context.Context, authIndex st
 		return err
 	}
 	provider := normalizeIdentityType(identity.Type)
-	if provider != "codex" && provider != "claude" {
+	if _, ok := repositorydto.LookupQuotaHistoryProvider(provider); !ok {
 		return ErrUnsupportedType
 	}
 	request := codexQuotaHistoryDeleteRequest{ctx: ctx, provider: provider, authIndex: authIndex, cycleID: cycleID, result: make(chan error, 1)}
@@ -95,7 +95,7 @@ func (s *Service) clearQueuedCodexQuotaHistoryCycle(cycle repository.CodexQuotaC
 	queue := s.codexQuotaHistoryHeaderQueue
 	for range len(queue) {
 		input := <-queue
-		remaining := make([]repositorydto.CodexMainQuotaObservation, 0, 2)
+		remaining := make([]repositorydto.CodexMainQuotaObservation, 0, len(input.Observations))
 		retain := func(observations []repositorydto.CodexMainQuotaObservation) {
 			for _, observation := range observations {
 				if !cycle.MatchesObservation(observation) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	repositorydto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
@@ -71,17 +72,82 @@ type QuotaCycleComputedUsage struct {
 	SegmentUsages     []QuotaSegmentComputedUsage
 }
 
+var (
+	lookupQuotaHistoryProvider     = repositorydto.LookupQuotaHistoryProvider
+	supportedQuotaHistoryProviders = repositorydto.SupportedQuotaHistoryProviders
+)
+
 type quotaHistoryDirtyEventRow struct {
 	ID        int64
 	Provider  string
 	AuthType  string
 	AuthIndex string
+	Model     string
 	Timestamp codexQuotaEfficiencyEventTime
 }
 
 type quotaHistoryProviderAuthKey struct {
 	Provider  string
 	AuthIndex string
+}
+
+// quotaHistoryEventMoment 保存事件游标与改价标脏共用的最小事件时刻与模型归属信息。
+type quotaHistoryEventMoment struct {
+	Timestamp time.Time
+	Model     string
+}
+
+// collectAffectedQuotaCycleIDs 按账号时间范围检索候选周期；分池渠道额外按 MatchModel 精准过滤，避免无关池惊群。
+// 每次账号查询通过 newQuery 创建独立 GORM Statement，防止多账号循环复用带 Clauses 的会话导致 WHERE 条件累积。
+func collectAffectedQuotaCycleIDs(eventsByAccount map[quotaHistoryProviderAuthKey][]quotaHistoryEventMoment, newQuery func() *gorm.DB) ([]int64, error) {
+	if len(eventsByAccount) == 0 {
+		return nil, nil
+	}
+	affectedSet := make(map[int64]struct{})
+	affectedCycleIDs := make([]int64, 0)
+	for key, moments := range eventsByAccount {
+		spec, ok := lookupQuotaHistoryProvider(key.Provider)
+		if !ok || len(moments) == 0 {
+			continue
+		}
+		minAt, maxAt := moments[0].Timestamp, moments[0].Timestamp
+		for _, moment := range moments[1:] {
+			if moment.Timestamp.Before(minAt) {
+				minAt = moment.Timestamp
+			}
+			if moment.Timestamp.After(maxAt) {
+				maxAt = moment.Timestamp
+			}
+		}
+		var candidates []entities.QuotaCycle
+		if err := newQuery().
+			Select("id, quota_key, window_started_at, reset_at").
+			Where("provider = ? AND auth_index = ? AND reset_at > ? AND window_started_at <= ?",
+				key.Provider, key.AuthIndex,
+				timeutil.FormatSortableStorageTime(minAt),
+				timeutil.FormatSortableStorageTime(maxAt)).
+			Find(&candidates).Error; err != nil {
+			return nil, err
+		}
+		for _, cycle := range candidates {
+			if _, exists := affectedSet[cycle.ID]; exists {
+				continue
+			}
+			for _, moment := range moments {
+				if moment.Timestamp.Before(cycle.WindowStartedAt) || !moment.Timestamp.Before(cycle.ResetAt) {
+					continue
+				}
+				if spec.ModelScoped && (spec.MatchModel == nil || !spec.MatchModel(cycle.QuotaKey, moment.Model)) {
+					continue
+				}
+				affectedSet[cycle.ID] = struct{}{}
+				affectedCycleIDs = append(affectedCycleIDs, cycle.ID)
+				break
+			}
+		}
+	}
+	sort.Slice(affectedCycleIDs, func(i, j int) bool { return affectedCycleIDs[i] < affectedCycleIDs[j] })
+	return affectedCycleIDs, nil
 }
 
 // AdvanceQuotaHistoryDirtyCursor 按 usage_events.id 增量扫描已提交 OAuth 事件，把命中的周期标脏并推进游标。
@@ -110,10 +176,10 @@ func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, n
 		return result, err
 	}
 
-	// 独立轻量投影只读 5 列，COALESCE 兼容旧迁移遗留的可空身份列，避免无关 NULL 行阻塞游标推进。
+	// 独立轻量投影只读 6 列，COALESCE 兼容旧迁移遗留的可空列，避免无关 NULL 行阻塞游标推进。
 	rows, err := db.WithContext(ctx).Clauses(dbresolver.Read).
 		Table("usage_events").
-		Select("id, COALESCE(provider, ''), COALESCE(auth_type, ''), COALESCE(auth_index, ''), +timestamp AS timestamp").
+		Select("id, COALESCE(provider, ''), COALESCE(auth_type, ''), COALESCE(auth_index, ''), COALESCE(model, ''), +timestamp AS timestamp").
 		Where("id > ?", cursor).
 		Order("id ASC").
 		Limit(batchSize).
@@ -126,7 +192,7 @@ func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, n
 	events := make([]quotaHistoryDirtyEventRow, 0, min(batchSize, 64))
 	for rows.Next() {
 		var row quotaHistoryDirtyEventRow
-		if err := rows.Scan(&row.ID, &row.Provider, &row.AuthType, &row.AuthIndex, &row.Timestamp); err != nil {
+		if err := rows.Scan(&row.ID, &row.Provider, &row.AuthType, &row.AuthIndex, &row.Model, &row.Timestamp); err != nil {
 			return result, fmt.Errorf("scan usage event row for quota history dirty cursor: %w", err)
 		}
 		events = append(events, row)
@@ -143,13 +209,13 @@ func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, n
 	result.NextCursor = events[len(events)-1].ID
 	result.HasMore = len(events) == batchSize
 
-	timestampsByAccount := make(map[quotaHistoryProviderAuthKey][]time.Time)
+	eventsByAccount := make(map[quotaHistoryProviderAuthKey][]quotaHistoryEventMoment)
 	for _, event := range events {
 		if !strings.EqualFold(strings.TrimSpace(event.AuthType), "oauth") {
 			continue
 		}
 		provider := strings.ToLower(strings.TrimSpace(event.Provider))
-		if provider != "codex" && provider != "claude" {
+		if _, ok := lookupQuotaHistoryProvider(provider); !ok {
 			continue
 		}
 		authIndex := strings.TrimSpace(event.AuthIndex)
@@ -157,46 +223,17 @@ func AdvanceQuotaHistoryDirtyCursorWithDefer(ctx context.Context, db *gorm.DB, n
 			continue
 		}
 		key := quotaHistoryProviderAuthKey{Provider: provider, AuthIndex: authIndex}
-		timestampsByAccount[key] = append(timestampsByAccount[key], timeutil.NormalizeStorageTime(event.Timestamp.Time))
+		eventsByAccount[key] = append(eventsByAccount[key], quotaHistoryEventMoment{
+			Timestamp: timeutil.NormalizeStorageTime(event.Timestamp.Time),
+			Model:     event.Model,
+		})
 	}
 
-	affectedCycleIDs := make([]int64, 0)
-	if len(timestampsByAccount) > 0 {
-		affectedSet := make(map[int64]struct{})
-		for key, timestamps := range timestampsByAccount {
-			minAt, maxAt := timestamps[0], timestamps[0]
-			for _, ts := range timestamps[1:] {
-				if ts.Before(minAt) {
-					minAt = ts
-				}
-				if ts.After(maxAt) {
-					maxAt = ts
-				}
-			}
-			var candidates []entities.QuotaCycle
-			if err := db.WithContext(ctx).Clauses(dbresolver.Read).
-				Select("id, window_started_at, reset_at").
-				Where("provider = ? AND auth_index = ? AND reset_at > ? AND window_started_at <= ?",
-					key.Provider, key.AuthIndex,
-					timeutil.FormatSortableStorageTime(minAt),
-					timeutil.FormatSortableStorageTime(maxAt)).
-				Find(&candidates).Error; err != nil {
-				return result, fmt.Errorf("find quota cycles hit by usage events: %w", err)
-			}
-			for _, cycle := range candidates {
-				if _, exists := affectedSet[cycle.ID]; exists {
-					continue
-				}
-				for _, ts := range timestamps {
-					if !ts.Before(cycle.WindowStartedAt) && ts.Before(cycle.ResetAt) {
-						affectedSet[cycle.ID] = struct{}{}
-						affectedCycleIDs = append(affectedCycleIDs, cycle.ID)
-						break
-					}
-				}
-			}
-		}
-		sort.Slice(affectedCycleIDs, func(i, j int) bool { return affectedCycleIDs[i] < affectedCycleIDs[j] })
+	affectedCycleIDs, err := collectAffectedQuotaCycleIDs(eventsByAccount, func() *gorm.DB {
+		return db.WithContext(ctx).Clauses(dbresolver.Read)
+	})
+	if err != nil {
+		return result, fmt.Errorf("find quota cycles hit by usage events: %w", err)
 	}
 
 	if shouldDefer != nil {
@@ -474,7 +511,7 @@ func ComputeQuotaCyclePersistedUsage(ctx context.Context, db *gorm.DB, cycle ent
 	}
 
 	for _, read := range quotaCycleEventTimeReads(queryStart, readEnd) {
-		if err := streamQuotaCyclePersistedUsageRead(ctx, db, cycle.Provider, cycle.AuthIndex, read, queryStart, queryEnd, period.current, period.end, maxEventID, &computed, transitionIndices); err != nil {
+		if err := streamQuotaCyclePersistedUsageRead(ctx, db, cycle.Provider, cycle.AuthIndex, cycle.QuotaKey, read, queryStart, queryEnd, period.current, period.end, maxEventID, &computed, transitionIndices); err != nil {
 			return computed, err
 		}
 	}
@@ -506,6 +543,7 @@ func streamQuotaCyclePersistedUsageRead(
 	db *gorm.DB,
 	provider string,
 	authIndex string,
+	quotaKey string,
 	read usageEventTimeRead,
 	queryStart time.Time,
 	queryEnd time.Time,
@@ -515,10 +553,17 @@ func streamQuotaCyclePersistedUsageRead(
 	computed *QuotaCycleComputedUsage,
 	transitionIndices []int,
 ) error {
+	spec, _ := lookupQuotaHistoryProvider(provider)
+	modelScoped := spec.ModelScoped
+
+	selectColumns := `+timestamp AS timestamp, COALESCE(failed, 0), COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(reasoning_tokens, 0),
+			cache_read_tokens, cache_creation_tokens, COALESCE(total_tokens, 0), cost_usd, cost_available`
+	if modelScoped {
+		selectColumns = "COALESCE(model, ''), " + selectColumns
+	}
 	base := db.WithContext(ctx).Clauses(dbresolver.Read).
 		Table("usage_events INDEXED BY idx_usage_events_auth_index_timestamp_id").
-		Select(`+timestamp AS timestamp, COALESCE(failed, 0), COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(reasoning_tokens, 0),
-			cache_read_tokens, cache_creation_tokens, COALESCE(total_tokens, 0), cost_usd, cost_available`).
+		Select(selectColumns).
 		Where("auth_type = ? AND auth_index = ? AND provider = ?", "oauth", authIndex, provider)
 	if maxEventID > 0 {
 		base = base.Where("usage_events.id <= ?", maxEventID)
@@ -530,6 +575,7 @@ func streamQuotaCyclePersistedUsageRead(
 	defer rows.Close()
 
 	var event codexQuotaEfficiencyUsageEventRow
+	var eventModel string
 	var storedTimestamp codexQuotaEfficiencyEventTime
 	var storedCost sql.NullFloat64
 	var storedAvailable sql.NullBool
@@ -537,11 +583,24 @@ func streamQuotaCyclePersistedUsageRead(
 	transitionPos := 0
 
 	for rows.Next() {
-		if err := rows.Scan(
-			&storedTimestamp, &event.Failed, &event.InputTokens, &event.OutputTokens, &event.ReasoningTokens,
-			&event.CacheReadTokens, &event.CacheCreationTokens, &event.TotalTokens, &storedCost, &storedAvailable,
-		); err != nil {
-			return fmt.Errorf("scan quota cycle persisted usage: %w", err)
+		if modelScoped {
+			if err := rows.Scan(
+				&eventModel, &storedTimestamp, &event.Failed, &event.InputTokens, &event.OutputTokens, &event.ReasoningTokens,
+				&event.CacheReadTokens, &event.CacheCreationTokens, &event.TotalTokens, &storedCost, &storedAvailable,
+			); err != nil {
+				return fmt.Errorf("scan quota cycle persisted usage: %w", err)
+			}
+			// 分池渠道在记录未来时钟 NextFutureEventAt 与校验已存费用之前先按模型归属过滤，避免无关池事件干扰本池。
+			if spec.MatchModel == nil || !spec.MatchModel(quotaKey, eventModel) {
+				continue
+			}
+		} else {
+			if err := rows.Scan(
+				&storedTimestamp, &event.Failed, &event.InputTokens, &event.OutputTokens, &event.ReasoningTokens,
+				&event.CacheReadTokens, &event.CacheCreationTokens, &event.TotalTokens, &storedCost, &storedAvailable,
+			); err != nil {
+				return fmt.Errorf("scan quota cycle persisted usage: %w", err)
+			}
 		}
 		event.Timestamp = timeutil.NormalizeStorageTime(storedTimestamp.Time)
 		if !read.contains(event.Timestamp) {

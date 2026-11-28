@@ -121,10 +121,23 @@ func (s *Service) processCodexQuotaHistoryCandidateBatch(state *codexQuotaHistor
 	// recovery 失败只影响本批同一账号角色；下一批会重新从数据库尝试恢复。
 	failedRecoveries := make(map[codexQuotaHistoryStateKey]struct{})
 	materializedCohorts := make(map[codexQuotaHistoryCohortKey]struct{})
+	sourceCandidates := verified
 	pending := make([]repositorydto.CodexMainQuotaObservation, 0, len(verified))
 	for _, candidate := range verified {
-		if s.mergeCodexQuotaHistoryObservation(state, failedRecoveries, &pending, candidate, now) {
+		materialized, rejected := s.mergeCodexQuotaHistoryObservation(state, failedRecoveries, &pending, candidate, now)
+		if materialized {
 			materializedCohorts[codexQuotaHistoryCandidateCohortKey(candidate)] = struct{}{}
+		}
+		if rejected && len(candidate.SupersededHeaders) > 0 {
+			// 可信替代项被未启动/跨周期门禁拒绝时回放其暂存的已验证 Header，防止真实下降样本随被拒替代项一并丢失。
+			replayed := s.verifyCodexQuotaHistoryCandidates(candidate.SupersededHeaders)
+			sortCodexQuotaHistoryCandidates(replayed)
+			for _, fallback := range replayed {
+				if fbMaterialized, _ := s.mergeCodexQuotaHistoryObservation(state, failedRecoveries, &pending, fallback, now); fbMaterialized {
+					materializedCohorts[codexQuotaHistoryCandidateCohortKey(fallback)] = struct{}{}
+				}
+			}
+			sourceCandidates = append(sourceCandidates, replayed...)
 		}
 	}
 
@@ -139,7 +152,7 @@ func (s *Service) processCodexQuotaHistoryCandidateBatch(state *codexQuotaHistor
 
 	// 每次 runner 被唤醒都顺带收集已经到五分钟的稳定尾段；shutdown 则收集全部尾段。
 	stableKeys := s.appendDueCodexQuotaHistoryStable(state, &pending, now, flushAllStable)
-	s.flushCodexQuotaHistory(state, pending, stableKeys, codexQuotaHistoryCandidateSourceSummary(verified), now)
+	s.flushCodexQuotaHistory(state, pending, stableKeys, codexQuotaHistoryCandidateSourceSummary(sourceCandidates), now)
 }
 
 // codexQuotaHistoryCandidateCohortKey 用账号和观察时刻关联同一次响应里的 Primary/Secondary。
@@ -204,9 +217,9 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 			logrus.WithError(err).Warn("codex quota history identity verification failed")
 		} else {
 			for _, identity := range identities {
-				// repository 已限定 Credential；这里再取真实 type，与 observation 来源逐条核对。
+				// repository 已限定 Credential；这里只采信权威 identity.Type，与 observation 来源逐条核对。
 				provider := normalizeIdentityType(identity.Type)
-				if provider != "codex" && provider != "claude" {
+				if _, ok := repositorydto.LookupQuotaHistoryProvider(provider); !ok {
 					continue
 				}
 				authIndex := strings.TrimSpace(identity.Identity)
@@ -235,31 +248,34 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 }
 
 // mergeCodexQuotaHistoryObservation 把一条 observation 合并为语义变化或单个稳定尾段。
-func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunnerState, failedRecoveries map[codexQuotaHistoryStateKey]struct{}, pending *[]repositorydto.CodexMainQuotaObservation, candidate codexQuotaHistoryCandidate, now time.Time) bool {
+// rejectedReplacement 标识该观测因未满足新周期或切窗门禁而未被当前周期接受。
+func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunnerState, failedRecoveries map[codexQuotaHistoryStateKey]struct{}, pending *[]repositorydto.CodexMainQuotaObservation, candidate codexQuotaHistoryCandidate, now time.Time) (bool, bool) {
 	observation := candidate.Observation
 	key := codexQuotaHistoryCandidateStateKey(candidate)
 	// runner 只接受构造层定义的两个主额度角色；repository 仍保留最终完整校验。
 	if key.AuthIndex == "" || key.QuotaKey == "" {
-		return false
+		return false, true
 	}
 	observation.AuthIndex = key.AuthIndex
 	observation.WindowRole = key.WindowRole
 	observation.Provider = key.Provider
 	observation.QuotaKey = key.QuotaKey
 	observation.Authoritative = codexQuotaHistorySourceIsAuthoritative(candidate.Source)
+	isNonHeaderZero := candidate.Source != RefreshSourceUsageHeader && observation.ZeroUsage
+	observation.NonHeaderZeroUsage = isNonHeaderZero
 	// 内部 DTO 必须满足基本范围与时间顺序，异常值不能推进内存状态。
 	if observation.WindowSeconds <= 0 || observation.WindowSeconds > math.MaxInt64/int64(time.Second) ||
 		observation.ResetAt.IsZero() || observation.RemainingPercent < 0 || observation.RemainingPercent > 100 ||
 		observation.ObservationCount < 1 || observation.FirstObservedAt.IsZero() || observation.LastObservedAt.IsZero() ||
 		observation.FirstObservedAt.After(observation.LastObservedAt) {
-		return false
+		return false, true
 	}
 
 	current, loaded := state.Current[key]
 	if !loaded {
 		// 同一批第一次恢复失败后不重复打数据库；下一批仍可自然重试。
 		if _, failed := failedRecoveries[key]; failed {
-			return false
+			return false, false
 		}
 		recovered, err := s.loadCodexQuotaHistoryCurrentState(key)
 		if err != nil {
@@ -268,7 +284,7 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 				"auth_index":  key.AuthIndex,
 				"window_role": key.WindowRole,
 			}).Warn("codex quota history state recovery failed")
-			return false
+			return false, false
 		}
 		current = recovered
 		// 已有数据库尾段视为本进程刚确认，避免服务重启后立刻产生无意义稳定 UPDATE。
@@ -278,46 +294,64 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 		state.Current[key] = current
 	}
 
+	if !current.Found {
+		// 主动查询返回 0% 已用且尚无已有周期时，仅当同批真实 Header 已证明窗口启动才允许建首个周期。
+		if isNonHeaderZero && !observation.HeaderStarted {
+			return false, true
+		}
+	}
+
 	if current.Found {
-		// 窗口变化代表角色切换；先封住旧稳定尾段，再写新周期基线。
+		// 窗口变化代表角色切换；同批存在真实 Header 证明新窗口已启动时允许提前切窗（如未到期的 Weekly 切到 5h）。
 		if current.WindowSeconds != observation.WindowSeconds {
+			if isNonHeaderZero && !observation.HeaderStarted {
+				return false, true
+			}
 			if current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt) {
-				return false
+				return false, true
 			}
 			s.appendDeferredCodexQuotaHistoryStable(state, key, pending)
 			s.appendCodexQuotaHistoryChange(state, key, &current, pending, observation)
-			return true
+			return true, false
 		}
 
 		sameCycle := codexQuotaHistorySameCycle(current, observation)
 		if !sameCycle {
+			// 已有未到期周期存在时，即使同批有轻微抖动的 Header，0% 主动刷新也不得越过两分钟锚点拆出新空周期并截短原周期。
+			if isNonHeaderZero && (!observation.HeaderStarted || current.ResetAt.After(observation.FirstObservedAt)) {
+				return false, true
+			}
 			// 同窗口只有时间向前且 reset 不倒退时才能建立下一周期。
 			if (current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt)) || observation.ResetAt.Before(current.ResetAt) {
-				return false
+				return false, true
 			}
 			s.appendDeferredCodexQuotaHistoryStable(state, key, pending)
 			s.appendCodexQuotaHistoryChange(state, key, &current, pending, observation)
-			return true
+			return true, false
 		}
 
 		// 同周期乱序事实不能反向推进百分比或 reset 边界。
 		if current.HasTail && observation.LastObservedAt.Before(current.LastObservedAt) {
-			return false
+			return false, false
 		}
 		boundaryUpgraded := current.ResetAtSource == "relative" && observation.ResetAtSource == "absolute"
-		trustedCalibration := observation.Authoritative &&
+		trustedCalibration := observation.Authoritative && !isNonHeaderZero &&
 			(current.ResetAtSource != observation.ResetAtSource || !current.ResetAt.Equal(observation.ResetAt))
 		boundaryUpdated := boundaryUpgraded || trustedCalibration
 		if boundaryUpdated {
 			current.ResetAtSource = observation.ResetAtSource
 			current.ResetAt = observation.ResetAt
+		} else {
+			// 未触发边界升级或校准的同周期观测统一沿用当前锁定边界，防止未采纳的 Header 抖动时间在跨批合并时借主动刷新标记落库。
+			observation.ResetAtSource = current.ResetAtSource
+			observation.ResetAt = current.ResetAt
 		}
 
 		// 可信专门额度查询允许纠正错误低尾段；普通 Header 回升仍直接忽略。
 		if current.HasTail && observation.RemainingPercent > current.RemainingPercent && observation.Authoritative {
 			s.appendDeferredCodexQuotaHistoryStable(state, key, pending)
 			s.appendCodexQuotaHistoryChange(state, key, &current, pending, observation)
-			return true
+			return true, false
 		}
 		if current.HasTail && observation.LastObservedAt.Equal(current.LastObservedAt) {
 			if observation.RemainingPercent != current.RemainingPercent {
@@ -338,6 +372,7 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 					calibrated.ResetAt = observation.ResetAt
 					calibrated.ObservationCount += observation.ObservationCount
 					calibrated.Authoritative = calibrated.Authoritative || observation.Authoritative
+					calibrated.NonHeaderZeroUsage = calibrated.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
 				} else {
 					// 已落库尾段无法原地修改；追加校准后必须让 PendingIndex 指向它，不能再引用旧 relative 条目。
 					observation.RemainingPercent = current.RemainingPercent
@@ -345,12 +380,12 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 					current.PendingIndex = len(*pending) - 1
 				}
 				state.Current[key] = current
-				return true
+				return true, false
 			}
-			return false
+			return false, false
 		}
 		if current.HasTail && observation.RemainingPercent > current.RemainingPercent {
-			return false
+			return false, false
 		}
 		if current.HasTail && observation.RemainingPercent == current.RemainingPercent {
 			// 新状态已在本批 pending 时直接合并；否则只保留一个五分钟稳定尾段。
@@ -364,20 +399,21 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 				merged.LastObservedAt = observation.LastObservedAt
 				merged.ObservationCount += observation.ObservationCount
 				merged.Authoritative = merged.Authoritative || observation.Authoritative
+				merged.NonHeaderZeroUsage = merged.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
 				materialized = true
 			} else {
-				s.mergeDeferredCodexQuotaHistoryStable(state, key, observation, boundaryUpdated || observation.Authoritative)
+				s.mergeDeferredCodexQuotaHistoryStable(state, key, observation, boundaryUpdated || (observation.Authoritative && !observation.NonHeaderZeroUsage))
 			}
 			current.LastObservedAt = observation.LastObservedAt
 			state.Current[key] = current
-			return materialized
+			return materialized, false
 		}
 	}
 
 	// 空状态、空尾段或同周期真实下降都是语义变化，必须在本批立即写入。
 	s.appendDeferredCodexQuotaHistoryStable(state, key, pending)
 	s.appendCodexQuotaHistoryChange(state, key, &current, pending, observation)
-	return true
+	return true, false
 }
 
 // appendCodexQuotaHistoryChange 把新周期、真实下降或可信纠错追加到本批，并推进当前比较状态。
@@ -407,7 +443,8 @@ func (s *Service) mergeDeferredCodexQuotaHistoryStable(state *codexQuotaHistoryR
 	deferred.Observation.LastObservedAt = observation.LastObservedAt
 	deferred.Observation.ObservationCount += observation.ObservationCount
 	deferred.Observation.Authoritative = deferred.Observation.Authoritative || observation.Authoritative
-	if observation.Authoritative || deferred.Observation.ResetAtSource == "relative" && observation.ResetAtSource == "absolute" {
+	deferred.Observation.NonHeaderZeroUsage = deferred.Observation.NonHeaderZeroUsage && observation.NonHeaderZeroUsage
+	if (observation.Authoritative && !observation.NonHeaderZeroUsage) || (deferred.Observation.ResetAtSource == "relative" && observation.ResetAtSource == "absolute") {
 		deferred.Observation.ResetAtSource = observation.ResetAtSource
 		deferred.Observation.ResetAt = observation.ResetAt
 	}
@@ -443,8 +480,11 @@ func (s *Service) appendDueCodexQuotaHistoryStable(state *codexQuotaHistoryRunne
 			keys = append(keys, key)
 		}
 	}
-	// map 遍历无序；账号和角色排序让测试、日志与 repository 输入保持稳定。
+	// map 遍历无序；渠道、账号和角色排序让测试、日志与 repository 输入保持稳定。
 	sort.Slice(keys, func(left int, right int) bool {
+		if keys[left].Provider != keys[right].Provider {
+			return keys[left].Provider < keys[right].Provider
+		}
 		if keys[left].AuthIndex != keys[right].AuthIndex {
 			return keys[left].AuthIndex < keys[right].AuthIndex
 		}

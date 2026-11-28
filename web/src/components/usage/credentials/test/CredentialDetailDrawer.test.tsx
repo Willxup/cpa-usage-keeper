@@ -941,4 +941,55 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
     expect(document.body.textContent).not.toContain('request log content')
   })
+
+  it('enables quota history tab for Antigravity and xAI Credentials based on authoritative identity.type', async () => {
+    const antigravitySelection: CredentialDetailSelection = {
+      kind: 'credential',
+      row: {
+        ...credentialRow,
+        identity: { ...credentialRow.identity, id: 'ag-cred', identity: 'ag-auth', type: 'antigravity', provider: 'antigravity' },
+        displayName: 'Antigravity Credential',
+        typeLabel: 'antigravity',
+        providerLabel: 'antigravity',
+      },
+    }
+    const xaiSelection: CredentialDetailSelection = {
+      kind: 'credential',
+      row: {
+        ...credentialRow,
+        identity: { ...credentialRow.identity, id: 'xai-cred', identity: 'xai-auth', type: 'xai', provider: 'xai' },
+        displayName: 'xAI Credential',
+        typeLabel: 'xai',
+        providerLabel: 'xai',
+      },
+    }
+    await renderDrawer({ selection: antigravitySelection })
+    const agTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
+    expect(agTab).not.toBeNull()
+    await act(async () => { agTab.click() })
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('ag-auth', {}, expect.any(AbortSignal))
+
+    await renderDrawer({ selection: xaiSelection })
+    const xaiTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
+    expect(xaiTab).not.toBeNull()
+    await act(async () => { xaiTab.click() })
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('xai-auth', {}, expect.any(AbortSignal))
+
+    // provider 为 antigravity 但 type 非支持渠道，或 AI Provider 身份均不得开启限额历史标签。
+    await renderDrawer({
+      selection: {
+        kind: 'credential',
+        row: { ...credentialRow, identity: { ...credentialRow.identity, id: 'mismatch', identity: 'mismatch-auth', type: 'gemini-cli', provider: 'antigravity' } },
+      },
+    })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+
+    await renderDrawer({
+      selection: {
+        kind: 'ai-provider',
+        row: { ...row, identity: { ...row.identity, id: 'ag-provider', type: 'antigravity', provider: 'antigravity' } },
+      },
+    })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+  })
 })

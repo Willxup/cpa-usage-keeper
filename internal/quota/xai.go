@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 )
@@ -27,7 +28,11 @@ func (p xaiProvider) Check(ctx context.Context, input ProviderInput) (ProviderOu
 	monthlyCh := make(chan xaiBillingAttempt, 1)
 	go func() {
 		billing, err := p.requestBilling(ctx, input, p.weeklyConfig, "weekly")
-		weeklyCh <- xaiBillingAttempt{billing: billing, err: err}
+		var observedAt time.Time
+		if err == nil && billing != nil {
+			observedAt = time.Now()
+		}
+		weeklyCh <- xaiBillingAttempt{billing: billing, observedAt: observedAt, err: err}
 	}()
 	go func() {
 		billing, err := p.requestBilling(ctx, input, p.monthlyConfig, "monthly")
@@ -38,17 +43,19 @@ func (p xaiProvider) Check(ctx context.Context, input ProviderInput) (ProviderOu
 	weekly, weeklyErr := weeklyAttempt.billing, weeklyAttempt.err
 	monthly, monthlyErr := monthlyAttempt.billing, monthlyAttempt.err
 	if weekly != nil || monthly != nil {
-		return ProviderOutput{Provider: "xai", Result: XAIResult{
-			Weekly:  weekly,
-			Monthly: monthly,
-		}}, nil
+		return ProviderOutput{
+			Provider:   "xai",
+			Result:     XAIResult{Weekly: weekly, Monthly: monthly},
+			ObservedAt: weeklyAttempt.observedAt,
+		}, nil
 	}
 	return ProviderOutput{}, selectXAIBillingError(weeklyErr, monthlyErr)
 }
 
 type xaiBillingAttempt struct {
-	billing *XAIBillingPayload
-	err     error
+	billing    *XAIBillingPayload
+	observedAt time.Time
+	err        error
 }
 
 func selectXAIBillingError(billingErrors ...error) error {

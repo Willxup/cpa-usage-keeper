@@ -42,6 +42,7 @@ func (p codexProvider) Check(ctx context.Context, input ProviderInput) (Provider
 	if err != nil {
 		return ProviderOutput{}, err
 	}
+	observedAt := time.Now()
 	// usage 未明确给出 reset credit 数量时，按 CPAMC 的 best-effort 语义补查详情接口；明确 0 不触发额外请求。
 	if usage.RateLimitResetCredits == nil || usage.RateLimitResetCredits.AvailableCount == nil {
 		credits, creditsErr := p.ListResetCredits(ctx, input)
@@ -58,7 +59,7 @@ func (p codexProvider) Check(ctx context.Context, input ProviderInput) (Provider
 			}
 		}
 	}
-	return ProviderOutput{Provider: "codex", Result: CodexResult{Usage: usage}}, nil
+	return ProviderOutput{Provider: "codex", Result: CodexResult{Usage: usage}, ObservedAt: observedAt}, nil
 }
 
 // FetchSubscriptionActiveUntil 是主动刷新附带的可选查询；失败不影响已取得的额度。

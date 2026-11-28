@@ -15,26 +15,25 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestAntigravityRefreshKeepsUndisplayableArgonEvidence(t *testing.T) {
-	// 两种 Ultra 都通过真实订阅归一化路径；无效独立组不能因过滤或回退而丢失证据。
-	argonByName := `{"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"other","window":"weekly"}]}`
+func TestAntigravityRefreshIgnoresDeprecatedArgonGroupAndMergesUsageIntoGemini(t *testing.T) {
+	// 无论响应是否残留已下线的 Argon 组或回退路径如何，所有 gemini-* 模型都统一归入 Gemini Models。
+	argonByName := `{"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"other","window":"weekly","remainingFraction":0.6}]}`
 	argonByID := `{"displayName":"Unrecognized","buckets":[{"bucketId":"gemini-argon-wtu-weekly","remainingFraction":"NaN"}]}`
 	for _, tier := range []struct{ id, name, plan string }{
+		{id: "g1-pro-tier", name: "Pro", plan: "pro"},
 		{id: "g1-ultra-tier", name: "Ultra", plan: "ultra"},
 		{id: "g1-ultra-lite-tier", name: "Google AI Ultra", plan: "ultra-lite"},
 	} {
 		t.Run(tier.plan, func(t *testing.T) {
 			for _, tc := range []struct {
-				name       string
-				argon      string
-				fallback   bool
-				wantTokens int64
-				wantCost   float64
+				name     string
+				argon    string
+				fallback bool
 			}{
-				{name: "missing fraction recognized by name", argon: argonByName, wantTokens: 100, wantCost: .5},
-				{name: "non-finite fraction recognized by ID", argon: argonByID, wantTokens: 100, wantCost: .5},
-				{name: "evidence survives empty endpoint fallback", argon: argonByID, fallback: true, wantTokens: 100, wantCost: .5},
-				{name: "no Argon group shared pool", wantTokens: 400, wantCost: 2},
+				{name: "legacy Argon recognized by name ignored", argon: argonByName},
+				{name: "legacy Argon recognized by ID ignored", argon: argonByID},
+				{name: "legacy Argon ignored across fallback", argon: argonByID, fallback: true},
+				{name: "no Argon group unified Gemini pool"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					db := openQuotaTestDB(t)
@@ -43,6 +42,7 @@ func TestAntigravityRefreshKeepsUndisplayableArgonEvidence(t *testing.T) {
 					if err := db.Create(&[]entities.UsageEvent{
 						{EventKey: "gemini", AuthIndex: "argon-auth", Model: "gemini-3-flash", Timestamp: now.Add(-5 * time.Minute), TotalTokens: 100, CostUSD: floatPtr(.5), CostAvailable: boolPtr(true)},
 						{EventKey: "argon", AuthIndex: "argon-auth", Model: "gemini-4-argon-high", Timestamp: now.Add(-5 * time.Minute), TotalTokens: 300, CostUSD: floatPtr(1.5), CostAvailable: boolPtr(true)},
+						{EventKey: "carbon", AuthIndex: "argon-auth", Model: "gemini-4-carbon-high", Timestamp: now.Add(-5 * time.Minute), TotalTokens: 50, CostUSD: floatPtr(.2), CostAvailable: boolPtr(true)},
 						{EventKey: "older-argon", AuthIndex: "argon-auth", Model: "gemini-4-argon-high", Timestamp: now.Add(-24 * time.Hour), TotalTokens: 60, CostUSD: floatPtr(.25), CostAvailable: boolPtr(true)},
 					}).Error; err != nil {
 						t.Fatal(err)
@@ -74,7 +74,7 @@ func TestAntigravityRefreshKeepsUndisplayableArgonEvidence(t *testing.T) {
 					}
 					task := waitForRefreshTask(t, service, "argon-auth", RefreshTaskStatusCompleted)
 					if task.Quota == nil || len(task.Quota.Quota) != 2 {
-						t.Fatalf("invalid or absent Argon must not create a bar: %+v", task.Quota)
+						t.Fatalf("deprecated Argon must not create a bar: %+v", task.Quota)
 					}
 					gotSubscription := task.Quota.Subscription
 					if gotSubscription == nil || gotSubscription.Provider != "antigravity" || gotSubscription.Plan != tier.plan || gotSubscription.TierID != tier.id || gotSubscription.TierName != tier.name {
@@ -85,20 +85,15 @@ func TestAntigravityRefreshKeepsUndisplayableArgonEvidence(t *testing.T) {
 					if fiveHour.RemainingFraction == nil || *fiveHour.RemainingFraction != .5 || fiveHour.ResetAt != fiveHourReset || weekly.RemainingFraction == nil || *weekly.RemainingFraction != .75 || weekly.ResetAt != weeklyReset {
 						t.Fatalf("official quota and reset must be preserved: 5h=%+v weekly=%+v", fiveHour, weekly)
 					}
-					assertWindowUsage(t, fiveHour, tc.wantTokens, tc.wantCost)
-					weeklyTokens, weeklyCost := tc.wantTokens, tc.wantCost
-					if tc.argon == "" {
-						weeklyTokens += 60
-						weeklyCost += .25
-					}
-					assertWindowUsage(t, weekly, weeklyTokens, weeklyCost)
+					assertWindowUsage(t, fiveHour, 450, 2.2)
+					assertWindowUsage(t, weekly, 510, 2.45)
 					encoded, err := json.Marshal(task.Quota)
 					if err != nil {
 						t.Fatal(err)
 					}
 					serialized := strings.ToLower(string(encoded))
 					if strings.Contains(serialized, "separateargon") || strings.Contains(serialized, "gemini-4-argon") {
-						t.Fatalf("internal Argon evidence must not be serialized: %s", encoded)
+						t.Fatalf("deprecated Argon group must not be serialized: %s", encoded)
 					}
 				})
 			}
@@ -106,44 +101,32 @@ func TestAntigravityRefreshKeepsUndisplayableArgonEvidence(t *testing.T) {
 	}
 }
 
-func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
-	// 只验证已知套餐的归属契约；测试数据均为合成事件。
+func TestAttachWindowUsageStatsAntigravityUnifiedGeminiPool(t *testing.T) {
+	// 独立 Argon 桶取消后，所有套餐下 gemini-* 均无条件归入 antigravity-gemini-models，未知模型仍保留完整性保护。
 	for _, tc := range []struct {
-		name                 string
-		plan                 string
-		subscriptionProvider string
-		tierName             string
-		geminiName           string
-		claudeGPTName        string
-		dedicated            bool
-		argonUsage           bool
-		argonAvailable       bool
-		unknownUsage         bool
-		wantGemini           int64
-		wantGeminiCost       float64
-		wantArgon            int64
-		wantArgonCost        float64
-		wantMissing          bool
-		missingGemini        bool
-		missingArgon         bool
+		name           string
+		plan           string
+		geminiName     string
+		claudeGPTName  string
+		legacyArgon    bool
+		argonUsage     bool
+		argonAvailable bool
+		unknownUsage   bool
+		wantGemini     int64
+		wantGeminiCost float64
+		wantMissing    bool
+		missingGemini  bool
 	}{
-		{name: "dedicated Pro", plan: "pro", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
-		{name: "legacy names retain grouped stats with Argon", plan: "pro", geminiName: "Gemini Future Models", claudeGPTName: "GPT and Claude models", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
-		{name: "dedicated takes precedence over Ultra", plan: "ultra", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
-		{name: "dedicated takes precedence over Ultra Lite", plan: "ultra-lite", dedicated: true, argonUsage: true, argonAvailable: true, wantGemini: 100, wantGeminiCost: .5, wantArgon: 300, wantArgonCost: 1.5},
-		{name: "Ultra shared pool", plan: "ultra", argonUsage: true, argonAvailable: true, wantGemini: 400, wantGeminiCost: 2},
-		{name: "Ultra Lite shared pool", plan: "ultra-lite", argonUsage: true, argonAvailable: true, wantGemini: 400, wantGeminiCost: 2},
-		{name: "Ultra Lite case and whitespace", plan: " Ultra-Lite ", subscriptionProvider: " AntiGravity ", argonUsage: true, argonAvailable: true, wantGemini: 400, wantGeminiCost: 2},
-		{name: "Free missing group is uncertain", plan: "free", argonUsage: true, argonAvailable: true, wantMissing: true},
-		{name: "Pro missing group is uncertain", plan: "pro", argonUsage: true, argonAvailable: true, wantMissing: true},
-		{name: "unknown tier name cannot imply Ultra", plan: "unknown", tierName: "Google AI Ultra", argonUsage: true, argonAvailable: true, wantMissing: true},
-		{name: "missing plan is uncertain", argonUsage: true, argonAvailable: true, wantMissing: true},
-		{name: "other provider Ultra Lite is uncertain", plan: "ultra-lite", subscriptionProvider: "codex", argonUsage: true, argonAvailable: true, wantMissing: true},
-		{name: "Ultra Lite with unknown model is incomplete", plan: "ultra-lite", argonUsage: true, argonAvailable: true, unknownUsage: true, wantMissing: true},
-		{name: "Ultra Lite with unavailable Argon cost", plan: "ultra-lite", argonUsage: true, missingGemini: true},
-		{name: "uncertain without Argon usage", plan: "pro", wantGemini: 100, wantGeminiCost: .5},
-		{name: "real zero in dedicated group", plan: "pro", dedicated: true, wantGemini: 100, wantGeminiCost: .5},
-		{name: "unavailable Argon cost", plan: "pro", dedicated: true, argonUsage: true, wantGemini: 100, wantGeminiCost: .5, missingArgon: true},
+		{name: "Pro unifies Argon into Gemini", plan: "pro", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "legacy Argon group ignored while unifying usage", plan: "pro", legacyArgon: true, argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "legacy display names retain grouped stats", plan: "pro", geminiName: "Gemini Future Models", claudeGPTName: "GPT and Claude models", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "Free unifies Argon into Gemini", plan: "free", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "Ultra unifies Argon into Gemini", plan: "ultra", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "Ultra Lite unifies Argon into Gemini", plan: "ultra-lite", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "missing plan still unifies Argon into Gemini", argonUsage: true, argonAvailable: true, wantGemini: 450, wantGeminiCost: 2.2},
+		{name: "without Argon usage", plan: "pro", wantGemini: 150, wantGeminiCost: .7},
+		{name: "unknown model keeps completeness guard", plan: "ultra-lite", argonUsage: true, argonAvailable: true, unknownUsage: true, wantMissing: true},
+		{name: "unavailable Argon cost suppresses Gemini pair only", plan: "pro", argonUsage: true, missingGemini: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openQuotaTestDB(t)
@@ -152,6 +135,7 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 			alias := "gemini-4-argon-high"
 			events := []entities.UsageEvent{
 				{EventKey: "gemini", AuthIndex: "argon-auth", Model: "gemini-3-flash", ModelAlias: &alias, Timestamp: now.Add(-time.Hour), TotalTokens: 100, CostUSD: floatPtr(.5), CostAvailable: boolPtr(true)},
+				{EventKey: "neon", AuthIndex: "argon-auth", Model: "gemini-4-neon-medium", Timestamp: now.Add(-time.Hour), TotalTokens: 50, CostUSD: floatPtr(.2), CostAvailable: boolPtr(true)},
 				{EventKey: "claude", AuthIndex: "argon-auth", Model: "claude-sonnet-4-6", Timestamp: now.Add(-time.Hour), TotalTokens: 40, CostUSD: floatPtr(.2), CostAvailable: boolPtr(true)},
 			}
 			if tc.argonUsage {
@@ -178,20 +162,16 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 				{DisplayName: geminiName, Buckets: []AntigravityQuotaBucket{{BucketID: "gemini-weekly", Window: "weekly", RemainingFraction: new(.4), ResetTime: reset}}},
 				{DisplayName: claudeGPTName, Buckets: []AntigravityQuotaBucket{{BucketID: "claude-weekly", Window: "weekly", RemainingFraction: new(.8), ResetTime: reset}}},
 			}
-			if tc.dedicated {
+			if tc.legacyArgon {
 				groups = append(groups, AntigravityQuotaGroup{DisplayName: "Gemini 4 Argon", Buckets: []AntigravityQuotaBucket{{BucketID: "gemini-argon-wtu-weekly", Window: "weekly", RemainingFraction: new(.6), ResetTime: reset}}})
 			}
 			response := CheckResponse{ID: "argon-auth", Quota: NormalizeQuotaRows(ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: &AntigravityQuotaPayload{Groups: groups}}})}
 			if tc.plan != "" {
-				provider := tc.subscriptionProvider
-				if provider == "" {
-					provider = "antigravity"
-				}
-				response.Subscription = &SubscriptionInfo{Provider: provider, Plan: tc.plan, TierName: tc.tierName}
+				response.Subscription = &SubscriptionInfo{Provider: "antigravity", Plan: tc.plan}
 			}
 			response = attachWindowUsageStats(service, context.Background(), "argon-auth", response, now)
-			if len(response.Quota) != len(groups) {
-				t.Fatalf("unexpected quota rows: %+v", response.Quota)
+			if len(response.Quota) != 2 {
+				t.Fatalf("expected only Gemini and Claude & GPT rows, got %+v", response.Quota)
 			}
 			gemini := findQuotaRow(t, response.Quota, "bucket.antigravity-gemini-models.gemini-weekly")
 			if gemini.RemainingFraction == nil || *gemini.RemainingFraction != .4 || gemini.ResetAt != reset {
@@ -213,16 +193,6 @@ func TestAttachWindowUsageStatsAntigravityArgonPools(t *testing.T) {
 					assertWindowUsage(t, gemini, tc.wantGemini, tc.wantGeminiCost)
 				}
 				assertWindowUsage(t, claude, 40, .2)
-			}
-			if tc.dedicated {
-				argon := findQuotaRow(t, response.Quota, "bucket.antigravity-gemini-4-argon.gemini-argon-wtu-weekly")
-				if tc.missingArgon {
-					if argon.WindowUsageTokens != nil || argon.WindowUsageCost != nil {
-						t.Fatalf("unavailable Argon cost must not produce a partial pair: %+v", argon)
-					}
-				} else {
-					assertWindowUsage(t, argon, tc.wantArgon, tc.wantArgonCost)
-				}
 			}
 			if counter.UsageWindowQueries() != 1 {
 				t.Fatalf("expected one shared grouped query, got %d", counter.UsageWindowQueries())

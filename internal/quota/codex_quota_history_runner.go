@@ -42,6 +42,8 @@ type codexQuotaHistoryCandidate struct {
 	IdentityVerified bool
 	// Source 只参与运行期队列分流、百分比纠错与重置时刻可信度判断，不写入通用历史表。
 	Source RefreshSource
+	// SupersededHeaders 暂存本批被该可信候选覆盖的待处理 Header；若可信候选被未启动周期门禁拒绝则回放，避免丢失真实下降。
+	SupersededHeaders []codexQuotaHistoryCandidate
 }
 
 // codexQuotaHistoryStateKey 以 provider、账号和额度键隔离当前周期比较缓存。
@@ -123,18 +125,20 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 	return inputs
 }
 
-// splitPreferredCodexQuotaHistoryCandidates 只丢弃被同账号、同角色可信事实替代的 Header 候选。
+// splitPreferredCodexQuotaHistoryCandidates 仅丢弃被同周期可信事实替代的 Header 候选；
+// 若同周期队列内存在真实 Header，说明服务端窗口已启动，主动候选清零 ZeroUsage 以继承建周期。
 func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) ([]codexQuotaHistoryCandidate, []codexQuotaHistoryCandidate) {
 	trusted := make([]codexQuotaHistoryCandidate, 0, len(candidates))
-	trustedKeys := make(map[codexQuotaHistoryStateKey]struct{})
+	trustedByKey := make(map[codexQuotaHistoryStateKey][]int)
 	for _, candidate := range candidates {
 		if !codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
 			continue
 		}
+		trustedIndex := len(trusted)
 		trusted = append(trusted, candidate)
 		key := codexQuotaHistoryCandidateStateKey(candidate)
 		if key.AuthIndex != "" && key.QuotaKey != "" {
-			trustedKeys[key] = struct{}{}
+			trustedByKey[key] = append(trustedByKey[key], trustedIndex)
 		}
 	}
 	if len(trusted) == 0 {
@@ -146,13 +150,39 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 		if codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
 			continue
 		}
-		// 可信查询只覆盖它实际返回的账号角色；其它账号或同账号另一角色仍保留本轮 Header。
-		if _, superseded := trustedKeys[codexQuotaHistoryCandidateStateKey(candidate)]; superseded {
+		// 可信查询仅覆盖与之同周期且观察时刻不晚于自身的待处理候选，避免误删上一周期尾端 Header 或附属请求等待期间新到达的真实 Header。
+		key := codexQuotaHistoryCandidateStateKey(candidate)
+		matchedTrustedIndex := -1
+		for _, trustedIndex := range trustedByKey[key] {
+			if !codexQuotaHistoryObservationsSameCycle(trusted[trustedIndex].Observation, candidate.Observation) {
+				continue
+			}
+			if trusted[trustedIndex].Observation.LastObservedAt.Before(candidate.Observation.LastObservedAt) {
+				continue
+			}
+			matchedTrustedIndex = trustedIndex
+			if candidate.Source == RefreshSourceUsageHeader {
+				trusted[trustedIndex].Observation.HeaderStarted = true
+			}
+		}
+		if matchedTrustedIndex >= 0 {
+			trusted[matchedTrustedIndex].SupersededHeaders = append(trusted[matchedTrustedIndex].SupersededHeaders, candidate)
 			continue
 		}
 		remainingHeaders = append(remainingHeaders, candidate)
 	}
 	return trusted, remainingHeaders
+}
+
+// codexQuotaHistoryObservationsSameCycle 用窗口秒数和固定两分钟容差判断两条观测是否属于同一周期。
+func codexQuotaHistoryObservationsSameCycle(left repositorydto.CodexMainQuotaObservation, right repositorydto.CodexMainQuotaObservation) bool {
+	if left.WindowSeconds <= 0 || left.WindowSeconds != right.WindowSeconds {
+		return false
+	}
+	if left.ResetAt.IsZero() || right.ResetAt.IsZero() {
+		return false
+	}
+	return codexQuotaHistoryTimeDistance(left.ResetAt, right.ResetAt) <= codexQuotaHistoryResetTolerance
 }
 
 // codexQuotaHistoryCandidateStateKey 统一规范 runner 分流与状态缓存使用的账号角色键。
@@ -162,9 +192,10 @@ func codexQuotaHistoryCandidateStateKey(candidate codexQuotaHistoryCandidate) co
 		provider = "codex"
 	}
 	role := strings.ToLower(strings.TrimSpace(candidate.Observation.WindowRole))
-	quotaKey, ok := repositorydto.QuotaWindowKey(provider, role)
-	if !ok || (candidate.Observation.QuotaKey != "" && candidate.Observation.QuotaKey != quotaKey) {
-		quotaKey = ""
+	spec, ok := repositorydto.QuotaWindowSpecByRole(provider, role)
+	quotaKey := ""
+	if ok && (candidate.Observation.QuotaKey == "" || candidate.Observation.QuotaKey == spec.QuotaKey) {
+		quotaKey = spec.QuotaKey
 	}
 	return codexQuotaHistoryStateKey{
 		Provider:   provider,

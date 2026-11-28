@@ -21,9 +21,6 @@ const (
 	codexQuotaHistoryWriteBatchSize = 32
 	// 所有上游重置时间统一使用固定两分钟容差，避免直接时刻的秒级漂移拆分周期。
 	codexQuotaResetTolerance = 120 * time.Second
-	codexQuotaProvider       = "codex"
-	codexPrimaryQuotaKey     = "rate_limit.primary_window"
-	codexSecondaryQuotaKey   = "rate_limit.secondary_window"
 )
 
 // WriteCodexMainQuotaObservations 把 Codex/Claude 主窗口 observation 规范化后写入通用额度历史父子表。
@@ -209,6 +206,10 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 	created := false
 	reusedEarlierCycle := false
 	if !found {
+		// 非 Header 的 0% 已用主动刷新仅在同批真实 Header 证明新周期已启动、且不存在未到期的同窗口时长周期时才允许建周期。
+		if observation.NonHeaderZeroUsage && (!observation.HeaderStarted || (latestFound && latestCycle.WindowSeconds == observation.WindowSeconds && latestCycle.ResetAt.After(observation.FirstObservedAt))) {
+			return nil
+		}
 		cycle = newQuotaCycle(observation, quotaKey)
 		if err := tx.Create(&cycle).Error; err != nil {
 			return fmt.Errorf("create quota cycle: %w", err)
@@ -461,8 +462,8 @@ func newQuotaPercentSegment(cycleID int64, observation repositorydto.CodexMainQu
 }
 
 func upgradeQuotaCycleBoundary(tx *gorm.DB, cycle *entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) error {
-	// 可信来源可替换任意 Header 边界；普通 Header 只允许把 relative 首次升级为 absolute。
-	trustedCalibration := observation.Authoritative &&
+	// 可信来源可替换已有边界（0% 已用主动刷新不平移已有 absolute 边界）；普通 Header 与 0% 刷新仍允许把 relative 首次升级为 absolute。
+	trustedCalibration := observation.Authoritative && !observation.NonHeaderZeroUsage &&
 		(cycle.ResetAtSource != entities.QuotaResetAtSource(observation.ResetAtSource) || !cycle.ResetAt.Equal(observation.ResetAt))
 	directUpgrade := cycle.ResetAtSource == entities.QuotaResetAtSourceRelative && observation.ResetAtSource == string(entities.QuotaResetAtSourceAbsolute)
 	if !trustedCalibration && !directUpgrade {
@@ -543,15 +544,4 @@ func updateQuotaCycleObservedTimes(tx *gorm.DB, cycle entities.QuotaCycle, obser
 		return fmt.Errorf("update quota cycle observed times: %w", err)
 	}
 	return nil
-}
-
-func codexQuotaKey(role string) (string, bool) {
-	switch role {
-	case string(entities.CodexQuotaWindowRolePrimary):
-		return codexPrimaryQuotaKey, true
-	case string(entities.CodexQuotaWindowRoleSecondary):
-		return codexSecondaryQuotaKey, true
-	default:
-		return "", false
-	}
 }

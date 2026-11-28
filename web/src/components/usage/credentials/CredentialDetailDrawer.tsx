@@ -8,6 +8,7 @@ import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
 import { ApiError, fetchErrorEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
 import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
 import { CredentialQuotaPanel } from './quota/CredentialQuotaPanel'
+import { resolveCredentialQuotaHistoryProvider, supportsCredentialQuotaHistory } from './quota/credentialQuotaCapabilities'
 import { CredentialErrorEventsList } from './CredentialErrorEventsList'
 import { CredentialModelUsage } from './CredentialModelUsage'
 import { CredentialRecentActivity } from './CredentialRecentActivity'
@@ -160,8 +161,8 @@ export function CredentialDetailDrawer({
       setResettingStats(false)
     }
   }
-  const quotaHistoryProvider = selection?.kind === 'credential' ? identity?.type?.trim().toLowerCase() : undefined
-  const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
+  const quotaHistoryProvider = selection?.kind === 'credential' ? resolveCredentialQuotaHistoryProvider(identity) : undefined
+  const hasQuotaHistory = supportsCredentialQuotaHistory(selection)
   const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
     ? ['overview', 'quota-history', 'requests', 'errors']
     : ['overview', 'requests', 'errors'], [hasQuotaHistory])

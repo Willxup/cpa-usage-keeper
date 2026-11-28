@@ -93,7 +93,7 @@ func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 }
 
 func TestAntigravityProviderNormalizesCapturedProDailyAndProduction(t *testing.T) {
-	// 同一 Pro 账号的公开脱敏捕获：daily 有 Argon，production 没有。
+	// 同一 Pro 账号的公开脱敏捕获：daily 含已下线的旧 Argon 组，必须静默忽略且不与 Gemini Models 冲突。
 	// https://github.com/Javis603/token-monitor/blob/1b94dffb0de2d55514ed2ecb1d59361a24ea3180/tests/fixtures/antigravityQuotaSummaryArgon.json
 	data, err := os.ReadFile("testdata/antigravity_argon_quota.json")
 	if err != nil {
@@ -103,16 +103,9 @@ func TestAntigravityProviderNormalizesCapturedProDailyAndProduction(t *testing.T
 	if err := json.Unmarshal(data, &captures); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		name       string
-		wantGroups int
-		wantRows   int
-	}{
-		{name: "daily", wantGroups: 3, wantRows: 5},
-		{name: "production", wantGroups: 2, wantRows: 4},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, string(captures[tc.name]))}}, subscription: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, `{"paidTier":{"id":"g1-pro-tier","name":"Pro"}}`)}}}
+	for _, name := range []string{"daily", "production"} {
+		t.Run(name, func(t *testing.T) {
+			caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, string(captures[name]))}}, subscription: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, `{"paidTier":{"id":"g1-pro-tier","name":"Pro"}}`)}}}
 			configs := quota.DefaultProviderConfigs()
 			output, err := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions[:1]).Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
 			if err != nil {
@@ -120,41 +113,31 @@ func TestAntigravityProviderNormalizesCapturedProDailyAndProduction(t *testing.T
 			}
 			result := output.Result.(quota.AntigravityResult)
 			rows := quota.NormalizeQuotaRows(output)
-			if len(result.Quota.Groups) != tc.wantGroups || len(rows) != tc.wantRows {
-				t.Fatalf("unexpected captured groups or rows: %+v / %+v", result.Quota, rows)
+			if len(result.Quota.Groups) != 2 || len(rows) != 4 {
+				t.Fatalf("expected deprecated Argon group to be ignored, got %+v / %+v", result.Quota, rows)
 			}
 			for _, key := range []string{"bucket.antigravity-gemini-models.gemini-5h", "bucket.antigravity-gemini-models.gemini-weekly", "bucket.antigravity-claude-and-gpt-models.3p-5h", "bucket.antigravity-claude-and-gpt-models.3p-weekly"} {
 				findQuotaRow(t, rows, key)
 			}
-			if tc.name == "daily" {
-				group := result.Quota.Groups[2]
-				argon := findQuotaRow(t, rows, "bucket.antigravity-gemini-4-argon.gemini-argon-wtu-weekly")
-				if len(group.Buckets) != 1 || group.Buckets[0].DisplayName != "Gemini 4 Argon Weekly Limit" || argon.Label != "Weekly" || argon.GroupLabel != group.DisplayName || argon.GroupDescription != group.Description || argon.ResetAt != "2026-10-27T11:40:42Z" {
-					t.Fatalf("captured Argon metadata was not preserved: group=%+v row=%+v", group, argon)
-				}
-				assertFloatField(t, argon.RemainingFraction, 1, "captured Argon fraction")
-			} else {
-				for _, row := range rows {
-					if strings.Contains(row.GroupKey, "argon") {
-						t.Fatalf("production must not synthesize Argon: %+v", row)
-					}
+			for _, row := range rows {
+				if strings.Contains(row.GroupKey, "argon") || strings.Contains(row.Key, "argon") {
+					t.Fatalf("deprecated Argon group must not appear in normalized rows: %+v", row)
 				}
 			}
 		})
 	}
 }
 
-func TestAntigravityProviderPreservesArgonWeeklyFractions(t *testing.T) {
+func TestAntigravityProviderIgnoresDeprecatedArgonGroups(t *testing.T) {
 	for _, tc := range []struct {
-		value string
-		want  float64
+		name  string
+		group string
 	}{
-		{value: "1", want: 1},
-		{value: "0.44056508", want: 0.44056508},
-		{value: "0", want: 0},
+		{name: "by display name", group: `{"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"other","window":"weekly","resetTime":"2026-10-30T09:33:19Z","remainingFraction":0.44}]}`},
+		{name: "by deprecated bucket id", group: `{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-argon-wtu-weekly","window":"weekly","resetTime":"2026-10-30T09:33:19Z","remainingFraction":1}]}`},
 	} {
-		t.Run(tc.value, func(t *testing.T) {
-			body := `{"groups":[{"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"gemini-argon-wtu-weekly","displayName":"Gemini 4 Argon Weekly Limit","window":"weekly","resetTime":"2026-10-30T09:33:19Z","remainingFraction":` + tc.value + `}]}]}`
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"groups":[` + tc.group + `,{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-weekly","window":"weekly","resetTime":"2026-10-30T09:33:19Z","remainingFraction":0.8}]}]}`
 			caller := &antigravityRecordingCaller{quota: recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, body)}}}
 			configs := quota.DefaultProviderConfigs()
 			output, err := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], nil).Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
@@ -163,11 +146,10 @@ func TestAntigravityProviderPreservesArgonWeeklyFractions(t *testing.T) {
 			}
 			rows := quota.NormalizeQuotaRows(output)
 			if len(rows) != 1 {
-				t.Fatalf("expected exactly one Argon Weekly row: %+v", rows)
+				t.Fatalf("expected only real Gemini Models row without Argon collision, got %+v", rows)
 			}
-			row := findQuotaRow(t, rows, "bucket.antigravity-gemini-4-argon.gemini-argon-wtu-weekly")
-			assertFloatField(t, row.RemainingFraction, tc.want, "Argon remaining fraction")
-			assertIntField(t, row.Window.Seconds, 604800, "Argon window")
+			row := findQuotaRow(t, rows, "bucket.antigravity-gemini-models.gemini-weekly")
+			assertFloatField(t, row.RemainingFraction, 0.8, "Gemini remaining fraction")
 		})
 	}
 }

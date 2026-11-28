@@ -5,8 +5,7 @@ type QuotaErrorDisplay = { code?: string; message: string; title: string }
 type QuotaErrorDetails = { code?: string; message?: string }
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
-export const ANTIGRAVITY_ARGON_GROUP_KEY = 'antigravity-gemini-4-argon'
-const ANTIGRAVITY_QUOTA_GROUP_KEYS = new Set(['antigravity-gemini-models', 'antigravity-claude-and-gpt-models', ANTIGRAVITY_ARGON_GROUP_KEY])
+const ANTIGRAVITY_QUOTA_GROUP_KEYS = new Set(['antigravity-gemini-models', 'antigravity-claude-and-gpt-models'])
 
 type CredentialQuotaPanelItem =
   | { kind: 'quota'; quota: DisplayQuota; tooltipAlignRight: boolean }

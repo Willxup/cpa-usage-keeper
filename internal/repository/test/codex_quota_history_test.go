@@ -407,6 +407,83 @@ func TestWriteCodexMainQuotaObservationsMergesOneThousandEqualPercentages(t *tes
 	}
 }
 
+func TestWriteCodexMainQuotaObservationsNonHeaderZeroUsageGuards(t *testing.T) {
+	t.Run("skips_creating_unstarted_cycle", func(t *testing.T) {
+		db := openTestDatabase(t)
+		resetAt := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+		obs := codexQuotaHistoryObservation("zero-auth", "primary", 18_000, resetAt, 100, resetAt.Add(-5*time.Hour))
+		obs.Authoritative = true
+		obs.ZeroUsage = true
+		obs.NonHeaderZeroUsage = true
+
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{obs}); err != nil {
+			t.Fatalf("write non-header zero observation: %v", err)
+		}
+		var count int64
+		if err := db.Model(&entities.QuotaCycle{}).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("expected no cycle created for unstarted non-header zero usage, got %d", count)
+		}
+	})
+
+	t.Run("anchors_absolute_reset_while_allowing_tail_correction", func(t *testing.T) {
+		db := openTestDatabase(t)
+		resetAt := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+		base := resetAt.Add(-4 * time.Hour)
+		seed := []repositorydto.CodexMainQuotaObservation{
+			codexQuotaHistoryObservation("anchor-repo", "primary", 18_000, resetAt, 100, base),
+			codexQuotaHistoryObservation("anchor-repo", "primary", 18_000, resetAt, 80, base.Add(time.Minute)),
+		}
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, seed); err != nil {
+			t.Fatalf("seed cycle: %v", err)
+		}
+		zeroCorrection := codexQuotaHistoryObservation("anchor-repo", "primary", 18_000, resetAt.Add(45*time.Second), 100, base.Add(2*time.Minute))
+		zeroCorrection.Authoritative = true
+		zeroCorrection.ZeroUsage = true
+		zeroCorrection.NonHeaderZeroUsage = true
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{zeroCorrection}); err != nil {
+			t.Fatalf("write zero tail correction: %v", err)
+		}
+		cycle, segments := loadCodexQuotaHistoryRows(t, db, "anchor-repo", "primary")
+		if !cycle.ResetAt.Equal(resetAt) {
+			t.Fatalf("expected absolute reset anchored at %s, got %s", resetAt, cycle.ResetAt)
+		}
+		if len(segments) != 1 || segments[0].RemainingPercent != 100 || segments[0].ObservationCount != 2 {
+			t.Fatalf("expected false 80%% tail corrected back to 100%%, got %+v", segments)
+		}
+	})
+
+	t.Run("allows_one_time_relative_to_absolute_upgrade", func(t *testing.T) {
+		db := openTestDatabase(t)
+		relativeReset := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+		base := relativeReset.Add(-4 * time.Hour)
+		first := codexQuotaHistoryObservation("rel-repo", "primary", 18_000, relativeReset, 100, base)
+		first.ResetAtSource = "relative"
+		upgradedReset := relativeReset.Add(20 * time.Second)
+		second := codexQuotaHistoryObservation("rel-repo", "primary", 18_000, upgradedReset, 100, base.Add(time.Minute))
+		second.Authoritative = true
+		second.ZeroUsage = true
+		second.NonHeaderZeroUsage = true
+		third := codexQuotaHistoryObservation("rel-repo", "primary", 18_000, upgradedReset.Add(40*time.Second), 100, base.Add(2*time.Minute))
+		third.Authoritative = true
+		third.ZeroUsage = true
+		third.NonHeaderZeroUsage = true
+
+		if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{first, second, third}); err != nil {
+			t.Fatalf("write relative upgrade sequence: %v", err)
+		}
+		cycle, segments := loadCodexQuotaHistoryRows(t, db, "rel-repo", "primary")
+		if cycle.ResetAtSource != entities.QuotaResetAtSourceAbsolute || !cycle.ResetAt.Equal(upgradedReset) {
+			t.Fatalf("expected one-time relative->absolute upgrade to %s, got %+v", upgradedReset, cycle)
+		}
+		if len(segments) != 1 || segments[0].ObservationCount != 3 {
+			t.Fatalf("expected 3 merged observations, got %+v", segments)
+		}
+	})
+}
+
 func TestWriteCodexMainQuotaObservationsHonorsCancellationWhileWriterIsOccupied(t *testing.T) {
 	// 生产只有一个 SQLite writer；先占住该连接，证明 history 在池外等待时能响应调用方取消。
 	db := openTestDatabase(t)

@@ -36,19 +36,19 @@ describe('credential view switching', () => {
     expect(container.querySelector('[data-view-mode="list"]')).not.toBeNull()
   })
 
-  it('keeps multiple Argon quotas and row-specific actions in the historical list', async () => {
+  it('keeps multiple Antigravity group quotas and row-specific actions in the list', async () => {
     await i18n.changeLanguage('en')
     const identity = createSectionIdentity({ type: 'antigravity', provider: 'antigravity' })
     const row = buildCredentialRows([identity], new Map())[0]
     row.displayQuotas = ['a', 'b', 'c'].map((key) => ({
-      key, label: `Argon ${key}`, percent: 25, barPercent: 75, percentKind: 'used' as const,
+      key, label: `Gemini ${key}`, percent: 25, barPercent: 75, percentKind: 'used' as const,
       status: 'ok' as const, scope: 'quota_group' as const,
-      groupKey: 'antigravity-gemini-4-argon', groupLabel: 'Argon',
+      groupKey: 'antigravity-gemini-models', groupLabel: 'Gemini Models',
     }))
     const refresh = vi.fn(async () => undefined)
     await act(async () => root.render(<CredentialsSection {...createCredentialSectionProps({ rows: [row], total: 1, viewMode: 'list', onRefreshQuotaForAuthIndex: refresh })} />))
     const listRow = container.querySelector<HTMLElement>('[data-credential-list-row]')!
-    expect(listRow.querySelector('[data-quota-group="antigravity-gemini-4-argon"]')).not.toBeNull()
+    expect(listRow.querySelector('[data-quota-group="antigravity-gemini-models"]')).not.toBeNull()
     expect(listRow.querySelectorAll('[data-quota-key]')).toHaveLength(3)
     await act(async () => listRow.querySelector<HTMLButtonElement>(`button[aria-label*="${row.displayName}"][aria-busy]`)!.click())
     expect(refresh).toHaveBeenCalledWith(identity.identity)

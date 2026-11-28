@@ -1111,4 +1111,103 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(container.querySelector('[data-codex-quota-cycle-range]')?.textContent).toContain('UTC-07:00')
     expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(3)
   })
+
+  it('renders Antigravity four-window capsules with group labels, switches pools, and falls back after deleting last cycle', async () => {
+    const antigravityWindows = [
+      { window_role: 'gemini_5h', group_key: 'antigravity-gemini-models', group_label: 'Gemini', window_kind: 'five_hour' as const, window_seconds: 18000, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      { window_role: 'gemini_weekly', group_key: 'antigravity-gemini-models', group_label: 'Gemini', window_kind: 'weekly' as const, window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      { window_role: 'claude_gpt_5h', group_key: 'antigravity-claude-and-gpt-models', group_label: 'Claude & GPT', window_kind: 'five_hour' as const, window_seconds: 18000, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      { window_role: 'claude_gpt_weekly', group_key: 'antigravity-claude-and-gpt-models', group_label: 'Claude & GPT', window_kind: 'weekly' as const, window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+    ]
+    const initialAg: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: antigravityWindows,
+      selected_window: antigravityWindows[0],
+      cycles: [{ ...cloneResponse().cycles[0], id: 10, window_seconds: 18000 }],
+    }
+    const switchedAg: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: antigravityWindows,
+      selected_window: antigravityWindows[3],
+      cycles: [{ ...cloneResponse().cycles[0], id: 20, window_seconds: 604800 }],
+    }
+    const deletedEmptyRole: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: antigravityWindows.slice(0, 3),
+      selected_window: null,
+      cycles: [],
+    }
+    const fallbackAg: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: antigravityWindows.slice(0, 3),
+      selected_window: antigravityWindows[0],
+      cycles: [{ ...cloneResponse().cycles[0], id: 10, window_seconds: 18000 }],
+    }
+    fetchCodexQuotaHistory
+      .mockResolvedValueOnce(initialAg)
+      .mockResolvedValueOnce(switchedAg)
+      .mockResolvedValueOnce(deletedEmptyRole)
+      .mockResolvedValueOnce(fallbackAg)
+
+    await renderPanel('ag-auth')
+    const switcherButtons = () => Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[aria-label="usage_stats.credentials_quota_history_window_selector"] button'),
+    )
+    expect(switcherButtons().map((button) => button.textContent)).toEqual([
+      'Gemini · usage_stats.credentials_quota_history_window_five_hour',
+      'Gemini · usage_stats.credentials_quota_history_window_weekly',
+      'Claude & GPT · usage_stats.credentials_quota_history_window_five_hour',
+      'Claude & GPT · usage_stats.credentials_quota_history_window_weekly',
+    ])
+    expect(container.querySelector('h3')?.textContent).toContain('Gemini · usage_stats.credentials_quota_history_window_five_hour')
+    expect(cycleCard(10).textContent).toContain('Gemini · usage_stats.credentials_quota_history_window_five_hour')
+
+    await click(switcherButtons()[3])
+    expect(fetchCodexQuotaHistory).toHaveBeenNthCalledWith(2, 'ag-auth', { windowRole: 'claude_gpt_weekly' }, expect.any(AbortSignal))
+    expect(container.querySelector('h3')?.textContent).toContain('Claude & GPT · usage_stats.credentials_quota_history_window_weekly')
+    expect(cycleCard(20).textContent).toContain('Claude & GPT · usage_stats.credentials_quota_history_window_weekly')
+
+    // 删除该池最后一个周期后，选中窗口消失并自动回退到剩余默认窗口。
+    await click(cycleCard(20).querySelector<HTMLButtonElement>('button[aria-label="usage_stats.credentials_quota_history_delete_title"]')!)
+    await click(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((button) => button.textContent === 'common.delete')!)
+    expect(deleteCodexQuotaHistoryCycle).toHaveBeenCalledWith('ag-auth', 20, expect.any(AbortSignal))
+    expect(fetchCodexQuotaHistory).toHaveBeenNthCalledWith(3, 'ag-auth', { windowRole: 'claude_gpt_weekly' }, expect.any(AbortSignal))
+    expect(fetchCodexQuotaHistory).toHaveBeenNthCalledWith(4, 'ag-auth', {}, expect.any(AbortSignal))
+    expect(switcherButtons()).toHaveLength(3)
+    expect(container.querySelector('h3')?.textContent).toContain('Gemini · usage_stats.credentials_quota_history_window_five_hour')
+  })
+
+  it('hides the window switcher for single-window xAI and preserves custom role fallback on duplicate labels', async () => {
+    const xaiResponse: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: [{ window_role: 'weekly', window_kind: 'weekly', window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' }],
+      selected_window: { window_role: 'weekly', window_kind: 'weekly', window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      cycles: [{ ...cloneResponse().cycles[0], id: 30, window_seconds: 604800 }],
+    }
+    fetchCodexQuotaHistory.mockResolvedValueOnce(xaiResponse)
+    await renderPanel('xai-auth')
+    expect(container.querySelector('[aria-label="usage_stats.credentials_quota_history_window_selector"]')).toBeNull()
+    expect(container.querySelector('h3')?.textContent).toContain('usage_stats.credentials_quota_history_efficiency_title · usage_stats.credentials_quota_history_window_weekly')
+    expect(cycleCard(30).textContent).toContain('usage_stats.credentials_quota_history_window_weekly · usage_stats.credentials_quota_history_first_observed')
+
+    // 重复标签兜底时，非 primary 角色展示自身 window_role 而不是被误标为 Secondary。
+    const duplicateCustom: CodexQuotaHistoryResponse = {
+      ...cloneResponse(),
+      windows: [
+        { window_role: 'pool_a_weekly', window_kind: 'weekly', window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+        { window_role: 'pool_b_weekly', window_kind: 'weekly', window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      ],
+      selected_window: { window_role: 'pool_a_weekly', window_kind: 'weekly', window_seconds: 604800, has_current_cycle: true, last_observed_at: '2026-08-21T11:50:00Z' },
+      cycles: [{ ...cloneResponse().cycles[0], id: 31, window_seconds: 604800 }],
+    }
+    fetchCodexQuotaHistory.mockResolvedValueOnce(duplicateCustom)
+    await renderPanel('custom-auth')
+    const labels = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[aria-label="usage_stats.credentials_quota_history_window_selector"] button'),
+    ).map((button) => button.textContent)
+    expect(labels).toEqual([
+      'usage_stats.credentials_quota_history_window_weekly · pool_a_weekly',
+      'usage_stats.credentials_quota_history_window_weekly · pool_b_weekly',
+    ])
+  })
 })

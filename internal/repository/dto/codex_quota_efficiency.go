@@ -32,8 +32,12 @@ type CodexQuotaEfficiencyHistory struct {
 
 // CodexQuotaEfficiencyWindow 用上游角色稳定表达一个窗口，周期长度取该角色的最新观察值。
 type CodexQuotaEfficiencyWindow struct {
-	// WindowRole 是共享 API 的 primary/secondary，内部存储键按 provider 映射。
+	// WindowRole 是共享 API 的窗口角色键，内部存储键按 provider 注册表映射。
 	WindowRole string
+	// GroupKey 是分池渠道的模型池键；单池渠道为空。
+	GroupKey string `json:",omitempty"`
+	// GroupLabel 是分池渠道的详情页短池名；单池渠道为空。
+	GroupLabel string `json:",omitempty"`
 	// WindowKind 是当前已知秒数的友好分类；未知正窗口保持 nil。
 	WindowKind *string
 	// WindowSeconds 是该角色最近观察到的真实窗口秒数，只用于展示当前周期类型。

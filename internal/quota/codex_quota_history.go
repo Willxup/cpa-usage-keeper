@@ -1,166 +1,36 @@
 package quota
 
 import (
-	"math"
-	"strings"
 	"time"
 
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
-
-	"github.com/sirupsen/logrus"
 )
 
-// BuildCodexMainQuotaObservations 从主动查询原始 ProviderOutput 只提取 Primary/Secondary 主额度历史。
+// BuildCodexMainQuotaObservations 兼容既有调用方，从主动查询原始 ProviderOutput 只提取 Codex 主额度历史。
 func BuildCodexMainQuotaObservations(authIndex string, output ProviderOutput, observedAt time.Time) []repositorydto.CodexMainQuotaObservation {
-	// auth_index 是未来回溯 UsageEvent 的稳定键；缺失时整份输出没有可持久化归属。
-	authIndex = strings.TrimSpace(authIndex)
-	if authIndex == "" || observedAt.IsZero() {
-		return nil
-	}
-	// 只接受真实 CodexResult；Provider 字符串提示不能替代结果类型证明。
-	usage := codexUsagePayloadFromProviderOutput(output)
-	if usage == nil || usage.RateLimit == nil {
-		return nil
-	}
-
-	// 结果最多两条并预分配容量；CodeReviewRateLimit 与 AdditionalRateLimits 不参与遍历。
-	observations := make([]repositorydto.CodexMainQuotaObservation, 0, 2)
-	if observation, ok := buildCodexMainQuotaObservation(authIndex, "primary", usage.RateLimit.PrimaryWindow, observedAt); ok {
-		observations = append(observations, observation)
-	}
-	if observation, ok := buildCodexMainQuotaObservation(authIndex, "secondary", usage.RateLimit.SecondaryWindow, observedAt); ok {
-		observations = append(observations, observation)
-	}
-	return observations
+	return BuildQuotaHistoryObservations("codex", authIndex, output, observedAt)
 }
 
-// BuildMainQuotaObservations 将两个 provider 的主窗口投影到同一历史状态机。
+// BuildMainQuotaObservations 兼容既有调用方，按 ProviderOutput.Result 具体类型分发到对应渠道限额历史提取器。
 func BuildMainQuotaObservations(authIndex string, output ProviderOutput, observedAt time.Time) []repositorydto.CodexMainQuotaObservation {
-	if strings.TrimSpace(authIndex) == "" || observedAt.IsZero() {
+	provider := quotaHistoryProviderFromResult(output.Result)
+	if provider == "" {
 		return nil
 	}
-	if codexUsagePayloadFromProviderOutput(output) != nil {
-		return BuildCodexMainQuotaObservations(authIndex, output, observedAt)
-	}
-	var usage *ClaudeUsagePayload
-	switch result := output.Result.(type) {
-	case ClaudeResult:
-		usage = result.Usage
-	case *ClaudeResult:
-		if result != nil {
-			usage = result.Usage
-		}
-	}
-	if usage == nil {
-		return nil
-	}
-	observations := make([]repositorydto.CodexMainQuotaObservation, 0, 2)
-	for _, window := range []struct {
-		role    string
-		key     string
-		seconds int64
-		value   *ClaudeUsageWindow
-	}{
-		{"primary", "five_hour", quotaWindowFiveHourSeconds, usage.FiveHour},
-		{"secondary", "seven_day", quotaWindowSevenDaySeconds, usage.SevenDay},
-	} {
-		if window.value == nil || !window.value.HasUtilization || math.IsNaN(window.value.Utilization) || math.IsInf(window.value.Utilization, 0) {
-			continue
-		}
-		resetAt, err := time.Parse(time.RFC3339Nano, window.value.ResetsAt)
-		if err != nil || resetAt.IsZero() {
-			continue
-		}
-		codexWindow := &CodexUsageWindow{
-			UsedPercent: window.value.Utilization, HasUsedPercent: true,
-			LimitWindowSeconds: window.seconds, HasLimitWindowSeconds: true,
-			ResetAt: resetAt.Unix(), HasResetAt: true,
-		}
-		observation, ok := buildCodexMainQuotaObservation(authIndex, window.role, codexWindow, observedAt)
-		if !ok {
-			continue
-		}
-		observation.Provider = "claude"
-		observation.QuotaKey = window.key
-		observations = append(observations, observation)
-	}
-	return observations
+	return BuildQuotaHistoryObservations(provider, authIndex, output, observedAt)
 }
 
-func codexUsagePayloadFromProviderOutput(output ProviderOutput) *CodexUsagePayload {
-	// Provider handler 当前返回值可能是值或指针，两种形式共享完全相同的历史语义。
-	switch result := output.Result.(type) {
-	case CodexResult:
-		return result.Usage
-	case *CodexResult:
-		if result != nil {
-			return result.Usage
-		}
+func quotaHistoryProviderFromResult(result any) string {
+	switch result.(type) {
+	case CodexResult, *CodexResult:
+		return "codex"
+	case ClaudeResult, *ClaudeResult:
+		return "claude"
+	case AntigravityResult, *AntigravityResult:
+		return "antigravity"
+	case XAIResult, *XAIResult:
+		return "xai"
+	default:
+		return ""
 	}
-	return nil
-}
-
-func buildCodexMainQuotaObservation(authIndex string, role string, window *CodexUsageWindow, observedAt time.Time) (repositorydto.CodexMainQuotaObservation, bool) {
-	// 零值结果保持不可写；调用方只能在 ok=true 时消费字段。
-	observation := repositorydto.CodexMainQuotaObservation{}
-	// 静态存储键避免每份主窗口观察都为字符串拼接分配内存。
-	quotaKey := "rate_limit.primary_window"
-	if role == "secondary" {
-		quotaKey = "rate_limit.secondary_window"
-	} else if role != "primary" {
-		return observation, false
-	}
-	// used、window seconds 和至少一种 reset 边界都必须由上游明确提供。
-	if window == nil || !window.HasUsedPercent || !window.HasLimitWindowSeconds || (!window.HasResetAt && !window.HasResetAfterSeconds) {
-		return observation, false
-	}
-	// raw 百分比允许有限超界值用于诊断，但 NaN/Inf 不能稳定转换或持久化。
-	if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) {
-		return observation, false
-	}
-	// 秒数必须为正且能安全转换为 time.Duration，避免周期起点计算整数溢出。
-	if window.LimitWindowSeconds <= 0 || window.LimitWindowSeconds > math.MaxInt64/int64(time.Second) {
-		return observation, false
-	}
-
-	// 优先采用上游直接返回的重置时刻；只有倒计时时，才用截断到秒的观察时间推算。
-	resetAt := time.Time{}
-	resetSource := ""
-	if window.HasResetAt && window.ResetAt > 0 {
-		resetAt = time.Unix(window.ResetAt, 0)
-		resetSource = "absolute"
-	} else if window.HasResetAfterSeconds && window.ResetAfterSeconds >= 0 && window.ResetAfterSeconds <= math.MaxInt64/int64(time.Second) {
-		resetAt = observedAt.Truncate(time.Second).Add(time.Duration(window.ResetAfterSeconds) * time.Second)
-		resetSource = "relative"
-	}
-	if resetAt.IsZero() {
-		return observation, false
-	}
-
-	// 统一剩余百分比采用页面同口径：先钳制已用值，再四舍五入成 0–100 整数。
-	clampedUsed := math.Max(0, math.Min(100, window.UsedPercent))
-	remainingPercent := int(math.Round(100 - clampedUsed))
-	// 有限超界值只用 debug 暴露上游异常，不进入统一历史 DTO。
-	if window.UsedPercent < 0 || window.UsedPercent > 100 {
-		logrus.WithFields(logrus.Fields{
-			"auth_index":       authIndex,
-			"window_role":      role,
-			"raw_used_percent": window.UsedPercent,
-		}).Debug("codex quota raw used percent clamped for history")
-	}
-
-	observation = repositorydto.CodexMainQuotaObservation{
-		Provider:         "codex",
-		QuotaKey:         quotaKey,
-		AuthIndex:        authIndex,
-		WindowRole:       role,
-		WindowSeconds:    window.LimitWindowSeconds,
-		ResetAtSource:    resetSource,
-		ResetAt:          resetAt,
-		RemainingPercent: remainingPercent,
-		FirstObservedAt:  observedAt,
-		LastObservedAt:   observedAt,
-		ObservationCount: 1,
-	}
-	return observation, true
 }
