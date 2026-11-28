@@ -206,7 +206,7 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 			for _, identity := range identities {
 				// repository 已限定 Credential；这里再取真实 type，与 observation 来源逐条核对。
 				provider := normalizeIdentityType(identity.Type)
-				if provider != "codex" && provider != "claude" {
+				if provider != "codex" && provider != "claude" && provider != "antigravity" {
 					continue
 				}
 				authIndex := strings.TrimSpace(identity.Identity)

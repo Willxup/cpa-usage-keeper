@@ -17,6 +17,7 @@ import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialKimiSiteBadge } from './CredentialKimiSiteBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
+import { AntigravityQuotaHistoryPanel } from './AntigravityQuotaHistoryPanel'
 import { formatCredentialTimestamp, type CredentialDetailSelection } from './credentialViewModels'
 import { credentialBrandOverride } from './credentialBrand'
 import styles from './CredentialDetailDrawer.module.scss'
@@ -161,7 +162,7 @@ export function CredentialDetailDrawer({
     }
   }
   const quotaHistoryProvider = selection?.kind === 'credential' ? identity?.type?.trim().toLowerCase() : undefined
-  const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
+  const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude' || quotaHistoryProvider === 'antigravity'
   const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
     ? ['overview', 'quota-history', 'requests', 'errors']
     : ['overview', 'requests', 'errors'], [hasQuotaHistory])
@@ -585,7 +586,11 @@ export function CredentialDetailDrawer({
           </section>
         ) : activeTab === 'quota-history' && hasQuotaHistory ? (
           <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
-            <CodexQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
+            {quotaHistoryProvider === 'antigravity' ? (
+              <AntigravityQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
+            ) : (
+              <CodexQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
+            )}
           </section>
         ) : activeTab === 'requests' ? (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>
