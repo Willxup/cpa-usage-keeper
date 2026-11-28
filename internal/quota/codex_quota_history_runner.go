@@ -42,6 +42,8 @@ type codexQuotaHistoryCandidate struct {
 	IdentityVerified bool
 	// Source 只参与运行期队列分流、百分比纠错与重置时刻可信度判断，不写入通用历史表。
 	Source RefreshSource
+	// SupersededHeaders 暂存本批被该可信候选覆盖的待处理 Header；若可信候选被未启动周期门禁拒绝则回放，避免丢失真实下降。
+	SupersededHeaders []codexQuotaHistoryCandidate
 }
 
 // codexQuotaHistoryStateKey 以 provider、账号和额度键隔离当前周期比较缓存。
@@ -150,7 +152,7 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 		}
 		// 可信查询仅覆盖与之同周期且观察时刻不晚于自身的待处理候选，避免误删上一周期尾端 Header 或附属请求等待期间新到达的真实 Header。
 		key := codexQuotaHistoryCandidateStateKey(candidate)
-		superseded := false
+		matchedTrustedIndex := -1
 		for _, trustedIndex := range trustedByKey[key] {
 			if !codexQuotaHistoryObservationsSameCycle(trusted[trustedIndex].Observation, candidate.Observation) {
 				continue
@@ -158,12 +160,13 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 			if trusted[trustedIndex].Observation.LastObservedAt.Before(candidate.Observation.LastObservedAt) {
 				continue
 			}
-			superseded = true
+			matchedTrustedIndex = trustedIndex
 			if candidate.Source == RefreshSourceUsageHeader {
 				trusted[trustedIndex].Observation.HeaderStarted = true
 			}
 		}
-		if superseded {
+		if matchedTrustedIndex >= 0 {
+			trusted[matchedTrustedIndex].SupersededHeaders = append(trusted[matchedTrustedIndex].SupersededHeaders, candidate)
 			continue
 		}
 		remainingHeaders = append(remainingHeaders, candidate)
