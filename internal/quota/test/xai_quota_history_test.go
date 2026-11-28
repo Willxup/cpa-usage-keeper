@@ -25,7 +25,8 @@ func TestXAIActiveRefreshRecordsWeeklyBillingHistoryAndSupportsDeletion(t *testi
 	now := time.Now().Truncate(time.Second)
 	weeklyEnd := now.Add(5 * 24 * time.Hour).Format(time.RFC3339)
 	handler := &recordingProviderHandler{output: quota.ProviderOutput{
-		Provider: "xai",
+		Provider:   "xai",
+		ObservedAt: now,
 		Result: quota.XAIResult{
 			Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
 				CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", End: weeklyEnd},
@@ -39,9 +40,10 @@ func TestXAIActiveRefreshRecordsWeeklyBillingHistoryAndSupportsDeletion(t *testi
 		t.Fatalf("xai first refresh failed: %v", err)
 	}
 
-	// 同周期后续消耗下降到 37.4% 已用（四舍五入后剩余 63%）。
+	// 同周期后续消耗下降到 37.4% 已用（四舍五入后剩余 63%）；显式推进 ObservedAt 消除 Windows 粗粒度时钟同刻冲突。
 	handler.output = quota.ProviderOutput{
-		Provider: "xai",
+		Provider:   "xai",
+		ObservedAt: now.Add(10 * time.Second),
 		Result: quota.XAIResult{
 			Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
 				BillingPeriodEnd:   weeklyEnd,

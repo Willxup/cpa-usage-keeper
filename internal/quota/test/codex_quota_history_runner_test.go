@@ -1419,11 +1419,15 @@ func TestCodexQuotaHistoryRunnerAnchorsAbsoluteResetDuringFrequentZeroUsageRefre
 		return repository.WriteCodexMainQuotaObservations(ctx, writerDB, observations)
 	})
 
-	// 连续 4 次按 +1m/+2m/+3m/+4m 滑移的 0% 定时刷新；若内存 ResetAt 被顺延，第 3/4 次也会被误判为同周期。
+	// 连续 4 次按 +1m/+2m/+3m/+4m 滑移的 0% 定时刷新；显式递增 ObservedAt 避免 Windows 粗粒度时钟同刻合并。
 	for step := 1; step <= 4; step++ {
-		handler.output = ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
-			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, anchoredReset.Add(time.Duration(step)*time.Minute))},
-		}}}
+		handler.output = ProviderOutput{
+			Provider:   "codex",
+			ObservedAt: base.Add(time.Duration(step) * time.Minute),
+			Result: CodexResult{Usage: &CodexUsagePayload{
+				RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, anchoredReset.Add(time.Duration(step)*time.Minute))},
+			}},
+		}
 		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "anchor-auth", Source: RefreshSourceScheduled}); err != nil {
 			service.StopRefreshTasks()
 			t.Fatalf("scheduled zero-usage refresh step %d failed: %v", step, err)
@@ -1432,7 +1436,7 @@ func TestCodexQuotaHistoryRunnerAnchorsAbsoluteResetDuringFrequentZeroUsageRefre
 	}
 	// 随后用一条非零消耗的 Header（reset_at 距 anchoredReset 为 +3m，距假设漂移后的 +2m 仅 +1m）验证内存 ResetAt 未漂移。
 	splitReset := anchoredReset.Add(3 * time.Minute)
-	splitHeader := codexHistoryPrimarySnapshot("anchor-auth", time.Now().Add(time.Second).Truncate(time.Second), 99, splitReset)
+	splitHeader := codexHistoryPrimarySnapshot("anchor-auth", base.Add(5*time.Minute), 99, splitReset)
 	// 确认 4 次 0% 定时刷新消费后均未因 Immediate 提前刷库。
 	if got := writes.Load(); got != 0 {
 		service.StopRefreshTasks()
@@ -1476,9 +1480,13 @@ func TestCodexQuotaHistoryRunnerZeroUsageAllowsRelativeUpgradeAndTailCorrectionW
 			t.Fatalf("seed relative Header: %v", err)
 		}
 		upgradedReset := base.Add(5*time.Hour + 20*time.Second)
-		handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
-			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, upgradedReset)},
-		}}}}
+		handler := &recordingProviderHandler{output: ProviderOutput{
+			Provider:   "codex",
+			ObservedAt: base.Add(time.Minute),
+			Result: CodexResult{Usage: &CodexUsagePayload{
+				RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, upgradedReset)},
+			}},
+		}}
 		service := newCodexHistoryService(db, handler)
 
 		// 第一次 0% 主动刷新：允许 relative -> absolute 首次升级。
@@ -1501,9 +1509,13 @@ func TestCodexQuotaHistoryRunnerZeroUsageAllowsRelativeUpgradeAndTailCorrectionW
 			service.StopRefreshTasks()
 			t.Fatal("expected first active refresh to upgrade cycle reset_at_source to absolute before deadline")
 		}
-		handler.output = ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
-			RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, upgradedReset.Add(60*time.Second))},
-		}}}
+		handler.output = ProviderOutput{
+			Provider:   "codex",
+			ObservedAt: base.Add(2 * time.Minute),
+			Result: CodexResult{Usage: &CodexUsagePayload{
+				RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(0, 18_000, upgradedReset.Add(60*time.Second))},
+			}},
+		}
 		if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "rel-upgrade-auth", Source: RefreshSourceScheduled}); err != nil {
 			service.StopRefreshTasks()
 			t.Fatalf("second active refresh failed: %v", err)
